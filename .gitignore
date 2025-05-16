@@ -1,0 +1,23 @@
+# Dart/Pub related
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+*.lock
+
+# IDEs
+.idea/
+.vscode/
+
+# Flutter/Dart
+.flutter-plugins
+.flutter-plugins-dependencies
+.flutter-versions
+generated_plugin_registrant.dart
+
+# Hive
+*.g.dart
+
+# MacOS-specific
+.DS_Store
