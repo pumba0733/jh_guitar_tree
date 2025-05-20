@@ -1,0 +1,1084 @@
+[  +15 ms] Unable to locate an Android SDK.
+[   +7 ms] executing: sysctl hw.optional.arm64
+[   +2 ms] Exit code 0 from: sysctl hw.optional.arm64
+[        ] hw.optional.arm64: 1
+[  +25 ms] executing: sw_vers -productName
+[   +8 ms] Exit code 0 from: sw_vers -productName
+[        ] macOS
+[        ] executing: sw_vers -productVersion
+[   +8 ms] Exit code 0 from: sw_vers -productVersion
+[        ] 15.0
+[        ] executing: sw_vers -buildVersion
+[   +8 ms] Exit code 0 from: sw_vers -buildVersion
+[        ] 24A335
+[        ] executing: uname -m
+[   +3 ms] Exit code 0 from: uname -m
+[        ] arm64
+[  +21 ms] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[        ] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[  +19 ms] Artifact Instance of 'MaterialFonts' is not required, skipping update.
+[        ] Artifact Instance of 'GradleWrapper' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidGenSnapshotArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'AndroidInternalBuildArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IOSEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterWebSdk' is not required, skipping update.
+[        ] Artifact Instance of 'LegacyCanvasKitRemover' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterSdk' is not required, skipping update.
+[        ] Artifact Instance of 'WindowsEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxEngineArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'LinuxFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'MacOSFuchsiaSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerSDKArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FlutterRunnerDebugSymbols' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'IosUsbArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'FontSubsetArtifacts' is not required, skipping update.
+[        ] Artifact Instance of 'PubDependencies' is not required, skipping update.
+[  +26 ms] Skipping pub get: version match.
+[  +27 ms] Found plugin cloud_firestore at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/cloud_firestore-4.17.5/
+[   +3 ms] Found plugin cloud_firestore_web at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/cloud_firestore_web-3.12.5/
+[   +6 ms] Found plugin file_picker at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/file_picker-6.2.1/
+[   +1 ms] Found plugin firebase_core at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/firebase_core-2.32.0/
+[   +1 ms] Found plugin firebase_core_web at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/firebase_core_web-2.22.0/
+[   +1 ms] Found plugin flutter_plugin_android_lifecycle at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/flutter_plugin_android_lifecycle-2.0.28/
+[  +11 ms] Found plugin open_filex at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/open_filex-4.7.0/
+[   +2 ms] Found plugin path_provider at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider-2.1.5/
+[        ] Found plugin path_provider_android at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_android-2.2.17/
+[        ] Found plugin path_provider_foundation at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_foundation-2.4.1/
+[        ] Found plugin path_provider_linux at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_linux-2.2.1/
+[   +1 ms] Found plugin path_provider_windows at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_windows-2.3.0/
+[  +14 ms] Found plugin cloud_firestore at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/cloud_firestore-4.17.5/
+[   +1 ms] Found plugin cloud_firestore_web at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/cloud_firestore_web-3.12.5/
+[   +4 ms] Found plugin file_picker at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/file_picker-6.2.1/
+[        ] Found plugin firebase_core at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/firebase_core-2.32.0/
+[   +1 ms] Found plugin firebase_core_web at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/firebase_core_web-2.22.0/
+[   +1 ms] Found plugin flutter_plugin_android_lifecycle at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/flutter_plugin_android_lifecycle-2.0.28/
+[   +6 ms] Found plugin open_filex at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/open_filex-4.7.0/
+[   +1 ms] Found plugin path_provider at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider-2.1.5/
+[        ] Found plugin path_provider_android at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_android-2.2.17/
+[        ] Found plugin path_provider_foundation at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_foundation-2.4.1/
+[        ] Found plugin path_provider_linux at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_linux-2.2.1/
+[        ] Found plugin path_provider_windows at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_windows-2.3.0/
+[  +12 ms] Found plugin cloud_firestore at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/cloud_firestore-4.17.5/
+[        ] Found plugin cloud_firestore_web at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/cloud_firestore_web-3.12.5/
+[   +2 ms] Found plugin file_picker at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/file_picker-6.2.1/
+[        ] Found plugin firebase_core at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/firebase_core-2.32.0/
+[        ] Found plugin firebase_core_web at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/firebase_core_web-2.22.0/
+[        ] Found plugin flutter_plugin_android_lifecycle at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/flutter_plugin_android_lifecycle-2.0.28/
+[   +5 ms] Found plugin open_filex at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/open_filex-4.7.0/
+[   +1 ms] Found plugin path_provider at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider-2.1.5/
+[        ] Found plugin path_provider_android at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_android-2.2.17/
+[        ] Found plugin path_provider_foundation at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_foundation-2.4.1/
+[        ] Found plugin path_provider_linux at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_linux-2.2.1/
+[        ] Found plugin path_provider_windows at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_windows-2.3.0/
+[   +3 ms] Generating /Users/jaehyounglee/my_first_app/jh_guitar_tree/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+[  +14 ms] executing: sysctl hw.optional.arm64
+[   +2 ms] Exit code 0 from: sysctl hw.optional.arm64
+[        ] hw.optional.arm64: 1
+[        ] executing: /usr/bin/arch -arm64e xcrun xcodebuild -version
+[  +65 ms] Exit code 0 from: /usr/bin/arch -arm64e xcrun xcodebuild -version
+[        ] Xcode 16.2
+           Build version 16C5032a
+[  +38 ms] executing: /usr/bin/plutil -convert xml1 -o - /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Runner/Info.plist
+[   +5 ms] Exit code 0 from: /usr/bin/plutil -convert xml1 -o - /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Runner/Info.plist
+[        ] <?xml version="1.0" encoding="UTF-8"?>
+           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+           <plist version="1.0">
+           <dict>
+           	<key>CFBundleDevelopmentRegion</key>
+           	<string>$(DEVELOPMENT_LANGUAGE)</string>
+           	<key>CFBundleExecutable</key>
+           	<string>$(EXECUTABLE_NAME)</string>
+           	<key>CFBundleIconFile</key>
+           	<string></string>
+           	<key>CFBundleIdentifier</key>
+           	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+           	<key>CFBundleInfoDictionaryVersion</key>
+           	<string>6.0</string>
+           	<key>CFBundleName</key>
+           	<string>$(PRODUCT_NAME)</string>
+           	<key>CFBundlePackageType</key>
+           	<string>APPL</string>
+           	<key>CFBundleShortVersionString</key>
+           	<string>$(FLUTTER_BUILD_NAME)</string>
+           	<key>CFBundleVersion</key>
+           	<string>$(FLUTTER_BUILD_NUMBER)</string>
+           	<key>LSMinimumSystemVersion</key>
+           	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+           	<key>NSHumanReadableCopyright</key>
+           	<string>$(PRODUCT_COPYRIGHT)</string>
+           	<key>NSMainNibFile</key>
+           	<string>MainMenu</string>
+           	<key>NSPrincipalClass</key>
+           	<string>NSApplication</string>
+           </dict>
+           </plist>
+[  +29 ms] The Swift Package Manager feature is off. Skipping the migration that adds Swift Package Manager integration...
+[   +1 ms] executing: [/Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/] /usr/bin/arch -arm64e xcrun xcodebuild -list -project Runner.xcodeproj
+[ +614 ms] Command line invocation:
+               /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -list -project Runner.xcodeproj
+
+           User defaults from command line:
+               IDEPackageSupportUseBuiltinSCM = YES
+
+           Information about project "Runner":
+               Targets:
+                   Runner
+                   RunnerTests
+                   Flutter Assemble
+
+               Build Configurations:
+                   Debug
+                   Release
+                   Profile
+
+               If no build configuration is specified and -scheme is not passed then "Release" is used.
+
+               Schemes:
+                   Flutter Assemble
+                   Runner
+[   +1 ms] executing: [/Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/] /usr/bin/arch -arm64e xcrun xcodebuild -list
+[ +600 ms] Command line invocation:
+               /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -list
+
+           User defaults from command line:
+               IDEPackageSupportUseBuiltinSCM = YES
+
+           Information about project "Runner":
+               Targets:
+                   Runner
+                   RunnerTests
+                   Flutter Assemble
+
+               Build Configurations:
+                   Debug
+                   Release
+                   Profile
+
+               If no build configuration is specified and -scheme is not passed then "Release" is used.
+
+               Schemes:
+                   Flutter Assemble
+                   Runner
+[   +2 ms] executing: [/Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Runner.xcodeproj/] /usr/bin/arch -arm64e xcrun xcodebuild -project /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Runner.xcodeproj -scheme Runner -configuration Release -destination generic/platform=macOS -showBuildSettings BUILD_DIR=/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos
+[        ] executing: [/Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Runner.xcodeproj/] /usr/bin/arch -arm64e xcrun xcodebuild -project /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Runner.xcodeproj -scheme Runner -configuration Release -destination generic/platform=macOS -showBuildSettings BUILD_DIR=/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos
+[ +789 ms] Command line invocation:
+               /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Runner.xcodeproj -scheme Runner -configuration Release -destination generic/platform=macOS -showBuildSettings BUILD_DIR=/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos
+
+           User defaults from command line:
+               IDEPackageSupportUseBuiltinSCM = YES
+
+           Build settings from command line:
+               BUILD_DIR = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos
+
+           Build settings for action build and target Runner:
+               ACTION = build
+               AD_HOC_CODE_SIGNING_ALLOWED = YES
+               AGGREGATE_TRACKED_DOMAINS = YES
+               ALLOW_BUILD_REQUEST_OVERRIDES = NO
+               ALLOW_TARGET_PLATFORM_SPECIALIZATION = NO
+               ALTERNATE_GROUP = staff
+               ALTERNATE_MODE = u+w,go-w,a+rX
+               ALTERNATE_OWNER = jaehyounglee
+               ALTERNATIVE_DISTRIBUTION_WEB = NO
+               ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES
+               ALWAYS_SEARCH_USER_PATHS = NO
+               ALWAYS_USE_SEPARATE_HEADERMAPS = NO
+               APPLE_INTERNAL_DEVELOPER_DIR = /AppleInternal/Developer
+               APPLE_INTERNAL_DIR = /AppleInternal
+               APPLE_INTERNAL_DOCUMENTATION_DIR = /AppleInternal/Documentation
+               APPLE_INTERNAL_LIBRARY_DIR = /AppleInternal/Library
+               APPLE_INTERNAL_TOOLS = /AppleInternal/Developer/Tools
+               APPLICATION_EXTENSION_API_ONLY = NO
+               APPLY_RULES_IN_COPY_FILES = NO
+               APPLY_RULES_IN_COPY_HEADERS = NO
+               APP_SHORTCUTS_ENABLE_FLEXIBLE_MATCHING = YES
+               ARCHS = arm64 x86_64
+               ARCHS_STANDARD = arm64 x86_64
+               ARCHS_STANDARD_32_64_BIT = arm64 x86_64 i386
+               ARCHS_STANDARD_32_BIT = i386
+               ARCHS_STANDARD_64_BIT = arm64 x86_64
+               ARCHS_STANDARD_INCLUDING_64_BIT = arm64 x86_64
+               ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
+               ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS = YES
+               ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES
+               AUTOMATICALLY_MERGE_DEPENDENCIES = NO
+               AVAILABLE_PLATFORMS = appletvos appletvsimulator driverkit iphoneos iphonesimulator macosx watchos watchsimulator xros xrsimulator
+               BITCODE_GENERATION_MODE = marker
+               BUILD_ACTIVE_RESOURCES_ONLY = NO
+               BUILD_COMPONENTS = headers build
+               BUILD_DIR = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos
+               BUILD_LIBRARY_FOR_DISTRIBUTION = NO
+               BUILD_ROOT = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Products
+               BUILD_STYLE = 
+               BUILD_VARIANTS = normal
+               BUILT_PRODUCTS_DIR = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release
+               BUNDLE_CONTENTS_FOLDER_PATH = Contents/
+               BUNDLE_CONTENTS_FOLDER_PATH_deep = Contents/
+               BUNDLE_EXECUTABLE_FOLDER_NAME_deep = MacOS
+               BUNDLE_EXECUTABLE_FOLDER_PATH = Contents/MacOS
+               BUNDLE_EXTENSIONS_FOLDER_PATH = Contents/Extensions
+               BUNDLE_FORMAT = deep
+               BUNDLE_FRAMEWORKS_FOLDER_PATH = Contents/Frameworks
+               BUNDLE_PLUGINS_FOLDER_PATH = Contents/PlugIns
+               BUNDLE_PRIVATE_HEADERS_FOLDER_PATH = Contents/PrivateHeaders
+               BUNDLE_PUBLIC_HEADERS_FOLDER_PATH = Contents/Headers
+               CACHE_ROOT = /var/folders/n2/c8_sykd17n18dw_7gxyv175h0000gn/C/com.apple.DeveloperTools/16.2-16C5032a/Xcode
+               CCHROOT = /var/folders/n2/c8_sykd17n18dw_7gxyv175h0000gn/C/com.apple.DeveloperTools/16.2-16C5032a/Xcode
+               CHMOD = /bin/chmod
+               CHOWN = /usr/sbin/chown
+               CLANG_ANALYZER_NONNULL = YES
+               CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE
+               CLANG_CACHE_FINE_GRAINED_OUTPUTS = YES
+               CLANG_CXX_LANGUAGE_STANDARD = gnu++14
+               CLANG_CXX_LIBRARY = libc++
+               CLANG_ENABLE_EXPLICIT_MODULES = YES
+               CLANG_ENABLE_MODULES = YES
+               CLANG_ENABLE_OBJC_ARC = YES
+               CLANG_MODULES_BUILD_SESSION_FILE = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation
+               CLANG_UNDEFINED_BEHAVIOR_SANITIZER_NULLABILITY = YES
+               CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES
+               CLANG_WARN_BOOL_CONVERSION = YES
+               CLANG_WARN_COMMA = YES
+               CLANG_WARN_CONSTANT_CONVERSION = YES
+               CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES
+               CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR
+               CLANG_WARN_DOCUMENTATION_COMMENTS = YES
+               CLANG_WARN_EMPTY_BODY = YES
+               CLANG_WARN_ENUM_CONVERSION = YES
+               CLANG_WARN_INFINITE_RECURSION = YES
+               CLANG_WARN_INT_CONVERSION = YES
+               CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES
+               CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES
+               CLANG_WARN_OBJC_LITERAL_CONVERSION = YES
+               CLANG_WARN_OBJC_REPEATED_USE_OF_WEAK = YES
+               CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR
+               CLANG_WARN_PRAGMA_PACK = YES
+               CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = NO
+               CLANG_WARN_RANGE_LOOP_ANALYSIS = YES
+               CLANG_WARN_STRICT_PROTOTYPES = YES
+               CLANG_WARN_SUSPICIOUS_MOVE = YES
+               CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE
+               CLANG_WARN_UNREACHABLE_CODE = YES
+               CLANG_WARN__DUPLICATE_METHOD_MATCH = YES
+               CLASS_FILE_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/JavaClasses
+               CLEAN_PRECOMPS = YES
+               CLONE_HEADERS = NO
+               COCOAPODS_PARALLEL_CODE_SIGN = true
+               CODESIGNING_FOLDER_PATH = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/jh_guitar_tree.app
+               CODE_SIGNING_ALLOWED = YES
+               CODE_SIGNING_REQUIRED = YES
+               CODE_SIGN_ENTITLEMENTS = Runner/Release.entitlements
+               CODE_SIGN_IDENTITY = -
+               CODE_SIGN_IDENTITY_NO = Apple Development
+               CODE_SIGN_IDENTITY_YES = -
+               CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES
+               CODE_SIGN_STYLE = Automatic
+               COLOR_DIAGNOSTICS = NO
+               COMBINE_HIDPI_IMAGES = YES
+               COMPILATION_CACHE_CAS_PATH = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/CompilationCache.noindex
+               COMPILATION_CACHE_KEEP_CAS_DIRECTORY = YES
+               COMPILER_INDEX_STORE_ENABLE = Default
+               COMPOSITE_SDK_DIRS = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/CompositeSDKs
+               COMPRESS_PNG_FILES = NO
+               CONFIGURATION = Release
+               CONFIGURATION_BUILD_DIR = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release
+               CONFIGURATION_TEMP_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release
+               CONTENTS_FOLDER_PATH = jh_guitar_tree.app/Contents
+               CONTENTS_FOLDER_PATH_SHALLOW_BUNDLE_NO = jh_guitar_tree.app/Contents
+               CONTENTS_FOLDER_PATH_SHALLOW_BUNDLE_YES = jh_guitar_tree.app
+               COPYING_PRESERVES_HFS_DATA = NO
+               COPY_HEADERS_RUN_UNIFDEF = NO
+               COPY_PHASE_STRIP = NO
+               CP = /bin/cp
+               CREATE_INFOPLIST_SECTION_IN_BINARY = NO
+               CURRENT_ARCH = undefined_arch
+               CURRENT_VARIANT = normal
+               DART_OBFUSCATION = false
+               DEAD_CODE_STRIPPING = YES
+               DEBUGGING_SYMBOLS = YES
+               DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+               DEBUG_INFORMATION_VERSION = compiler-default
+               DEFAULT_COMPILER = com.apple.compilers.llvm.clang.1_0
+               DEFAULT_DEXT_INSTALL_PATH = /System/Library/DriverExtensions
+               DEFAULT_KEXT_INSTALL_PATH = /System/Library/Extensions
+               DEFINES_MODULE = NO
+               DEPLOYMENT_LOCATION = NO
+               DEPLOYMENT_POSTPROCESSING = NO
+               DEPLOYMENT_TARGET_SETTING_NAME = MACOSX_DEPLOYMENT_TARGET
+               DEPLOYMENT_TARGET_SUGGESTED_VALUES = 10.13 10.14 10.15 11.0 11.1 11.2 11.3 11.4 11.5 12.0 12.2 12.3 12.4 13.0 13.1 13.2 13.3 13.4 13.5 14.0 14.1 14.2 14.3 14.4 14.5 14.6 15.0 15.1 15.2
+               DERIVED_FILES_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/DerivedSources
+               DERIVED_FILE_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/DerivedSources
+               DERIVED_SOURCES_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/DerivedSources
+               DEVELOPER_APPLICATIONS_DIR = /Applications/Xcode.app/Contents/Developer/Applications
+               DEVELOPER_BIN_DIR = /Applications/Xcode.app/Contents/Developer/usr/bin
+               DEVELOPER_DIR = /Applications/Xcode.app/Contents/Developer
+               DEVELOPER_FRAMEWORKS_DIR = /Applications/Xcode.app/Contents/Developer/Library/Frameworks
+               DEVELOPER_FRAMEWORKS_DIR_QUOTED = /Applications/Xcode.app/Contents/Developer/Library/Frameworks
+               DEVELOPER_LIBRARY_DIR = /Applications/Xcode.app/Contents/Developer/Library
+               DEVELOPER_SDK_DIR = /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs
+               DEVELOPER_TOOLS_DIR = /Applications/Xcode.app/Contents/Developer/Tools
+               DEVELOPER_USR_DIR = /Applications/Xcode.app/Contents/Developer/usr
+               DEVELOPMENT_LANGUAGE = en
+               DIFF = /usr/bin/diff
+               DOCUMENTATION_FOLDER_PATH = jh_guitar_tree.app/Contents/Resources/en.lproj/Documentation
+               DONT_GENERATE_INFOPLIST_FILE = NO
+               DSTROOT = /tmp/Runner.dst
+               DT_TOOLCHAIN_DIR = /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain
+               DWARF_DSYM_FILE_NAME = jh_guitar_tree.app.dSYM
+               DWARF_DSYM_FILE_SHOULD_ACCOMPANY_PRODUCT = NO
+               DWARF_DSYM_FOLDER_PATH = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release
+               DYNAMIC_LIBRARY_EXTENSION = dylib
+               EAGER_COMPILATION_ALLOW_SCRIPTS = NO
+               EAGER_LINKING = NO
+               EMBEDDED_CONTENT_CONTAINS_SWIFT = NO
+               EMBEDDED_PROFILE_NAME = embedded.provisionprofile
+               EMBED_ASSET_PACKS_IN_PRODUCT_BUNDLE = NO
+               ENABLE_APP_SANDBOX = NO
+               ENABLE_BITCODE = NO
+               ENABLE_CODE_COVERAGE = YES
+               ENABLE_DEBUG_DYLIB = YES
+               ENABLE_DEFAULT_HEADER_SEARCH_PATHS = YES
+               ENABLE_DEFAULT_SEARCH_PATHS = YES
+               ENABLE_HARDENED_RUNTIME = NO
+               ENABLE_HEADER_DEPENDENCIES = YES
+               ENABLE_NS_ASSERTIONS = NO
+               ENABLE_ON_DEMAND_RESOURCES = NO
+               ENABLE_STRICT_OBJC_MSGSEND = YES
+               ENABLE_TESTABILITY = NO
+               ENABLE_TESTING_SEARCH_PATHS = NO
+               ENABLE_USER_SCRIPT_SANDBOXING = NO
+               ENTITLEMENTS_ALLOWED = YES
+               ENTITLEMENTS_DESTINATION = Signature
+               ENTITLEMENTS_REQUIRED = NO
+               EXCLUDED_INSTALLSRC_SUBDIRECTORY_PATTERNS = .DS_Store .svn .git .hg CVS
+               EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = *.nib *.lproj *.framework *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj
+               EXECUTABLES_FOLDER_PATH = jh_guitar_tree.app/Contents/Executables
+               EXECUTABLE_FOLDER_PATH = jh_guitar_tree.app/Contents/MacOS
+               EXECUTABLE_FOLDER_PATH_SHALLOW_BUNDLE_NO = jh_guitar_tree.app/Contents/MacOS
+               EXECUTABLE_FOLDER_PATH_SHALLOW_BUNDLE_YES = jh_guitar_tree.app/Contents
+               EXECUTABLE_NAME = jh_guitar_tree
+               EXECUTABLE_PATH = jh_guitar_tree.app/Contents/MacOS/jh_guitar_tree
+               EXTENSIONS_FOLDER_PATH = jh_guitar_tree.app/Contents/Extensions
+               FILE_LIST = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects/LinkFileList
+               FIXED_FILES_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/FixedFiles
+               FLUTTER_APPLICATION_PATH = /Users/jaehyounglee/my_first_app/jh_guitar_tree
+               FLUTTER_BUILD_DIR = build
+               FLUTTER_BUILD_NAME = 1.0.0
+               FLUTTER_BUILD_NUMBER = 1
+               FLUTTER_ROOT = /Users/jaehyounglee/development/flutter
+               FLUTTER_TARGET = lib/main.dart
+               FRAMEWORKS_FOLDER_PATH = jh_guitar_tree.app/Contents/Frameworks
+               FRAMEWORK_FLAG_PREFIX = -framework
+               FRAMEWORK_SEARCH_PATHS = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release  "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/BoringSSL-GRPC" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseAppCheckInterop" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseCore" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseCoreExtension" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseCoreInternal" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseFirestore" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseFirestoreInternal" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseSharedSwift" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/GoogleUtilities" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/PromisesObjC" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/abseil" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/cloud_firestore" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/firebase_core" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/gRPC-C++" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/gRPC-Core" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/leveldb-library" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/nanopb" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/path_provider_foundation"
+               FRAMEWORK_VERSION = A
+               FULL_PRODUCT_NAME = jh_guitar_tree.app
+               FUSE_BUILD_PHASES = YES
+               FUSE_BUILD_SCRIPT_PHASES = NO
+               GCC3_VERSION = 3.3
+               GCC_C_LANGUAGE_STANDARD = gnu11
+               GCC_DYNAMIC_NO_PIC = NO
+               GCC_INLINES_ARE_PRIVATE_EXTERN = YES
+               GCC_NO_COMMON_BLOCKS = YES
+               GCC_PFE_FILE_C_DIALECTS = c objective-c c++ objective-c++
+               GCC_PREPROCESSOR_DEFINITIONS =  COCOAPODS=1  PB_FIELD_32BIT=1 PB_NO_PACKED_STRUCTS=1 PB_ENABLE_MALLOC=1
+               GCC_SYMBOLS_PRIVATE_EXTERN = YES
+               GCC_TREAT_WARNINGS_AS_ERRORS = NO
+               GCC_VERSION = com.apple.compilers.llvm.clang.1_0
+               GCC_VERSION_IDENTIFIER = com_apple_compilers_llvm_clang_1_0
+               GCC_WARN_64_TO_32_BIT_CONVERSION = YES
+               GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR
+               GCC_WARN_SHADOW = YES
+               GCC_WARN_STRICT_SELECTOR_MATCH = YES
+               GCC_WARN_UNDECLARED_SELECTOR = YES
+               GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE
+               GCC_WARN_UNUSED_FUNCTION = YES
+               GCC_WARN_UNUSED_VARIABLE = YES
+               GENERATED_MODULEMAP_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/GeneratedModuleMaps
+               GENERATE_INFOPLIST_FILE = NO
+               GENERATE_INTERMEDIATE_TEXT_BASED_STUBS = YES
+               GENERATE_MASTER_OBJECT_FILE = NO
+               GENERATE_PKGINFO_FILE = YES
+               GENERATE_PROFILING_CODE = NO
+               GENERATE_TEXT_BASED_STUBS = NO
+               GID = 20
+               GROUP = staff
+               HEADERMAP_INCLUDES_FLAT_ENTRIES_FOR_TARGET_BEING_BUILT = YES
+               HEADERMAP_INCLUDES_FRAMEWORK_ENTRIES_FOR_ALL_PRODUCT_TYPES = YES
+               HEADERMAP_INCLUDES_FRAMEWORK_ENTRIES_FOR_TARGETS_NOT_BEING_BUILT = YES
+               HEADERMAP_INCLUDES_NONPUBLIC_NONPRIVATE_HEADERS = YES
+               HEADERMAP_INCLUDES_PROJECT_HEADERS = YES
+               HEADERMAP_USES_FRAMEWORK_PREFIX_ENTRIES = YES
+               HEADERMAP_USES_VFS = NO
+               HEADER_SEARCH_PATHS = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/include  "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/BoringSSL-GRPC/openssl_grpc.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseAppCheckInterop/FirebaseAppCheckInterop.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseCore/FirebaseCore.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseCoreExtension/FirebaseCoreExtension.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseCoreInternal/FirebaseCoreInternal.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseFirestore/FirebaseFirestore.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseFirestoreInternal/FirebaseFirestoreInternal.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseSharedSwift/FirebaseSharedSwift.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/GoogleUtilities/GoogleUtilities.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/PromisesObjC/FBLPromises.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/abseil/absl.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/cloud_firestore/cloud_firestore.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/firebase_core/firebase_core.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/gRPC-C++/grpcpp.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/gRPC-Core/grpc.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/leveldb-library/leveldb.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/nanopb/nanopb.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/path_provider_foundation/path_provider_foundation.framework/Headers" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Headers/Public" "/Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Headers/Public/Firebase"  /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Firebase/CoreOnly/Sources
+               HIDE_BITCODE_SYMBOLS = YES
+               HOME = /Users/jaehyounglee
+               HOST_ARCH = arm64
+               HOST_PLATFORM = macosx
+               ICONV = /usr/bin/iconv
+               IMPLICIT_DEPENDENCY_DOMAIN = default
+               INFOPLIST_ENABLE_CFBUNDLEICONS_MERGE = YES
+               INFOPLIST_EXPAND_BUILD_SETTINGS = YES
+               INFOPLIST_FILE = Runner/Info.plist
+               INFOPLIST_OUTPUT_FORMAT = same-as-input
+               INFOPLIST_PATH = jh_guitar_tree.app/Contents/Info.plist
+               INFOPLIST_PREPROCESS = NO
+               INFOSTRINGS_PATH = jh_guitar_tree.app/Contents/Resources/en.lproj/InfoPlist.strings
+               INLINE_PRIVATE_FRAMEWORKS = NO
+               INSTALLHDRS_COPY_PHASE = NO
+               INSTALLHDRS_SCRIPT_PHASE = NO
+               INSTALL_DIR = /tmp/Runner.dst/Applications
+               INSTALL_GROUP = staff
+               INSTALL_MODE_FLAG = u+w,go-w,a+rX
+               INSTALL_OWNER = jaehyounglee
+               INSTALL_PATH = /Applications
+               INSTALL_ROOT = /tmp/Runner.dst
+               IOS_UNZIPPERED_TWIN_PREFIX_PATH = /System/iOSSupport
+               IS_MACCATALYST = NO
+               IS_UIKITFORMAC = NO
+               IS_UNOPTIMIZED_BUILD = NO
+               JAVAC_DEFAULT_FLAGS = -J-Xms64m -J-XX:NewSize=4M -J-Dfile.encoding=UTF8
+               JAVA_APP_STUB = /System/Library/Frameworks/JavaVM.framework/Resources/MacOS/JavaApplicationStub
+               JAVA_ARCHIVE_CLASSES = YES
+               JAVA_ARCHIVE_TYPE = JAR
+               JAVA_COMPILER = /usr/bin/javac
+               JAVA_FOLDER_PATH = jh_guitar_tree.app/Contents/Resources/Java
+               JAVA_FRAMEWORK_RESOURCES_DIRS = Resources
+               JAVA_JAR_FLAGS = cv
+               JAVA_SOURCE_SUBDIR = .
+               JAVA_USE_DEPENDENCIES = YES
+               JAVA_ZIP_FLAGS = -urg
+               JIKES_DEFAULT_FLAGS = +E +OLDCSO
+               KASAN_CFLAGS_CLASSIC = -DKASAN=1 -DKASAN_CLASSIC=1 -fsanitize=address -mllvm -asan-globals-live-support -mllvm -asan-force-dynamic-shadow
+               KASAN_CFLAGS_TBI = -DKASAN=1 -DKASAN_TBI=1 -fsanitize=kernel-hwaddress -mllvm -hwasan-recover=0 -mllvm -hwasan-instrument-atomics=0 -mllvm -hwasan-instrument-stack=1 -mllvm -hwasan-generate-tags-with-calls=1 -mllvm -hwasan-instrument-with-calls=1 -mllvm -hwasan-use-short-granules=0 -mllvm -hwasan-memory-access-callback-prefix=__asan_
+               KASAN_DEFAULT_CFLAGS = -DKASAN=1 -DKASAN_CLASSIC=1 -fsanitize=address -mllvm -asan-globals-live-support -mllvm -asan-force-dynamic-shadow
+               KEEP_PRIVATE_EXTERNS = NO
+               LD_DEPENDENCY_INFO_FILE = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects-normal/undefined_arch/jh_guitar_tree_dependency_info.dat
+               LD_EXPORT_SYMBOLS = YES
+               LD_GENERATE_MAP_FILE = NO
+               LD_MAP_FILE_PATH = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/jh_guitar_tree-LinkMap-normal-undefined_arch.txt
+               LD_NO_PIE = NO
+               LD_QUOTE_LINKER_ARGUMENTS_FOR_COMPILER_DRIVER = YES
+               LD_RUNPATH_SEARCH_PATHS =  /usr/lib/swift '@executable_path/../Frameworks' '@loader_path/Frameworks' "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx" @executable_path/../Frameworks
+               LD_RUNPATH_SEARCH_PATHS_YES = @loader_path/../Frameworks
+               LD_SHARED_CACHE_ELIGIBLE = Automatic
+               LD_WARN_DUPLICATE_LIBRARIES = NO
+               LD_WARN_UNUSED_DYLIBS = NO
+               LEGACY_DEVELOPER_DIR = /Applications/Xcode.app/Contents/PlugIns/Xcode3Core.ideplugin/Contents/SharedSupport/Developer
+               LEX = lex
+               LIBRARY_DEXT_INSTALL_PATH = /Library/DriverExtensions
+               LIBRARY_FLAG_NOSPACE = YES
+               LIBRARY_FLAG_PREFIX = -l
+               LIBRARY_KEXT_INSTALL_PATH = /Library/Extensions
+               LIBRARY_SEARCH_PATHS = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/lib/swift
+               LINKER_DISPLAYS_MANGLED_NAMES = NO
+               LINK_FILE_LIST_normal_arm64 = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects-normal/arm64/jh_guitar_tree.LinkFileList
+               LINK_FILE_LIST_normal_x86_64 = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects-normal/x86_64/jh_guitar_tree.LinkFileList
+               LINK_OBJC_RUNTIME = YES
+               LINK_WITH_STANDARD_LIBRARIES = YES
+               LLVM_TARGET_TRIPLE_OS_VERSION = macos10.14
+               LLVM_TARGET_TRIPLE_OS_VERSION_NO = macos10.14
+               LLVM_TARGET_TRIPLE_OS_VERSION_YES = macos15.2
+               LLVM_TARGET_TRIPLE_VENDOR = apple
+               LM_AUX_CONST_METADATA_LIST_PATH_normal_arm64 = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects-normal/arm64/jh_guitar_tree.SwiftConstValuesFileList
+               LM_AUX_CONST_METADATA_LIST_PATH_normal_x86_64 = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects-normal/x86_64/jh_guitar_tree.SwiftConstValuesFileList
+               LOCALIZATION_EXPORT_SUPPORTED = YES
+               LOCALIZATION_PREFERS_STRING_CATALOGS = NO
+               LOCALIZED_RESOURCES_FOLDER_PATH = jh_guitar_tree.app/Contents/Resources/en.lproj
+               LOCALIZED_STRING_MACRO_NAMES = NSLocalizedString CFCopyLocalizedString
+               LOCALIZED_STRING_SWIFTUI_SUPPORT = YES
+               LOCAL_ADMIN_APPS_DIR = /Applications/Utilities
+               LOCAL_APPS_DIR = /Applications
+               LOCAL_DEVELOPER_DIR = /Library/Developer
+               LOCAL_LIBRARY_DIR = /Library
+               LOCROOT = /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos
+               LOCSYMROOT = /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos
+               MACH_O_TYPE = mh_execute
+               MACOSX_DEPLOYMENT_TARGET = 10.14
+               MAC_OS_X_PRODUCT_BUILD_VERSION = 24A335
+               MAC_OS_X_VERSION_ACTUAL = 150000
+               MAC_OS_X_VERSION_MAJOR = 150000
+               MAC_OS_X_VERSION_MINOR = 150000
+               MAKE_MERGEABLE = NO
+               MERGEABLE_LIBRARY = NO
+               MERGED_BINARY_TYPE = none
+               MERGE_LINKED_LIBRARIES = NO
+               METAL_LIBRARY_FILE_BASE = default
+               METAL_LIBRARY_OUTPUT_DIR = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/jh_guitar_tree.app/Contents/Resources
+               MODULES_FOLDER_PATH = jh_guitar_tree.app/Contents/Modules
+               MODULE_CACHE_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/ModuleCache.noindex
+               MTL_ENABLE_DEBUG_INFO = NO
+               NATIVE_ARCH = arm64
+               NATIVE_ARCH_32_BIT = arm
+               NATIVE_ARCH_64_BIT = arm64
+               NATIVE_ARCH_ACTUAL = arm64
+               NO_COMMON = YES
+               OBJECT_FILE_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects
+               OBJECT_FILE_DIR_normal = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects-normal
+               OBJROOT = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex
+               ONLY_ACTIVE_ARCH = NO
+               OS = MACOS
+               OSAC = /usr/bin/osacompile
+               OTHER_LDFLAGS =  -ObjC -l"c++" -l"z" -framework "AppKit" -framework "FBLPromises" -framework "FirebaseAppCheckInterop" -framework "FirebaseCore" -framework "FirebaseCoreExtension" -framework "FirebaseCoreInternal" -framework "FirebaseFirestore" -framework "FirebaseFirestoreInternal" -framework "FirebaseSharedSwift" -framework "Foundation" -framework "GoogleUtilities" -framework "Security" -framework "SystemConfiguration" -framework "absl" -framework "cloud_firestore" -framework "firebase_core" -framework "grpc" -framework "grpcpp" -framework "leveldb" -framework "nanopb" -framework "openssl_grpc" -framework "path_provider_foundation" -weak_framework "FirebaseFirestoreInternal"
+               OTHER_MODULE_VERIFIER_FLAGS =  "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/BoringSSL-GRPC" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/Firebase" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseAppCheckInterop" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseCore" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseCoreExtension" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseCoreInternal" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseFirestore" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseFirestoreInternal" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FirebaseSharedSwift" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/FlutterMacOS" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/GoogleUtilities" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/PromisesObjC" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/abseil" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/cloud_firestore" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/firebase_core" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/gRPC-C++" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/gRPC-Core" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/leveldb-library" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/nanopb" "-F/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/path_provider_foundation"
+               OTHER_SWIFT_FLAGS =  -D COCOAPODS
+               PACKAGE_CONFIG = /Users/jaehyounglee/my_first_app/jh_guitar_tree/.dart_tool/package_config.json
+               PACKAGE_TYPE = com.apple.package-type.wrapper.application
+               PASCAL_STRINGS = YES
+               PATH = /Applications/Xcode.app/Contents/SharedFrameworks/XCBuild.framework/Versions/A/PlugIns/XCBBuildService.bundle/Contents/PlugIns/XCBSpecifications.ideplugin/Contents/Resources:/Applications/Xcode.app/Contents/SharedFrameworks/XCBuild.framework/Versions/A/PlugIns/XCBBuildService.bundle/Contents/PlugIns/XCBSpecifications.ideplugin:/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin:/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/appleinternal/bin:/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/local/bin:/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec:/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/usr/bin:/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/usr/appleinternal/bin:/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/usr/local/bin:/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/bin:/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/local/bin:/Applications/Xcode.app/Contents/Developer/usr/bin:/Applications/Xcode.app/Contents/Developer/usr/local/bin:/Users/jaehyounglee/.rbenv/shims:/Users/jaehyounglee/development/flutter/bin/:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Library/Apple/usr/bin:/Users/jaehyounglee/development/flutter/bin:/Users/jaehyounglee/.npm-global/bin:/Users/jaehyounglee/.pub-cache/bin
+               PATH_PREFIXES_EXCLUDED_FROM_HEADER_DEPENDENCIES = /usr/include /usr/local/include /System/Library/Frameworks /System/Library/PrivateFrameworks /Applications/Xcode.app/Contents/Developer/Headers /Applications/Xcode.app/Contents/Developer/SDKs /Applications/Xcode.app/Contents/Developer/Platforms
+               PBDEVELOPMENTPLIST_PATH = jh_guitar_tree.app/Contents/pbdevelopment.plist
+               PER_ARCH_OBJECT_FILE_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects-normal/undefined_arch
+               PER_VARIANT_OBJECT_FILE_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects-normal
+               PKGINFO_FILE_PATH = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/PkgInfo
+               PKGINFO_PATH = jh_guitar_tree.app/Contents/PkgInfo
+               PLATFORM_DEVELOPER_APPLICATIONS_DIR = /Applications/Xcode.app/Contents/Developer/Applications
+               PLATFORM_DEVELOPER_BIN_DIR = /Applications/Xcode.app/Contents/Developer/usr/bin
+               PLATFORM_DEVELOPER_LIBRARY_DIR = /Applications/Xcode.app/Contents/Developer/Library
+               PLATFORM_DEVELOPER_SDK_DIR = /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs
+               PLATFORM_DEVELOPER_TOOLS_DIR = /Applications/Xcode.app/Contents/Developer/Tools
+               PLATFORM_DEVELOPER_USR_DIR = /Applications/Xcode.app/Contents/Developer/usr
+               PLATFORM_DIR = /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform
+               PLATFORM_DISPLAY_NAME = macOS
+               PLATFORM_FAMILY_NAME = macOS
+               PLATFORM_NAME = macosx
+               PLATFORM_PREFERRED_ARCH = x86_64
+               PLATFORM_PRODUCT_BUILD_VERSION = 24C94
+               PLIST_FILE_OUTPUT_FORMAT = same-as-input
+               PLUGINS_FOLDER_PATH = jh_guitar_tree.app/Contents/PlugIns
+               PODS_BUILD_DIR = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos
+               PODS_CONFIGURATION_BUILD_DIR = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release
+               PODS_PODFILE_DIR_PATH = /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/.
+               PODS_ROOT = /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+               PODS_XCFRAMEWORKS_BUILD_DIR = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/XCFrameworkIntermediates
+               PRECOMPS_INCLUDE_HEADERS_FROM_BUILT_PRODUCTS_DIR = YES
+               PRECOMP_DESTINATION_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/PrefixHeaders
+               PRIVATE_HEADERS_FOLDER_PATH = jh_guitar_tree.app/Contents/PrivateHeaders
+               PROCESSED_INFOPLIST_PATH = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects-normal/undefined_arch/Processed-Info.plist
+               PRODUCT_BUNDLE_IDENTIFIER = com.example.jhGuitarTree
+               PRODUCT_BUNDLE_PACKAGE_TYPE = APPL
+               PRODUCT_COPYRIGHT = Copyright © 2025 com.example. All rights reserved.
+               PRODUCT_MODULE_NAME = jh_guitar_tree
+               PRODUCT_NAME = jh_guitar_tree
+               PRODUCT_SETTINGS_PATH = /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Runner/Info.plist
+               PRODUCT_TYPE = com.apple.product-type.application
+               PROFILING_CODE = NO
+               PROJECT = Runner
+               PROJECT_DERIVED_FILE_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/DerivedSources
+               PROJECT_DIR = /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos
+               PROJECT_FILE_PATH = /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Runner.xcodeproj
+               PROJECT_GUID = 18c1723432283e0cc55f10a6dcfd9e02
+               PROJECT_NAME = Runner
+               PROJECT_TEMP_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build
+               PROJECT_TEMP_ROOT = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex
+               PROVISIONING_PROFILE_REQUIRED = NO
+               PROVISIONING_PROFILE_REQUIRED_YES_YES = YES
+               PROVISIONING_PROFILE_SUPPORTED = YES
+               PUBLIC_HEADERS_FOLDER_PATH = jh_guitar_tree.app/Contents/Headers
+               RECOMMENDED_MACOSX_DEPLOYMENT_TARGET = 11.0
+               RECURSIVE_SEARCH_PATHS_FOLLOW_SYMLINKS = YES
+               REMOVE_CVS_FROM_RESOURCES = YES
+               REMOVE_GIT_FROM_RESOURCES = YES
+               REMOVE_HEADERS_FROM_EMBEDDED_BUNDLES = YES
+               REMOVE_HG_FROM_RESOURCES = YES
+               REMOVE_STATIC_EXECUTABLES_FROM_EMBEDDED_BUNDLES = YES
+               REMOVE_SVN_FROM_RESOURCES = YES
+               RESCHEDULE_INDEPENDENT_HEADERS_PHASES = YES
+               REZ_COLLECTOR_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/ResourceManagerResources
+               REZ_OBJECTS_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/ResourceManagerResources/Objects
+               REZ_SEARCH_PATHS = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release 
+               SCAN_ALL_SOURCE_FILES_FOR_INCLUDES = NO
+               SCRIPTS_FOLDER_PATH = jh_guitar_tree.app/Contents/Resources/Scripts
+               SDKROOT = /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk
+               SDK_DIR = /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk
+               SDK_DIR_macosx = /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk
+               SDK_DIR_macosx15_2 = /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk
+               SDK_NAME = macosx15.2
+               SDK_NAMES = macosx15.2
+               SDK_PRODUCT_BUILD_VERSION = 24C94
+               SDK_STAT_CACHE_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData
+               SDK_STAT_CACHE_ENABLE = YES
+               SDK_STAT_CACHE_PATH = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx15.2-24C94-1dd28740b163f220e3e9b9fd2a542f53.sdkstatcache
+               SDK_VERSION = 15.2
+               SDK_VERSION_ACTUAL = 150200
+               SDK_VERSION_MAJOR = 150000
+               SDK_VERSION_MINOR = 150200
+               SED = /usr/bin/sed
+               SEPARATE_STRIP = NO
+               SEPARATE_SYMBOL_EDIT = NO
+               SET_DIR_MODE_OWNER_GROUP = YES
+               SET_FILE_MODE_OWNER_GROUP = NO
+               SHALLOW_BUNDLE = NO
+               SHALLOW_BUNDLE_PLATFORM = NO
+               SHALLOW_BUNDLE_TRIPLE = macos
+               SHALLOW_BUNDLE_ios_macabi = NO
+               SHALLOW_BUNDLE_macos = NO
+               SHARED_DERIVED_FILE_DIR = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release/DerivedSources
+               SHARED_FRAMEWORKS_FOLDER_PATH = jh_guitar_tree.app/Contents/SharedFrameworks
+               SHARED_PRECOMPS_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/PrecompiledHeaders
+               SHARED_SUPPORT_FOLDER_PATH = jh_guitar_tree.app/Contents/SharedSupport
+               SKIP_INSTALL = NO
+               SOURCE_ROOT = /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos
+               SRCROOT = /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos
+               STRINGSDATA_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects-normal/undefined_arch
+               STRINGSDATA_ROOT = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build
+               STRINGS_FILE_INFOPLIST_RENAME = YES
+               STRINGS_FILE_OUTPUT_ENCODING = UTF-16
+               STRIP_BITCODE_FROM_COPIED_FILES = NO
+               STRIP_INSTALLED_PRODUCT = YES
+               STRIP_PNG_TEXT = NO
+               STRIP_STYLE = all
+               STRIP_SWIFT_SYMBOLS = YES
+               SUPPORTED_PLATFORMS = macosx
+               SUPPORTS_MACCATALYST = NO
+               SUPPORTS_ON_DEMAND_RESOURCES = NO
+               SUPPORTS_TEXT_BASED_API = NO
+               SUPPRESS_WARNINGS = NO
+               SWIFT_COMPILATION_MODE = wholemodule
+               SWIFT_EMIT_LOC_STRINGS = NO
+               SWIFT_OPTIMIZATION_LEVEL = -O
+               SWIFT_PLATFORM_TARGET_PREFIX = macos
+               SWIFT_RESPONSE_FILE_PATH_normal_arm64 = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects-normal/arm64/jh_guitar_tree.SwiftFileList
+               SWIFT_RESPONSE_FILE_PATH_normal_x86_64 = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build/Objects-normal/x86_64/jh_guitar_tree.SwiftFileList
+               SWIFT_VERSION = 5.0
+               SYMROOT = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Products
+               SYSTEM_ADMIN_APPS_DIR = /Applications/Utilities
+               SYSTEM_APPS_DIR = /Applications
+               SYSTEM_CORE_SERVICES_DIR = /System/Library/CoreServices
+               SYSTEM_DEMOS_DIR = /Applications/Extras
+               SYSTEM_DEVELOPER_APPS_DIR = /Applications/Xcode.app/Contents/Developer/Applications
+               SYSTEM_DEVELOPER_BIN_DIR = /Applications/Xcode.app/Contents/Developer/usr/bin
+               SYSTEM_DEVELOPER_DEMOS_DIR = /Applications/Xcode.app/Contents/Developer/Applications/Utilities/Built Examples
+               SYSTEM_DEVELOPER_DIR = /Applications/Xcode.app/Contents/Developer
+               SYSTEM_DEVELOPER_DOC_DIR = /Applications/Xcode.app/Contents/Developer/ADC Reference Library
+               SYSTEM_DEVELOPER_GRAPHICS_TOOLS_DIR = /Applications/Xcode.app/Contents/Developer/Applications/Graphics Tools
+               SYSTEM_DEVELOPER_JAVA_TOOLS_DIR = /Applications/Xcode.app/Contents/Developer/Applications/Java Tools
+               SYSTEM_DEVELOPER_PERFORMANCE_TOOLS_DIR = /Applications/Xcode.app/Contents/Developer/Applications/Performance Tools
+               SYSTEM_DEVELOPER_RELEASENOTES_DIR = /Applications/Xcode.app/Contents/Developer/ADC Reference Library/releasenotes
+               SYSTEM_DEVELOPER_TOOLS = /Applications/Xcode.app/Contents/Developer/Tools
+               SYSTEM_DEVELOPER_TOOLS_DOC_DIR = /Applications/Xcode.app/Contents/Developer/ADC Reference Library/documentation/DeveloperTools
+               SYSTEM_DEVELOPER_TOOLS_RELEASENOTES_DIR = /Applications/Xcode.app/Contents/Developer/ADC Reference Library/releasenotes/DeveloperTools
+               SYSTEM_DEVELOPER_USR_DIR = /Applications/Xcode.app/Contents/Developer/usr
+               SYSTEM_DEVELOPER_UTILITIES_DIR = /Applications/Xcode.app/Contents/Developer/Applications/Utilities
+               SYSTEM_DEXT_INSTALL_PATH = /System/Library/DriverExtensions
+               SYSTEM_DOCUMENTATION_DIR = /Library/Documentation
+               SYSTEM_EXTENSIONS_FOLDER_PATH = jh_guitar_tree.app/Contents/Library/SystemExtensions
+               SYSTEM_EXTENSIONS_FOLDER_PATH_SHALLOW_BUNDLE_NO = jh_guitar_tree.app/Contents/Library/SystemExtensions
+               SYSTEM_EXTENSIONS_FOLDER_PATH_SHALLOW_BUNDLE_YES = jh_guitar_tree.app/Contents/SystemExtensions
+               SYSTEM_KEXT_INSTALL_PATH = /System/Library/Extensions
+               SYSTEM_LIBRARY_DIR = /System/Library
+               TAPI_DEMANGLE = YES
+               TAPI_ENABLE_PROJECT_HEADERS = NO
+               TAPI_LANGUAGE = objective-c
+               TAPI_LANGUAGE_STANDARD = compiler-default
+               TAPI_USE_SRCROOT = YES
+               TAPI_VERIFY_MODE = Pedantic
+               TARGETNAME = Runner
+               TARGET_BUILD_DIR = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Release
+               TARGET_NAME = Runner
+               TARGET_TEMP_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build
+               TEMP_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build
+               TEMP_FILES_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build
+               TEMP_FILE_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/Runner.build/Release/Runner.build
+               TEMP_ROOT = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex
+               TEST_FRAMEWORK_SEARCH_PATHS =  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks
+               TEST_LIBRARY_SEARCH_PATHS =  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib
+               TOOLCHAINS = com.apple.dt.toolchain.XcodeDefault
+               TOOLCHAIN_DIR = /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain
+               TRACK_WIDGET_CREATION = true
+               TREAT_MISSING_BASELINES_AS_TEST_FAILURES = NO
+               TREAT_MISSING_SCRIPT_PHASE_OUTPUTS_AS_ERRORS = NO
+               TREE_SHAKE_ICONS = true
+               UID = 501
+               UNINSTALLED_PRODUCTS_DIR = /Users/jaehyounglee/Library/Developer/Xcode/DerivedData/Runner-gvvcmdmbecwafdazrvtihrkrtzpv/Build/Intermediates.noindex/UninstalledProducts
+               UNLOCALIZED_RESOURCES_FOLDER_PATH = jh_guitar_tree.app/Contents/Resources
+               UNLOCALIZED_RESOURCES_FOLDER_PATH_SHALLOW_BUNDLE_NO = jh_guitar_tree.app/Contents/Resources
+               UNLOCALIZED_RESOURCES_FOLDER_PATH_SHALLOW_BUNDLE_YES = jh_guitar_tree.app/Contents
+               UNSTRIPPED_PRODUCT = NO
+               USER = jaehyounglee
+               USER_APPS_DIR = /Users/jaehyounglee/Applications
+               USER_LIBRARY_DIR = /Users/jaehyounglee/Library
+               USE_DYNAMIC_NO_PIC = YES
+               USE_HEADERMAP = YES
+               USE_HEADER_SYMLINKS = NO
+               USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES
+               VALIDATE_DEVELOPMENT_ASSET_PATHS = YES_ERROR
+               VALIDATE_PRODUCT = NO
+               VALID_ARCHS = arm64 arm64e i386 x86_64
+               VERBOSE_PBXCP = NO
+               VERSIONPLIST_PATH = jh_guitar_tree.app/Contents/version.plist
+               VERSION_INFO_BUILDER = jaehyounglee
+               VERSION_INFO_FILE = jh_guitar_tree_vers.c
+               VERSION_INFO_STRING = "@(#)PROGRAM:jh_guitar_tree  PROJECT:Runner-"
+               WARNING_CFLAGS = -Wall -Wconditional-uninitialized -Wnullable-to-nonnull-conversion -Wmissing-method-return-type -Woverlength-strings
+               WORKSPACE_DIR = /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Runner.xcodeproj
+               WRAPPER_EXTENSION = app
+               WRAPPER_NAME = jh_guitar_tree.app
+               WRAPPER_SUFFIX = .app
+               WRAP_ASSET_PACKS_IN_SEPARATE_DIRECTORIES = NO
+               XCODE_APP_SUPPORT_DIR = /Applications/Xcode.app/Contents/Developer/Library/Xcode
+               XCODE_PRODUCT_BUILD_VERSION = 16C5032a
+               XCODE_VERSION_ACTUAL = 1620
+               XCODE_VERSION_MAJOR = 1600
+               XCODE_VERSION_MINOR = 1620
+               XPCSERVICES_FOLDER_PATH = jh_guitar_tree.app/Contents/XPCServices
+               YACC = yacc
+               _BOOL_ = NO
+               _BOOL_NO = NO
+               _BOOL_YES = YES
+               _DEVELOPMENT_TEAM_IS_EMPTY = YES
+               _IS_EMPTY_ = YES
+               _MACOSX_DEPLOYMENT_TARGET_IS_EMPTY = NO
+               _WRAPPER_CONTENTS_DIR = /Contents
+               _WRAPPER_CONTENTS_DIR_SHALLOW_BUNDLE_NO = /Contents
+               _WRAPPER_PARENT_PATH = /..
+               _WRAPPER_PARENT_PATH_SHALLOW_BUNDLE_NO = /..
+               _WRAPPER_RESOURCES_DIR = /Resources
+               _WRAPPER_RESOURCES_DIR_SHALLOW_BUNDLE_NO = /Resources
+               __IS_NOT_MACOS = NO
+               __IS_NOT_MACOS_macosx = NO
+               __IS_NOT_SIMULATOR = YES
+               __IS_NOT_SIMULATOR_simulator = NO
+               arch = undefined_arch
+               variant = normal
+[  +20 ms] Found plugin cloud_firestore at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/cloud_firestore-4.17.5/
+[        ] Found plugin cloud_firestore_web at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/cloud_firestore_web-3.12.5/
+[   +2 ms] Found plugin file_picker at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/file_picker-6.2.1/
+[        ] Found plugin firebase_core at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/firebase_core-2.32.0/
+[        ] Found plugin firebase_core_web at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/firebase_core_web-2.22.0/
+[        ] Found plugin flutter_plugin_android_lifecycle at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/flutter_plugin_android_lifecycle-2.0.28/
+[   +5 ms] Found plugin open_filex at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/open_filex-4.7.0/
+[        ] Found plugin path_provider at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider-2.1.5/
+[        ] Found plugin path_provider_android at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_android-2.2.17/
+[        ] Found plugin path_provider_foundation at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_foundation-2.4.1/
+[        ] Found plugin path_provider_linux at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_linux-2.2.1/
+[        ] Found plugin path_provider_windows at /Users/jaehyounglee/.pub-cache/hosted/pub.dev/path_provider_windows-2.3.0/
+[   +6 ms] Building macOS application...
+[        ] executing: /usr/bin/env xcrun xcodebuild -workspace /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Runner.xcworkspace -configuration Release -scheme Runner -derivedDataPath /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos -destination platform=macOS OBJROOT=/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex SYMROOT=/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products VERBOSE_SCRIPT_LOGGING=YES COMPILER_INDEX_STORE_ENABLE=NO
+[ +465 ms] Command line invocation:
+[        ]     /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -workspace /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Runner.xcworkspace -configuration Release -scheme Runner -derivedDataPath /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos -destination platform=macOS OBJROOT=/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex SYMROOT=/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products VERBOSE_SCRIPT_LOGGING=YES COMPILER_INDEX_STORE_ENABLE=NO
+[        ] User defaults from command line:
+[        ]     IDEDerivedDataPathOverride = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos
+[        ]     IDEPackageSupportUseBuiltinSCM = YES
+[        ] Build settings from command line:
+[        ]     COMPILER_INDEX_STORE_ENABLE = NO
+[        ]     OBJROOT = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex
+[        ]     SYMROOT = /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products
+[        ]     VERBOSE_SCRIPT_LOGGING = YES
+[  +35 ms] Prepare packages
+[ +566 ms] ComputeTargetDependencyGraph
+[ +215 ms] note: Building targets in dependency order
+[   +3 ms] note: Target dependency graph (38 targets)
+[        ]     Target 'Runner' in project 'Runner'
+[        ]         ➜ Explicit dependency on target 'Flutter Assemble' in project 'Runner'
+[        ]         ➜ Implicit dependency on target 'Pods-Runner' in project 'Pods' via file 'Pods_Runner.framework' in build phase 'Link Binary'
+[        ]         ➜ Implicit dependency on target 'PromisesObjC' in project 'Pods' via options '-framework FBLPromises' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseAppCheckInterop' in project 'Pods' via options '-framework FirebaseAppCheckInterop' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseCore' in project 'Pods' via options '-framework FirebaseCore' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseCoreExtension' in project 'Pods' via options '-framework FirebaseCoreExtension' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseCoreInternal' in project 'Pods' via options '-framework FirebaseCoreInternal' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseFirestore' in project 'Pods' via options '-framework FirebaseFirestore' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseFirestoreInternal' in project 'Pods' via options '-framework FirebaseFirestoreInternal' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseSharedSwift' in project 'Pods' via options '-framework FirebaseSharedSwift' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'GoogleUtilities' in project 'Pods' via options '-framework GoogleUtilities' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'abseil' in project 'Pods' via options '-framework absl' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'cloud_firestore' in project 'Pods' via options '-framework cloud_firestore' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'firebase_core' in project 'Pods' via options '-framework firebase_core' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'gRPC-Core' in project 'Pods' via options '-framework grpc' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'gRPC-C++' in project 'Pods' via options '-framework grpcpp' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'leveldb-library' in project 'Pods' via options '-framework leveldb' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'nanopb' in project 'Pods' via options '-framework nanopb' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'BoringSSL-GRPC' in project 'Pods' via options '-framework openssl_grpc' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'path_provider_foundation' in project 'Pods' via options '-framework path_provider_foundation' in build setting 'OTHER_LDFLAGS'
+[        ]     Target 'Pods-Runner' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'BoringSSL-GRPC' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'Firebase' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseAppCheckInterop' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseCore' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseCoreExtension' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseCoreInternal' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseFirestore' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseFirestoreInternal' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseSharedSwift' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FlutterMacOS' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'GoogleUtilities' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'PromisesObjC' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'abseil' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'cloud_firestore' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'firebase_core' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'gRPC-C++' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'gRPC-Core' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'leveldb-library' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'nanopb' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'path_provider_foundation' in project 'Pods'
+[        ]     Target 'Flutter Assemble' in project 'Runner'
+[        ]         ➜ Implicit dependency on target 'PromisesObjC' in project 'Pods' via options '-framework FBLPromises' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseAppCheckInterop' in project 'Pods' via options '-framework FirebaseAppCheckInterop' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseCore' in project 'Pods' via options '-framework FirebaseCore' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseCoreExtension' in project 'Pods' via options '-framework FirebaseCoreExtension' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseCoreInternal' in project 'Pods' via options '-framework FirebaseCoreInternal' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseFirestore' in project 'Pods' via options '-framework FirebaseFirestore' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseFirestoreInternal' in project 'Pods' via options '-framework FirebaseFirestoreInternal' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseSharedSwift' in project 'Pods' via options '-framework FirebaseSharedSwift' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'GoogleUtilities' in project 'Pods' via options '-framework GoogleUtilities' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'abseil' in project 'Pods' via options '-framework absl' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'cloud_firestore' in project 'Pods' via options '-framework cloud_firestore' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'firebase_core' in project 'Pods' via options '-framework firebase_core' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'gRPC-Core' in project 'Pods' via options '-framework grpc' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'gRPC-C++' in project 'Pods' via options '-framework grpcpp' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'leveldb-library' in project 'Pods' via options '-framework leveldb' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'nanopb' in project 'Pods' via options '-framework nanopb' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'BoringSSL-GRPC' in project 'Pods' via options '-framework openssl_grpc' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'path_provider_foundation' in project 'Pods' via options '-framework path_provider_foundation' in build setting 'OTHER_LDFLAGS'
+[        ]     Target 'path_provider_foundation' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FlutterMacOS' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'path_provider_foundation-path_provider_foundation_privacy' in project 'Pods'
+[        ]     Target 'path_provider_foundation-path_provider_foundation_privacy' in project 'Pods' (no dependencies)
+[        ]     Target 'cloud_firestore' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'Firebase' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FlutterMacOS' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'firebase_core' in project 'Pods'
+[        ]     Target 'firebase_core' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'Firebase' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FlutterMacOS' in project 'Pods'
+[        ]     Target 'FlutterMacOS' in project 'Pods' (no dependencies)
+[        ]     Target 'Firebase' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseCore' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseFirestore' in project 'Pods'
+[        ]         ➜ Implicit dependency on target 'FirebaseFirestoreInternal' in project 'Pods' via options '-weak_framework FirebaseFirestoreInternal' in build setting 'OTHER_LDFLAGS'
+[        ]     Target 'FirebaseFirestore' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseCore' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseCoreExtension' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseFirestore-FirebaseFirestore_Privacy' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseFirestoreInternal' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseSharedSwift' in project 'Pods'
+[        ]     Target 'FirebaseFirestore-FirebaseFirestore_Privacy' in project 'Pods'
+[        ]         ➜ Implicit dependency on target 'FirebaseCore' in project 'Pods' via options '-framework FirebaseCore' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseCoreExtension' in project 'Pods' via options '-framework FirebaseCoreExtension' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseFirestoreInternal' in project 'Pods' via options '-framework FirebaseFirestoreInternal' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseSharedSwift' in project 'Pods' via options '-framework FirebaseSharedSwift' in build setting 'OTHER_LDFLAGS'
+[        ]     Target 'FirebaseSharedSwift' in project 'Pods' (no dependencies)
+[        ]     Target 'FirebaseFirestoreInternal' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseAppCheckInterop' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseCore' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseFirestoreInternal-FirebaseFirestoreInternal_Privacy' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'abseil' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'gRPC-C++' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'gRPC-Core' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'leveldb-library' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'nanopb' in project 'Pods'
+[        ]     Target 'FirebaseFirestoreInternal-FirebaseFirestoreInternal_Privacy' in project 'Pods'
+[        ]         ➜ Implicit dependency on target 'FirebaseAppCheckInterop' in project 'Pods' via options '-framework FirebaseAppCheckInterop' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'FirebaseCore' in project 'Pods' via options '-framework FirebaseCore' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'abseil' in project 'Pods' via options '-framework absl' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'gRPC-Core' in project 'Pods' via options '-framework grpc' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'gRPC-C++' in project 'Pods' via options '-framework grpcpp' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'leveldb-library' in project 'Pods' via options '-framework leveldb' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'nanopb' in project 'Pods' via options '-framework nanopb' in build setting 'OTHER_LDFLAGS'
+[        ]     Target 'nanopb' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'nanopb-nanopb_Privacy' in project 'Pods'
+[        ]     Target 'nanopb-nanopb_Privacy' in project 'Pods' (no dependencies)
+[        ]     Target 'leveldb-library' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'leveldb-library-leveldb_Privacy' in project 'Pods'
+[        ]     Target 'leveldb-library-leveldb_Privacy' in project 'Pods' (no dependencies)
+[        ]     Target 'gRPC-C++' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'abseil' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'gRPC-C++-gRPCCertificates-Cpp' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'gRPC-C++-grpcpp' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'gRPC-Core' in project 'Pods'
+[        ]     Target 'gRPC-C++-grpcpp' in project 'Pods'
+[        ]         ➜ Implicit dependency on target 'abseil' in project 'Pods' via options '-framework absl' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'gRPC-Core' in project 'Pods' via options '-framework grpc' in build setting 'OTHER_LDFLAGS'
+[        ]     Target 'gRPC-C++-gRPCCertificates-Cpp' in project 'Pods'
+[        ]         ➜ Implicit dependency on target 'abseil' in project 'Pods' via options '-framework absl' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'gRPC-Core' in project 'Pods' via options '-framework grpc' in build setting 'OTHER_LDFLAGS'
+[        ]     Target 'gRPC-Core' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'BoringSSL-GRPC' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'abseil' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'gRPC-Core-grpc' in project 'Pods'
+[        ]     Target 'gRPC-Core-grpc' in project 'Pods'
+[        ]         ➜ Implicit dependency on target 'abseil' in project 'Pods' via options '-framework absl' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'BoringSSL-GRPC' in project 'Pods' via options '-framework openssl_grpc' in build setting 'OTHER_LDFLAGS'
+[        ]     Target 'BoringSSL-GRPC' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'BoringSSL-GRPC-openssl_grpc' in project 'Pods'
+[        ]     Target 'BoringSSL-GRPC-openssl_grpc' in project 'Pods' (no dependencies)
+[        ]     Target 'abseil' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'abseil-xcprivacy' in project 'Pods'
+[        ]     Target 'abseil-xcprivacy' in project 'Pods' (no dependencies)
+[        ]     Target 'FirebaseCoreExtension' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseCore' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseCoreExtension-FirebaseCoreExtension_Privacy' in project 'Pods'
+[        ]     Target 'FirebaseCoreExtension-FirebaseCoreExtension_Privacy' in project 'Pods'
+[        ]         ➜ Implicit dependency on target 'FirebaseCore' in project 'Pods' via options '-framework FirebaseCore' in build setting 'OTHER_LDFLAGS'
+[        ]     Target 'FirebaseCore' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseCore-FirebaseCore_Privacy' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseCoreInternal' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'GoogleUtilities' in project 'Pods'
+[        ]     Target 'FirebaseCore-FirebaseCore_Privacy' in project 'Pods'
+[        ]         ➜ Implicit dependency on target 'FirebaseCoreInternal' in project 'Pods' via options '-framework FirebaseCoreInternal' in build setting 'OTHER_LDFLAGS'
+[        ]         ➜ Implicit dependency on target 'GoogleUtilities' in project 'Pods' via options '-framework GoogleUtilities' in build setting 'OTHER_LDFLAGS'
+[        ]     Target 'FirebaseCoreInternal' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'FirebaseCoreInternal-FirebaseCoreInternal_Privacy' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'GoogleUtilities' in project 'Pods'
+[        ]     Target 'FirebaseCoreInternal-FirebaseCoreInternal_Privacy' in project 'Pods'
+[        ]         ➜ Implicit dependency on target 'GoogleUtilities' in project 'Pods' via options '-framework GoogleUtilities' in build setting 'OTHER_LDFLAGS'
+[        ]     Target 'GoogleUtilities' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'GoogleUtilities-GoogleUtilities_Privacy' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'PromisesObjC' in project 'Pods'
+[        ]     Target 'GoogleUtilities-GoogleUtilities_Privacy' in project 'Pods'
+[        ]         ➜ Implicit dependency on target 'PromisesObjC' in project 'Pods' via options '-framework FBLPromises' in build setting 'OTHER_LDFLAGS'
+[        ]     Target 'FirebaseAppCheckInterop' in project 'Pods' (no dependencies)
+[        ]     Target 'PromisesObjC' in project 'Pods'
+[        ]         ➜ Explicit dependency on target 'PromisesObjC-FBLPromises_Privacy' in project 'Pods'
+[        ]     Target 'PromisesObjC-FBLPromises_Privacy' in project 'Pods' (no dependencies)
+[        ] GatherProvisioningInputs
+[  +70 ms] CreateBuildDescription
+[ +186 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -x c -c /dev/null
+[  +79 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -x c -c /dev/null
+[  +88 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -x objective-c -c /dev/null
+[ +111 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+[  +77 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -arch x86_64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -x c -c /dev/null
+[  +75 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -arch x86_64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -x objective-c -c /dev/null
+[ +122 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+[ +120 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -x c++ -c /dev/null
+[  +40 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/actool --version --output-format xml1
+[   +4 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/ibtool --version --output-format xml1
+[  +20 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/libtool -V
+[  +36 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -x objective-c++ -c /dev/null
+[  +52 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -arch x86_64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -x c++ -c /dev/null
+[ +149 ms] ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -arch x86_64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -x objective-c++ -c /dev/null
+[+2105 ms] Build description signature: ceccd68eabaa27227d552ad82f57efa8
+[        ] Build description path: /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/XCBuildData/ceccd68eabaa27227d552ad82f57efa8.xcbuilddata
+[ +741 ms] ClangStatCache /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/SDKStatCaches.noindex/macosx15.2-24C94-1dd28740b163f220e3e9b9fd2a542f53.sdkstatcache
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos
+[        ]     /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/SDKStatCaches.noindex/macosx15.2-24C94-1dd28740b163f220e3e9b9fd2a542f53.sdkstatcache
+[  +25 ms] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'path_provider_foundation-path_provider_foundation_privacy' from project 'Pods')
+[        ] ProcessInfoPlistFile /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/path_provider_foundation/path_provider_foundation_privacy.bundle/Contents/Info.plist /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/path_provider_foundation/ResourceBundle-path_provider_foundation_privacy-path_provider_foundation-Info.plist (in target 'path_provider_foundation-path_provider_foundation_privacy' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-infoPlistUtility /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/path_provider_foundation/ResourceBundle-path_provider_foundation_privacy-path_provider_foundation-Info.plist -producttype com.apple.product-type.bundle -expandbuildsettings -platform macosx -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/path_provider_foundation/path_provider_foundation_privacy.bundle/Contents/Info.plist
+[  +12 ms] ProcessInfoPlistFile /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/leveldb-library/leveldb_Privacy.bundle/Contents/Info.plist /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/leveldb-library/ResourceBundle-leveldb_Privacy-leveldb-library-Info.plist (in target 'leveldb-library-leveldb_Privacy' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-infoPlistUtility /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/leveldb-library/ResourceBundle-leveldb_Privacy-leveldb-library-Info.plist -producttype com.apple.product-type.bundle -expandbuildsettings -platform macosx -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/leveldb-library/leveldb_Privacy.bundle/Contents/Info.plist
+[        ] ProcessInfoPlistFile /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/abseil/xcprivacy.bundle/Contents/Info.plist /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/abseil/ResourceBundle-xcprivacy-abseil-Info.plist (in target 'abseil-xcprivacy' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-infoPlistUtility /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/abseil/ResourceBundle-xcprivacy-abseil-Info.plist -producttype com.apple.product-type.bundle -expandbuildsettings -platform macosx -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/abseil/xcprivacy.bundle/Contents/Info.plist
+[   +3 ms] ProcessInfoPlistFile /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/nanopb/nanopb_Privacy.bundle/Contents/Info.plist /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/nanopb/ResourceBundle-nanopb_Privacy-nanopb-Info.plist (in target 'nanopb-nanopb_Privacy' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-infoPlistUtility /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/nanopb/ResourceBundle-nanopb_Privacy-nanopb-Info.plist -producttype com.apple.product-type.bundle -expandbuildsettings -platform macosx -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/nanopb/nanopb_Privacy.bundle/Contents/Info.plist
+[        ] ProcessInfoPlistFile /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/PromisesObjC/FBLPromises_Privacy.bundle/Contents/Info.plist /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/PromisesObjC/ResourceBundle-FBLPromises_Privacy-PromisesObjC-Info.plist (in target 'PromisesObjC-FBLPromises_Privacy' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-infoPlistUtility /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/PromisesObjC/ResourceBundle-FBLPromises_Privacy-PromisesObjC-Info.plist -producttype com.apple.product-type.bundle -expandbuildsettings -platform macosx -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/PromisesObjC/FBLPromises_Privacy.bundle/Contents/Info.plist
+[        ] ProcessInfoPlistFile /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/FirebaseAppCheckInterop/FirebaseAppCheckInterop.framework/Versions/A/Resources/Info.plist /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/FirebaseAppCheckInterop/FirebaseAppCheckInterop-Info.plist (in target 'FirebaseAppCheckInterop' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-infoPlistUtility /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/FirebaseAppCheckInterop/FirebaseAppCheckInterop-Info.plist -producttype com.apple.product-type.framework -expandbuildsettings -platform macosx -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/FirebaseAppCheckInterop/FirebaseAppCheckInterop.framework/Versions/A/Resources/Info.plist
+[        ] ProcessInfoPlistFile /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/FirebaseSharedSwift/FirebaseSharedSwift.framework/Versions/A/Resources/Info.plist /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/FirebaseSharedSwift/FirebaseSharedSwift-Info.plist (in target 'FirebaseSharedSwift' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-infoPlistUtility /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/FirebaseSharedSwift/FirebaseSharedSwift-Info.plist -producttype com.apple.product-type.framework -expandbuildsettings -platform macosx -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/FirebaseSharedSwift/FirebaseSharedSwift.framework/Versions/A/Resources/Info.plist
+[        ] ProcessInfoPlistFile /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/BoringSSL-GRPC/openssl_grpc.bundle/Contents/Info.plist /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/BoringSSL-GRPC/ResourceBundle-openssl_grpc-BoringSSL-GRPC-Info.plist (in target 'BoringSSL-GRPC-openssl_grpc' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-infoPlistUtility /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/BoringSSL-GRPC/ResourceBundle-openssl_grpc-BoringSSL-GRPC-Info.plist -producttype com.apple.product-type.bundle -expandbuildsettings -platform macosx -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/BoringSSL-GRPC/openssl_grpc.bundle/Contents/Info.plist
+[  +26 ms] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'nanopb' from project 'Pods')
+[        ] ProcessInfoPlistFile /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/nanopb/nanopb.framework/Versions/A/Resources/Info.plist /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/nanopb/nanopb-Info.plist (in target 'nanopb' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-infoPlistUtility /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/nanopb/nanopb-Info.plist -producttype com.apple.product-type.framework -expandbuildsettings -platform macosx -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/nanopb/nanopb.framework/Versions/A/Resources/Info.plist
+[  +44 ms] ProcessInfoPlistFile /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/leveldb-library/leveldb.framework/Versions/A/Resources/Info.plist /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/leveldb-library/leveldb-library-Info.plist (in target 'leveldb-library' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-infoPlistUtility /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/leveldb-library/leveldb-library-Info.plist -producttype com.apple.product-type.framework -expandbuildsettings -platform macosx -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/leveldb-library/leveldb.framework/Versions/A/Resources/Info.plist
+[        ] ProcessInfoPlistFile /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/path_provider_foundation/path_provider_foundation.framework/Versions/A/Resources/Info.plist /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/path_provider_foundation/path_provider_foundation-Info.plist (in target 'path_provider_foundation' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-infoPlistUtility /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/path_provider_foundation/path_provider_foundation-Info.plist -producttype com.apple.product-type.framework -expandbuildsettings -platform macosx -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/path_provider_foundation/path_provider_foundation.framework/Versions/A/Resources/Info.plist
+[        ] ProcessInfoPlistFile /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/abseil/absl.framework/Versions/A/Resources/Info.plist /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/abseil/abseil-Info.plist (in target 'abseil' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-infoPlistUtility /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/abseil/abseil-Info.plist -producttype com.apple.product-type.framework -expandbuildsettings -platform macosx -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/abseil/absl.framework/Versions/A/Resources/Info.plist
+[        ] ProcessInfoPlistFile /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/PromisesObjC/FBLPromises.framework/Versions/A/Resources/Info.plist /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/PromisesObjC/PromisesObjC-Info.plist (in target 'PromisesObjC' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-infoPlistUtility /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/PromisesObjC/PromisesObjC-Info.plist -producttype com.apple.product-type.framework -expandbuildsettings -platform macosx -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/PromisesObjC/FBLPromises.framework/Versions/A/Resources/Info.plist
+[        ] ScanDependencies /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_x509a.o /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/BoringSSL-GRPC/src/crypto/x509/x_x509a.c normal x86_64 c com.apple.compilers.llvm.clang.1_0.compiler (in target 'BoringSSL-GRPC' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     Using response file: /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/7187679823f38a2a940e0043cdf9d637-common-args.resp
+[        ]     builtin-ScanDependencies -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_x509a.o.scan -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -x c -ivfsstatcache /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/SDKStatCaches.noindex/macosx15.2-24C94-1dd28740b163f220e3e9b9fd2a542f53.sdkstatcache -fmessage-length\=0 -fdiagnostics-show-note-include-stack -fmacro-backtrace-limit\=0 -fno-color-diagnostics -fmodules-prune-interval\=86400 -fmodules-prune-after\=345600 -fbuild-session-file\=/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/ModuleCache.noindex/Session.modulevalidation -fmodules-validate-once-per-build-session -Wnon-modular-include-in-framework-module -Werror\=non-modular-include-in-framework-module -Wno-trigraphs -Wno-missing-field-initializers -Wno-missing-prototypes -Werror\=return-type -Wdocumentation -Wunreachable-code -Werror\=deprecated-objc-isa-usage -Werror\=objc-root-class -Wno-missing-braces -Wparentheses -Wswitch -Wunused-function -Wno-unused-label -Wno-unused-parameter -Wunused-variable -Wunused-value -Wempty-body -Wuninitialized -Wconditional-uninitialized -Wno-unknown-pragmas -Wno-shadow -Wno-four-char-constants -Wno-conversion -Wconstant-conversion -Wint-conversion -Wbool-conversion -Wenum-conversion -Wno-float-conversion -Wnon-literal-null-conversion -Wobjc-literal-conversion -Wshorten-64-to-32 -Wpointer-sign -Wno-newline-eof -Wno-implicit-fallthrough -fstrict-aliasing -Wdeprecated-declarations -Wno-sign-conversion -Winfinite-recursion -Wcomma -Wblock-capture-autoreleasing -Wstrict-prototypes -Wno-semicolon-before-method-body -Wunguarded-availability @/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/7187679823f38a2a940e0043cdf9d637-common-args.resp -DOPENSSL_NO_ASM -GCC_WARN_INHIBIT_ALL_WARNINGS -w -DBORINGSSL_PREFIX\=GRPC -fno-objc-arc -include /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/BoringSSL-GRPC/BoringSSL-GRPC-prefix.pch -MMD -MT dependencies -MF /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_x509a.d --serialize-diagnostics /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_x509a.dia -c /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/BoringSSL-GRPC/src/crypto/x509/x_x509a.c -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_x509a.o
+[   +1 ms] error: unsupported option '-G' for target 'x86_64-apple-macos13.0' (in target 'BoringSSL-GRPC' from project 'Pods')
+[  +17 ms] ScanDependencies /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_x509.o /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/BoringSSL-GRPC/src/crypto/x509/x_x509.c normal x86_64 c com.apple.compilers.llvm.clang.1_0.compiler (in target 'BoringSSL-GRPC' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     Using response file: /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/7187679823f38a2a940e0043cdf9d637-common-args.resp
+[        ]     builtin-ScanDependencies -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_x509.o.scan -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -x c -ivfsstatcache /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/SDKStatCaches.noindex/macosx15.2-24C94-1dd28740b163f220e3e9b9fd2a542f53.sdkstatcache -fmessage-length\=0 -fdiagnostics-show-note-include-stack -fmacro-backtrace-limit\=0 -fno-color-diagnostics -fmodules-prune-interval\=86400 -fmodules-prune-after\=345600 -fbuild-session-file\=/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/ModuleCache.noindex/Session.modulevalidation -fmodules-validate-once-per-build-session -Wnon-modular-include-in-framework-module -Werror\=non-modular-include-in-framework-module -Wno-trigraphs -Wno-missing-field-initializers -Wno-missing-prototypes -Werror\=return-type -Wdocumentation -Wunreachable-code -Werror\=deprecated-objc-isa-usage -Werror\=objc-root-class -Wno-missing-braces -Wparentheses -Wswitch -Wunused-function -Wno-unused-label -Wno-unused-parameter -Wunused-variable -Wunused-value -Wempty-body -Wuninitialized -Wconditional-uninitialized -Wno-unknown-pragmas -Wno-shadow -Wno-four-char-constants -Wno-conversion -Wconstant-conversion -Wint-conversion -Wbool-conversion -Wenum-conversion -Wno-float-conversion -Wnon-literal-null-conversion -Wobjc-literal-conversion -Wshorten-64-to-32 -Wpointer-sign -Wno-newline-eof -Wno-implicit-fallthrough -fstrict-aliasing -Wdeprecated-declarations -Wno-sign-conversion -Winfinite-recursion -Wcomma -Wblock-capture-autoreleasing -Wstrict-prototypes -Wno-semicolon-before-method-body -Wunguarded-availability @/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/7187679823f38a2a940e0043cdf9d637-common-args.resp -DOPENSSL_NO_ASM -GCC_WARN_INHIBIT_ALL_WARNINGS -w -DBORINGSSL_PREFIX\=GRPC -fno-objc-arc -include /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/BoringSSL-GRPC/BoringSSL-GRPC-prefix.pch -MMD -MT dependencies -MF /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_x509.d --serialize-diagnostics /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_x509.dia -c /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/BoringSSL-GRPC/src/crypto/x509/x_x509.c -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_x509.o
+[        ] error: unsupported option '-G' for target 'x86_64-apple-macos13.0' (in target 'BoringSSL-GRPC' from project 'Pods')
+[        ] ScanDependencies /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_val.o /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/BoringSSL-GRPC/src/crypto/x509/x_val.c normal x86_64 c com.apple.compilers.llvm.clang.1_0.compiler (in target 'BoringSSL-GRPC' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     Using response file: /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/7187679823f38a2a940e0043cdf9d637-common-args.resp
+[        ]     builtin-ScanDependencies -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_val.o.scan -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -x c -ivfsstatcache /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/SDKStatCaches.noindex/macosx15.2-24C94-1dd28740b163f220e3e9b9fd2a542f53.sdkstatcache -fmessage-length\=0 -fdiagnostics-show-note-include-stack -fmacro-backtrace-limit\=0 -fno-color-diagnostics -fmodules-prune-interval\=86400 -fmodules-prune-after\=345600 -fbuild-session-file\=/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/ModuleCache.noindex/Session.modulevalidation -fmodules-validate-once-per-build-session -Wnon-modular-include-in-framework-module -Werror\=non-modular-include-in-framework-module -Wno-trigraphs -Wno-missing-field-initializers -Wno-missing-prototypes -Werror\=return-type -Wdocumentation -Wunreachable-code -Werror\=deprecated-objc-isa-usage -Werror\=objc-root-class -Wno-missing-braces -Wparentheses -Wswitch -Wunused-function -Wno-unused-label -Wno-unused-parameter -Wunused-variable -Wunused-value -Wempty-body -Wuninitialized -Wconditional-uninitialized -Wno-unknown-pragmas -Wno-shadow -Wno-four-char-constants -Wno-conversion -Wconstant-conversion -Wint-conversion -Wbool-conversion -Wenum-conversion -Wno-float-conversion -Wnon-literal-null-conversion -Wobjc-literal-conversion -Wshorten-64-to-32 -Wpointer-sign -Wno-newline-eof -Wno-implicit-fallthrough -fstrict-aliasing -Wdeprecated-declarations -Wno-sign-conversion -Winfinite-recursion -Wcomma -Wblock-capture-autoreleasing -Wstrict-prototypes -Wno-semicolon-before-method-body -Wunguarded-availability @/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/7187679823f38a2a940e0043cdf9d637-common-args.resp -DOPENSSL_NO_ASM -GCC_WARN_INHIBIT_ALL_WARNINGS -w -DBORINGSSL_PREFIX\=GRPC -fno-objc-arc -include /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/Target\ Support\ Files/BoringSSL-GRPC/BoringSSL-GRPC-prefix.pch -MMD -MT dependencies -MF /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_val.d --serialize-diagnostics /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_val.dia -c /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods/BoringSSL-GRPC/src/crypto/x509/x_val.c -o /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/BoringSSL-GRPC.build/Objects-normal/x86_64/x_val.o
+[        ] error: unsupported option '-G' for target 'x86_64-apple-macos13.0' (in target 'BoringSSL-GRPC' from project 'Pods')
+[        ] SwiftDriver path_provider_foundation normal x86_64 com.apple.xcode.tools.swift.compiler (in target 'path_provider_foundation' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name path_provider_foundation -O -whole-module-optimization -enforce-exclusivity\=checked @/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/Objects-normal/x86_64/path_provider_foundation.SwiftFileList -D COCOAPODS -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -target x86_64-apple-macos13.0 -g -module-cache-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/path_provider_foundation -F /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/path_provider_foundation -F /Users/jaehyounglee/development/flutter/bin/cache/artifacts/engine/darwin-x64-release/FlutterMacOS.xcframework/macos-arm64_x86_64 -c -num-threads 8 -Xcc -ivfsstatcache -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/SDKStatCaches.noindex/macosx15.2-24C94-1dd28740b163f220e3e9b9fd2a542f53.sdkstatcache -output-file-map /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/Objects-normal/x86_64/path_provider_foundation-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/Objects-normal/x86_64/path_provider_foundation.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/Objects-normal/x86_64/path_provider_foundation_const_extract_protocols.json -Xcc -iquote -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/path_provider_foundation-generated-files.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/path_provider_foundation-own-target-headers.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/path_provider_foundation-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/Pods-8699adb1dd336b26511df848a716bd42-VFS/all-product-headers.yaml -Xcc -iquote -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/path_provider_foundation-project-headers.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/path_provider_foundation/include -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/DerivedSources-normal/x86_64 -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/DerivedSources/x86_64 -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/DerivedSources -Xcc -DPOD_CONFIGURATION_RELEASE\=1 -Xcc -DCOCOAPODS\=1 -emit-objc-header -emit-objc-header-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/Objects-normal/x86_64/path_provider_foundation-Swift.h -import-underlying-module -Xcc -ivfsoverlay -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/unextended-module-overlay.yaml -working-directory /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods -no-emit-module-separately-wmo
+[   +9 ms] SwiftDriver path_provider_foundation normal arm64 com.apple.xcode.tools.swift.compiler (in target 'path_provider_foundation' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name path_provider_foundation -O -whole-module-optimization -enforce-exclusivity\=checked @/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/Objects-normal/arm64/path_provider_foundation.SwiftFileList -D COCOAPODS -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -target arm64-apple-macos13.0 -g -module-cache-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/path_provider_foundation -F /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/path_provider_foundation -F /Users/jaehyounglee/development/flutter/bin/cache/artifacts/engine/darwin-x64-release/FlutterMacOS.xcframework/macos-arm64_x86_64 -c -num-threads 8 -Xcc -ivfsstatcache -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/SDKStatCaches.noindex/macosx15.2-24C94-1dd28740b163f220e3e9b9fd2a542f53.sdkstatcache -output-file-map /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/Objects-normal/arm64/path_provider_foundation-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/Objects-normal/arm64/path_provider_foundation.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/Objects-normal/arm64/path_provider_foundation_const_extract_protocols.json -Xcc -iquote -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/path_provider_foundation-generated-files.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/path_provider_foundation-own-target-headers.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/path_provider_foundation-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/Pods-8699adb1dd336b26511df848a716bd42-VFS/all-product-headers.yaml -Xcc -iquote -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/path_provider_foundation-project-headers.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/path_provider_foundation/include -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/DerivedSources-normal/arm64 -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/DerivedSources/arm64 -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/DerivedSources -Xcc -DPOD_CONFIGURATION_RELEASE\=1 -Xcc -DCOCOAPODS\=1 -emit-objc-header -emit-objc-header-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/Objects-normal/arm64/path_provider_foundation-Swift.h -import-underlying-module -Xcc -ivfsoverlay -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/path_provider_foundation.build/unextended-module-overlay.yaml -working-directory /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods -no-emit-module-separately-wmo
+[        ] SwiftDriver FirebaseSharedSwift normal arm64 com.apple.xcode.tools.swift.compiler (in target 'FirebaseSharedSwift' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name FirebaseSharedSwift -O -whole-module-optimization -enforce-exclusivity\=checked @/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/Objects-normal/arm64/FirebaseSharedSwift.SwiftFileList -D COCOAPODS -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -target arm64-apple-macos13.0 -g -module-cache-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/FirebaseSharedSwift -F /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/FirebaseSharedSwift -c -num-threads 8 -Xcc -ivfsstatcache -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/SDKStatCaches.noindex/macosx15.2-24C94-1dd28740b163f220e3e9b9fd2a542f53.sdkstatcache -output-file-map /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/Objects-normal/arm64/FirebaseSharedSwift-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/Objects-normal/arm64/FirebaseSharedSwift.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/Objects-normal/arm64/FirebaseSharedSwift_const_extract_protocols.json -Xcc -iquote -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/FirebaseSharedSwift-generated-files.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/FirebaseSharedSwift-own-target-headers.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/FirebaseSharedSwift-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/Pods-8699adb1dd336b26511df848a716bd42-VFS/all-product-headers.yaml -Xcc -iquote -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/FirebaseSharedSwift-project-headers.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/FirebaseSharedSwift/include -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/DerivedSources-normal/arm64 -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/DerivedSources/arm64 -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/DerivedSources -Xcc -DPOD_CONFIGURATION_RELEASE\=1 -Xcc -DCOCOAPODS\=1 -emit-objc-header -emit-objc-header-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/Objects-normal/arm64/FirebaseSharedSwift-Swift.h -import-underlying-module -Xcc -ivfsoverlay -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/unextended-module-overlay.yaml -working-directory /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods -no-emit-module-separately-wmo
+[        ] SwiftDriver FirebaseSharedSwift normal x86_64 com.apple.xcode.tools.swift.compiler (in target 'FirebaseSharedSwift' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name FirebaseSharedSwift -O -whole-module-optimization -enforce-exclusivity\=checked @/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/Objects-normal/x86_64/FirebaseSharedSwift.SwiftFileList -D COCOAPODS -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -target x86_64-apple-macos13.0 -g -module-cache-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/FirebaseSharedSwift -F /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/FirebaseSharedSwift -c -num-threads 8 -Xcc -ivfsstatcache -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/SDKStatCaches.noindex/macosx15.2-24C94-1dd28740b163f220e3e9b9fd2a542f53.sdkstatcache -output-file-map /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/Objects-normal/x86_64/FirebaseSharedSwift-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/Objects-normal/x86_64/FirebaseSharedSwift.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/Objects-normal/x86_64/FirebaseSharedSwift_const_extract_protocols.json -Xcc -iquote -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/FirebaseSharedSwift-generated-files.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/FirebaseSharedSwift-own-target-headers.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/FirebaseSharedSwift-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/Pods-8699adb1dd336b26511df848a716bd42-VFS/all-product-headers.yaml -Xcc -iquote -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/FirebaseSharedSwift-project-headers.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/FirebaseSharedSwift/include -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/DerivedSources-normal/x86_64 -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/DerivedSources/x86_64 -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/DerivedSources -Xcc -DPOD_CONFIGURATION_RELEASE\=1 -Xcc -DCOCOAPODS\=1 -emit-objc-header -emit-objc-header-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/Objects-normal/x86_64/FirebaseSharedSwift-Swift.h -import-underlying-module -Xcc -ivfsoverlay -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseSharedSwift.build/unextended-module-overlay.yaml -working-directory /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods -no-emit-module-separately-wmo
+[        ] SwiftDriver FirebaseCoreInternal normal x86_64 com.apple.xcode.tools.swift.compiler (in target 'FirebaseCoreInternal' from project 'Pods')
+[        ]     cd /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods
+[        ]     builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name FirebaseCoreInternal -O -whole-module-optimization -enforce-exclusivity\=checked @/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/Objects-normal/x86_64/FirebaseCoreInternal.SwiftFileList -D COCOAPODS -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk -target x86_64-apple-macos13.0 -g -module-cache-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/FirebaseCoreInternal -F /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/FirebaseCoreInternal -F /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/GoogleUtilities -F /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/PromisesObjC -c -num-threads 8 -Xcc -ivfsstatcache -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/SDKStatCaches.noindex/macosx15.2-24C94-1dd28740b163f220e3e9b9fd2a542f53.sdkstatcache -output-file-map /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/Objects-normal/x86_64/FirebaseCoreInternal-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/Objects-normal/x86_64/FirebaseCoreInternal.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/Objects-normal/x86_64/FirebaseCoreInternal_const_extract_protocols.json -Xcc -iquote -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/FirebaseCoreInternal-generated-files.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/FirebaseCoreInternal-own-target-headers.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/FirebaseCoreInternal-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/Pods-8699adb1dd336b26511df848a716bd42-VFS/all-product-headers.yaml -Xcc -iquote -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/FirebaseCoreInternal-project-headers.hmap -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Products/Release/FirebaseCoreInternal/include -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/DerivedSources-normal/x86_64 -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/DerivedSources/x86_64 -Xcc -I/Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/DerivedSources -Xcc -DPOD_CONFIGURATION_RELEASE\=1 -Xcc -DCOCOAPODS\=1 -emit-objc-header -emit-objc-header-path /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/Objects-normal/x86_64/FirebaseCoreInternal-Swift.h -import-underlying-module -Xcc -ivfsoverlay -Xcc /Users/jaehyounglee/my_first_app/jh_guitar_tree/build/macos/Build/Intermediates.noindex/Pods.build/Release/FirebaseCoreInternal.build/unextended-module-overlay.yaml -working-directory /Users/jaehyounglee/my_first_app/jh_guitar_tree/macos/Pods -no-emit-module-separately-wmo
+[  +24 ms] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'FirebaseFirestore' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'gRPC-C++-gRPCCertificates-Cpp' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'Runner' from project 'Runner')
+[        ] note: Run script build phase 'Run Script' will be run during every build because the option to run the script phase "Based on dependency analysis" is unchecked. (in target 'Runner' from project 'Runner')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'Pods-Runner' from project 'Pods')
+[        ] warning: Run script build phase 'Run Script' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'Flutter Assemble' from project 'Runner')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'FlutterMacOS' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'firebase_core' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'gRPC-Core' from project 'Pods')
+[        ] warning: Run script build phase 'Create Symlinks to Header Folders' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'gRPC-Core' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'FirebaseCore' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'FirebaseCoreInternal-FirebaseCoreInternal_Privacy' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'FirebaseFirestore-FirebaseFirestore_Privacy' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'gRPC-C++' from project 'Pods')
+[        ] warning: Run script build phase 'Create Symlinks to Header Folders' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'gRPC-C++' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'GoogleUtilities-GoogleUtilities_Privacy' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'Firebase' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'FirebaseCoreExtension-FirebaseCoreExtension_Privacy' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'gRPC-C++-grpcpp' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'FirebaseFirestoreInternal-FirebaseFirestoreInternal_Privacy' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'FirebaseFirestoreInternal' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'FirebaseCore-FirebaseCore_Privacy' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'cloud_firestore' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'FirebaseCoreExtension' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'gRPC-Core-grpc' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'GoogleUtilities' from project 'Pods')
+[   +2 ms] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'leveldb-library-leveldb_Privacy' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'abseil-xcprivacy' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'nanopb-nanopb_Privacy' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'PromisesObjC-FBLPromises_Privacy' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'FirebaseAppCheckInterop' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'FirebaseSharedSwift' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'BoringSSL-GRPC-openssl_grpc' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'leveldb-library' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'path_provider_foundation' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'abseil' from project 'Pods')
+[        ] warning: Run script build phase 'Create Symlinks to Header Folders' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'abseil' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'PromisesObjC' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'BoringSSL-GRPC' from project 'Pods')
+[        ] warning: Run script build phase 'Create Symlinks to Header Folders' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'BoringSSL-GRPC' from project 'Pods')
+[        ] note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'FirebaseCoreInternal' from project 'Pods')
+[ +129 ms] Building macOS application... (completed in 6.1s)
+[   +1 ms] "flutter macos" took 8,618ms.
+[        ] Running 1 shutdown hook
+[        ] Shutdown hooks complete
+[ +252 ms] exiting with code 1

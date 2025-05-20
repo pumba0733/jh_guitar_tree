@@ -1,11 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/lesson.dart';
+// 📄 lib/services/firestore_service.dart
 
 class FirestoreService {
-  static final _db = FirebaseFirestore.instance;
-
-  static Future<void> saveLessonToFirestore(Lesson lesson) async {
-    final docId = '${lesson.studentId}_${lesson.date}';
-    await _db.collection('lessons').doc(docId).set(lesson.toMap());
-  }
+  // Firebase Firestore 연동용 클래스 - 실제 구현은 추후 진행
 }
