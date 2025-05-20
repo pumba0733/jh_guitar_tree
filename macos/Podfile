@@ -49,7 +49,7 @@ post_install do |installer|
   Find.find('Pods') do |path|
     if path =~ /\.(xcconfig|rsp|sh|modulemap|cpp)$/
       text = File.read(path)
-      new_contents = text.gsub(/\s\-G\b/, '')  # 공백 포함 제거
+      new_contents = text.gsub(/(?<=^|\s)-G(?=\s|$)/, '')
       File.open(path, "w") { |file| file.puts new_contents }
     end
   end

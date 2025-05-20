@@ -1,0 +1,37 @@
+
+# Flutter/Dart 기본
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.melos_tool/
+.pub-cache/
+build/
+.idea/
+.vscode/
+*.iml
+
+# macOS/iOS 관련
+macos/Flutter/ephemeral/
+ios/Flutter/Flutter.framework/
+ios/Pods/
+ios/Runner.xcworkspace/
+*.xcuserstate
+*.xcworkspace
+*.xcsettings
+
+# 시스템 파일
+.DS_Store
+Thumbs.db
+
+# 로그/백업
+*.log
+*.tmp
+*.bak
+
+# 환경 파일
+.env
+firebase_options.dart
+
+# 테스트/모의 데이터
+mockdata/
