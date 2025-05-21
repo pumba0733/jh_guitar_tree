@@ -26,14 +26,11 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 flutter_macos_podfile_setup
 
 target 'Runner' do
-  use_frameworks! :linkage => :static   # ✅ static으로 설정하여 Swift 호환성 문제 방지
+  use_frameworks! :linkage => :dynamic
 
   flutter_install_all_macos_pods File.dirname(File.realpath(__FILE__))
 
-  # ✅ cloud_firestore가 Swift에서 인식되도록 명시적으로 선언
-  pod 'FirebaseCore'
-  pod 'FirebaseFirestore'
-
+  
   target 'RunnerTests' do
     inherit! :search_paths
   end
