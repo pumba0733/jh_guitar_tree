@@ -26,8 +26,13 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 flutter_macos_podfile_setup
 
 target 'Runner' do
-  use_frameworks!
+  use_frameworks! :linkage => :static   # ✅ static으로 설정하여 Swift 호환성 문제 방지
+
   flutter_install_all_macos_pods File.dirname(File.realpath(__FILE__))
+
+  # ✅ cloud_firestore가 Swift에서 인식되도록 명시적으로 선언
+  pod 'FirebaseCore'
+  pod 'FirebaseFirestore'
 
   target 'RunnerTests' do
     inherit! :search_paths
@@ -40,10 +45,11 @@ post_install do |installer|
 
     target.build_configurations.each do |config|
       config.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '13.0'
+      config.build_settings['ARCHS'] = 'arm64'
     end
   end
 
-  # ✅ -G 제거 루틴 (예외 방지 포함)
+  # ✅ -G 제거 루틴
   begin
     if Dir.exist?('Pods')
       require 'find'
@@ -59,6 +65,6 @@ post_install do |installer|
     puts "⚠️ Skipping -G cleanup: #{e.message}"
   end
 
-  # ✅ 절대경로로 안전하게 실행
+  # ✅ remove_g_flag.sh 실행
   system("bash #{__dir__}/remove_g_flag.sh")
 end

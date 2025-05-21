@@ -1,17 +1,20 @@
 #!/bin/bash
-echo "🔍 Searching & force-removing -G flags in: $(pwd)"
 
-extensions=("xcconfig" "rsp" "args" "tmp" "sh" "cpp" "c" "modulemap" "swift" "pbxproj" "plist")
+echo "🚫 Removing '-G' flags from CocoaPods build files..."
 
-for ext in "${extensions[@]}"; do
-  find ./macos/Pods -type f -name "*.${ext}" -print0 | while IFS= read -r -d '' file; do
-    if grep -q "\-G" "$file"; then
-      echo "🧨 Cleaning -G in $file"
-      # 쌍따옴표 내부 포함 모든 -G 제거 (탭 포함 처리, 여분 공백 정리)
-      sed -i '' -E 's/([[:space:]]|")-G([[:space:]]|")/ /g' "$file"
-      sed -i '' -E 's/  +/ /g' "$file"
-    fi
-  done
+TARGET_DIR="./macos/Pods"
+
+if [ ! -d "$TARGET_DIR" ]; then
+  echo "❌ Pods directory not found: $TARGET_DIR"
+  exit 1
+fi
+
+# -G 제거 대상 확장자 목록
+EXTENSIONS=("xcconfig" "rsp" "sh" "modulemap" "cpp")
+
+for ext in "${EXTENSIONS[@]}"; do
+  echo "🧹 Searching for *.$ext files..."
+  find "$TARGET_DIR" -name "*.$ext" -exec sed -i '' 's/\(^\|\s\)-G\($\|\s\)/\1\2/g' {} +
 done
 
-echo "✅ Final clean: All -G flags attempted to remove."
+echo "✅ '-G' flags removed successfully!"
