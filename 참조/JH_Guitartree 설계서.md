@@ -385,71 +385,7 @@ bash
 * 향후 확장 모듈(커리큘럼 등)이 들어와도 완전히 독립되도록 구성
 
 📂 루트 구조
-css
-복사편집
-lib/
-├── main.dart
-├── app.dart
-├── routes/
-│   └── app_routes.dart
-├── models/
-│   ├── student.dart
-│   ├── teacher.dart
-│   ├── lesson.dart
-│   ├── summary.dart
-│   ├── keyword.dart
-│   └── curriculum.dart (예정)
-├── services/
-│   ├── firestore_service.dart
-│   ├── ai_service.dart
-│   ├── backup_service.dart
-│   ├── file_service.dart
-│   ├── log_service.dart
-│   └── auth_service.dart
-├── screens/
-│   ├── auth/
-│   │   ├── login_screen.dart
-│   │   ├── teacher_login.dart
-│   │   └── admin_login.dart
-│   ├── home/
-│   │   ├── student_home_screen.dart
-│   │   ├── teacher_home_screen.dart
-│   │   └── admin_home_screen.dart
-│   ├── lesson/
-│   │   ├── today_lesson_screen.dart
-│   │   ├── lesson_history_screen.dart
-│   │   └── summary_result_screen.dart
-│   ├── summary/
-│   │   └── lesson_summary_screen.dart
-│   ├── manage/
-│   │   ├── manage_students_screen.dart
-│   │   ├── manage_teachers_screen.dart
-│   │   ├── manage_keywords_screen.dart
-│   │   └── manage_curriculum_screen.dart (예정)
-│   ├── settings/
-│   │   ├── export_screen.dart
-│   │   ├── import_screen.dart
-│   │   ├── logs_screen.dart
-│   │   └── change_password_screen.dart
-│   └── curriculum/
-│       ├── curriculum_overview_screen.dart
-│       └── curriculum_tree_view.dart (예정)
-├── ui/
-│   ├── components/
-│   │   ├── keyword_chip.dart
-│   │   ├── file_clip.dart
-│   │   └── save_status_indicator.dart
-│   ├── theme/
-│   └── layout/
-├── data/
-│   └── local_hive_boxes.dart
-├── firebase/
-│   ├── firestore_refs.dart
-│   └── firebase_options.dart
-└── constants/
-    ├── app_strings.dart
-    ├── app_styles.dart
-    └── app_keys.dart
+별도 첨부파일 있음.
 
 12. 플랫폼 호환성 및 빌드 전략
 
@@ -501,9 +437,6 @@ dart
 * 오류가 발생하면 파일 전체를 다시 제공받아 반영
 * 수정은 절대 직접 하지 않고 GPT를 통해 반영
 
-
-풀버전 최종 설계서 – 5부 (마지막) 커리큘럼 확장 기능 설계 / 모든 추가 메모 통합 / 마무리 지침을 정리해서 보낼게.
-이건 미래의 확장성과 안정성을 고려한 기반이자, 향후 앱의 진화 방향까지 담아두는 기준 문서야.
 
 🎸 풀버전 최종 설계서 – 5부
 (작성일: 2025-05-16 기준)
@@ -608,6 +541,7 @@ json
 * 실수나 누락이 생기지 않도록 설계서를 기준으로만 작업됨
 * 너는 코드를 수정하지 않고, 오직 요청만으로 변경 가능
 * 커리큘럼 등 확장 기능은 앱 완성 이후 모듈화 구조로 통합
+* 수정이 불가피한 경우 gpt가 직접 안내
 
 📦 설계서의 목적
 이 설계서는 ✔️ 앱을 직접 만들 수 없는 사용자도 ✔️ GPT에게 요청만으로 모든 기능을 완성시키고 ✔️ 오류 없이 확장 가능한 구조로 유지보수 가능한 완성도 높은 실전 앱의 기준 문서다.

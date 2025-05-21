@@ -34,7 +34,6 @@ target 'Runner' do
   end
 end
 
-# ✅ 이 블럭이 -G 제거 핵심
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_macos_build_settings(target)
@@ -44,13 +43,22 @@ post_install do |installer|
     end
   end
 
-  # 🔥 -G 플래그 완전 제거 루틴
-  require 'find'
-  Find.find('Pods') do |path|
-    if path =~ /\.(xcconfig|rsp|sh|modulemap|cpp)$/
-      text = File.read(path)
-      new_contents = text.gsub(/(?<=^|\s)-G(?=\s|$)/, '')
-      File.open(path, "w") { |file| file.puts new_contents }
+  # ✅ -G 제거 루틴 (예외 방지 포함)
+  begin
+    if Dir.exist?('Pods')
+      require 'find'
+      Find.find('Pods') do |path|
+        if path =~ /\.(xcconfig|rsp|sh|modulemap|cpp)$/
+          text = File.read(path)
+          new_contents = text.gsub(/(?<=^|\s)-G(?=\s|$)/, '')
+          File.open(path, "w") { |file| file.puts new_contents }
+        end
+      end
     end
+  rescue => e
+    puts "⚠️ Skipping -G cleanup: #{e.message}"
   end
+
+  # ✅ 절대경로로 안전하게 실행
+  system("bash #{__dir__}/remove_g_flag.sh")
 end
