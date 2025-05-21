@@ -68,11 +68,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyDkwHKsp_b36upJipSAk693VL45-7eX8vw',
-    appId: '1:449305476282:ios:2c91c45669dd4b7e10d683',
+    appId: '1:449305476282:ios:5fb89f8ff95cad1b10d683',
     messagingSenderId: '449305476282',
     projectId: 'jhguitartree-953b9',
     storageBucket: 'jhguitartree-953b9.firebasestorage.app',
-    iosBundleId: 'com.example.jhGuitarTree',
+    iosBundleId: 'com.myfirstapp.jhguitartree',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
@@ -83,4 +83,5 @@ class DefaultFirebaseOptions {
     authDomain: 'jhguitartree-953b9.firebaseapp.com',
     storageBucket: 'jhguitartree-953b9.firebasestorage.app',
   );
+
 }

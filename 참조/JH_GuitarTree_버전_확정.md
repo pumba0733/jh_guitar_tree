@@ -20,3 +20,20 @@ GeneratedPluginRegistrant.swift에서 cloud_firestore 수동 등록까지 시도
 flutter clean, pod install, flutter build macos --release까지 포함된 안정화 루틴 확립
 GitHub에 main 브랜치 푸시 + v1.0.0 태그 커밋 완료
 맥북에서도 그대로 클론해서 이어서 개발 가능하도록 세팅 완성
+
+## 🔖 v1.0.0 안정화 완료
+
+### 📦 주요 내역
+- ✅ macOS용 Firebase 초기화 완료
+- ✅ cloud_firestore.framework 포함 정상 빌드 확인
+- ✅ Deployment Target 13.0 통일 (Podfile, .xcconfig, Xcode General)
+- ✅ x86_64 아키텍처 완전 제거 (Xcode Build Settings)
+- ✅ 릴리즈 빌드 성공: `build/macos/Build/Products/Release/jh_guitar_tree.app`
+
+### ⚠️ 참고 사항
+- 일부 warning은 Firebase/gRPC 내부 모듈에서 발생한 것으로 기능 동작에 영향 없음
+- `Flutter-Generated.xcconfig` 덮어쓰기 방지를 위해 추후 Git 관리 필요
+
+### 🔀 다음 추천 브랜치
+`feature/v1.1-routing`  
+> 홈 화면 분기 및 라우팅 구조 작업 시작
