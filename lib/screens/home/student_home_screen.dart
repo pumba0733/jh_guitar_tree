@@ -1,29 +1,32 @@
+// 📄 lib/screens/home/student_home_screen.dart
+
 import 'package:flutter/material.dart';
+import 'package:jh_guitar_tree/ui/layout/base_scaffold.dart';
 
 class StudentHomeScreen extends StatelessWidget {
   const StudentHomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('📚 학생 홈')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            ElevatedButton.icon(
-              icon: const Icon(Icons.today),
-              label: const Text('오늘 수업 보기'),
-              onPressed: () => Navigator.pushNamed(context, '/today_lesson'),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.history),
-              label: const Text('지난 수업 복습'),
-              onPressed: () => Navigator.pushNamed(context, '/lesson_history'),
-            ),
-          ],
-        ),
+    return BaseScaffold(
+      title: '학생 홈',
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          ElevatedButton(
+            onPressed: () {
+              // 오늘 수업 보기로 이동
+            },
+            child: const Text('📝 오늘 수업 보기'),
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: () {
+              // 지난 수업 복습으로 이동
+            },
+            child: const Text('📚 지난 수업 복습'),
+          ),
+        ],
       ),
     );
   }

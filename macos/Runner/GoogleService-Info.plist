@@ -9,7 +9,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.myfirstapp.jhguitartree</string>
+	<string>com.example.jhGuitarTree</string>
 	<key>PROJECT_ID</key>
 	<string>jhguitartree-953b9</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:449305476282:ios:5fb89f8ff95cad1b10d683</string>
+	<string>1:449305476282:ios:2c91c45669dd4b7e10d683</string>
 </dict>
 </plist>
