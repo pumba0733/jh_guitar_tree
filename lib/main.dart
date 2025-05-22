@@ -1,35 +1,12 @@
+// 📄 lib/main.dart
+
 import 'package:flutter/material.dart';
-import 'package:jh_guitar_tree/routes/app_routes.dart';
-import 'package:jh_guitar_tree/services/auth_service.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase/firebase_options.dart';
+import 'package:jh_guitar_tree/app.dart'; // MyApp 정의된 곳
 
-void main() {
-  runApp(const MyApp()); // ✅ 앱 실행 진입점 추가됨
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'JH GuitarTree',
-      theme: ThemeData(primarySwatch: Colors.blue),
-      debugShowCheckedModeBanner: false,
-      routes: appRoutes,
-      home: FutureBuilder<Widget>(
-        future: AuthService().getInitialScreen(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          } else if (snapshot.hasError) {
-            return const Scaffold(body: Center(child: Text("초기화 중 오류 발생")));
-          } else {
-            return snapshot.data!;
-          }
-        },
-      ),
-    );
-  }
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  runApp(const MyApp()); // app.dart의 MyApp 사용
 }

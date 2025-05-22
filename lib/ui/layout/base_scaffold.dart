@@ -5,8 +5,14 @@ import 'package:flutter/material.dart';
 class BaseScaffold extends StatelessWidget {
   final String title;
   final Widget child;
+  final List<Widget>? actions;
 
-  const BaseScaffold({super.key, required this.title, required this.child});
+  const BaseScaffold({
+    super.key,
+    required this.title,
+    required this.child,
+    this.actions,
+  });
 
   @override
   Widget build(BuildContext context) {

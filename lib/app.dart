@@ -1,3 +1,5 @@
+// 📄 lib/app.dart
+
 import 'package:flutter/material.dart';
 import 'package:jh_guitar_tree/routes/app_routes.dart';
 import 'package:jh_guitar_tree/services/auth_service.dart';
@@ -9,9 +11,12 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'JH GuitarTree',
-      theme: ThemeData(primarySwatch: Colors.blue),
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        fontFamily: 'Pretendard', // (선택) 전역 폰트 설정
+      ),
       debugShowCheckedModeBanner: false,
-      routes: appRoutes, // ✅ 여기가 핵심 수정
+      routes: appRoutes,
       home: FutureBuilder<Widget>(
         future: AuthService().getInitialScreen(),
         builder: (context, snapshot) {

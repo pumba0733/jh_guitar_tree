@@ -11,9 +11,15 @@
 - 일부 warning은 Firebase/gRPC 내부 모듈에서 발생한 것으로 기능 동작에 영향 없음
 - `Flutter-Generated.xcconfig` 덮어쓰기 방지를 위해 추후 Git 관리 필요
 
-## ✅ v1.11 (2025.05.22)
 
-### 🔧 주요 변경사항 요약
+## v1.11 (2025.05.22 기준)
+
+- ✅ 오류 0 상태 기준 전체 백업 및 커밋 완료
+- ✅ macOS 빌드 정상 완료 (단, 일부 CocoaPods 관련 warning 존재)
+- ✅ 로그인 → StaffPortalScreen 흐름 정상 작동
+- ✅ role 전달 오류 및 async context 문제 해결 완료
+- ✅ EditMemoDialog 최종반영 및 context 문제 제거
+- ✅ 다음 테스트 항목: Student 추가/수정/삭제 기능, 강사 관리, Portal 버튼 연동
 - macOS 기준 전체 구조 재정비 및 `lib/`, `macos/` 디렉토리 충돌 해결
 - Firebase 연동 정상화 (`GoogleService-Info.plist` 포함 및 Podfile 정리)
 - role 파라미터 전달 오류 해결 (`staff_portal_screen.dart`, `portal_action_grid.dart`)
