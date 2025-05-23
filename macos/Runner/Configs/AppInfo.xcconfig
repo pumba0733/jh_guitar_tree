@@ -8,13 +8,8 @@
 PRODUCT_NAME = jh_guitar_tree
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.myfirstapp.jhguitartree
+PRODUCT_BUNDLE_IDENTIFIER = com.example.jhGuitarTree
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2025 com.example. All rights reserved.
-
-
-
-#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
-#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
-#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"
+#include? "../../../Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"

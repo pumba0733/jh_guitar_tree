@@ -11,6 +11,12 @@ class StudentSelectorDialog extends StatelessWidget {
     required this.onStudentSelected,
   });
 
+  String getLast4Digits(String phoneNumber) {
+    return phoneNumber.length >= 4
+        ? phoneNumber.substring(phoneNumber.length - 4)
+        : '****';
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -19,8 +25,9 @@ class StudentSelectorDialog extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children:
             students.map((student) {
+              final suffix = getLast4Digits(student.phoneNumber);
               return ListTile(
-                title: Text('${student.name} (${student.phoneSuffix})'),
+                title: Text('${student.name} ($suffix)'),
                 onTap: () {
                   Navigator.pop(context);
                   onStudentSelected(student);

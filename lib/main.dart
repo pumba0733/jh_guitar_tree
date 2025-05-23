@@ -8,5 +8,16 @@ import 'package:jh_guitar_tree/app.dart'; // MyApp 정의된 곳
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  runApp(const MyApp()); // app.dart의 MyApp 사용
+
+  // ✅ Firebase 연동 로그 출력!
+  printCurrentFirebaseApp();
+
+  runApp(const MyApp());
+}
+
+void printCurrentFirebaseApp() {
+  final app = Firebase.app();
+  print('✅ Firebase App: ${app.name}');
+  print('📦 Project ID: ${app.options.projectId}');
+  print('🔑 API Key: ${app.options.apiKey}');
 }

@@ -15,18 +15,22 @@ dependencies:
   # ✅ 저장 및 동기화 기능용
   hive: ^2.2.3
   hive_flutter: ^1.1.0
+
   # ✅ cloud_firestore Git 버전 (macOS 대응)
   cloud_firestore:
     git:
       url: https://github.com/firebase/flutterfire.git
       path: packages/cloud_firestore/cloud_firestore
 
-  # ✅ firebase_core 호환 버전 (hosted, ^3.13.1로 맞춰줌!)
+  # ✅ firebase_core 호환 버전
   firebase_core: ^3.13.1
 
   # ✅ 파일 첨부 및 실행
   file_picker: ^6.1.1
   open_filex: ^4.2.2
+
+  # ✅ 날짜 포맷 및 다국어 지원
+  intl: ^0.18.1
 
 dev_dependencies:
   flutter_test:

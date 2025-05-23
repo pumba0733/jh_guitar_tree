@@ -3,58 +3,67 @@ import 'package:jh_guitar_tree/models/student.dart';
 import 'package:jh_guitar_tree/services/student_service.dart';
 import 'package:jh_guitar_tree/dialogs/edit_memo_dialog.dart';
 import 'package:jh_guitar_tree/dialogs/student_edit_dialog.dart';
-import 'package:jh_guitar_tree/services/auth_service.dart';
 
 class StudentListTile extends StatelessWidget {
   final Student student;
   final VoidCallback onRefresh;
+  final List<Student> allStudents; // ✅ 추가됨
 
   const StudentListTile({
     super.key,
     required this.student,
     required this.onRefresh,
+    required this.allStudents,
   });
+
+  String getLast4Digits(String phoneNumber) {
+    return phoneNumber.length >= 4
+        ? phoneNumber.substring(phoneNumber.length - 4)
+        : '****';
+  }
+
+  String getDisplayName(Student student, List<Student> all) {
+    final dupes = all.where((s) => s.name == student.name).toList();
+    if (dupes.length > 1) {
+      return '${student.name} (${getLast4Digits(student.phoneNumber)})';
+    } else {
+      return student.name;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isAdmin = AuthService().isAdmin;
-    final role = AuthService().currentUserRole ?? '';
-
     return ListTile(
-      title: Text(student.name),
-      subtitle: Text('담당: ${student.teacherId} / 메모: ${student.memo}'),
+      title: Text(getDisplayName(student, allStudents)),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
-            icon: const Icon(Icons.edit),
-            tooltip: '학생 수정',
+            icon: const Icon(Icons.note),
+            tooltip: '메모 수정',
             onPressed: () {
               showDialog(
                 context: context,
                 builder:
-                    (context) => StudentEditDialog(
-                      student: student,
-                      isAdmin: isAdmin,
-                      role: role,
-                      onRefresh: onRefresh,
-                    ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.note_alt_outlined),
-            tooltip: '메모 수정',
-            onPressed: () async {
-              final newMemo = await showDialog<String>(
-                context: context,
-                builder:
-                    (context) => EditMemoDialog(
+                    (_) => EditMemoDialog(
                       studentId: student.id,
                       initialMemo: student.memo,
                     ),
+              ).then((_) => onRefresh());
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit),
+            tooltip: '학생 정보 수정',
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder:
+                    (_) => StudentEditDialog(
+                      student: student,
+                      onRefresh: onRefresh,
+                    ),
               );
-              if (newMemo != null) onRefresh();
             },
           ),
           IconButton(
@@ -79,7 +88,6 @@ class StudentListTile extends StatelessWidget {
                       ],
                     ),
               );
-
               if (confirm == true) {
                 await StudentService().deleteStudent(student.id);
                 onRefresh();

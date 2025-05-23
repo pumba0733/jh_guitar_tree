@@ -3,7 +3,6 @@ import 'package:jh_guitar_tree/screens/auth/login_controller.dart';
 import 'package:jh_guitar_tree/widgets/login_input_field.dart';
 import 'package:jh_guitar_tree/dialogs/staff_login_dialog.dart';
 
-
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -33,47 +32,42 @@ class _LoginScreenState extends State<LoginScreen> {
           Positioned(
             top: 40,
             right: 20,
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.lock_outline),
-              label: const Text('강사 로그인'),
+            child: IconButton(
+              icon: const Icon(Icons.manage_accounts),
               onPressed: () {
-  showDialog(
-    context: context,
-    builder: (_) => const StaffLoginDialog(),
-  );
-},
-
+                showDialog(
+                  context: context,
+                  builder: (_) => const StaffLoginDialog(),
+                );
+              },
             ),
           ),
-          // 학생 로그인 화면
           Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  '🎯 인조이 기타학원',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-                const Text('🧑‍🎓 학생 로그인', style: TextStyle(fontSize: 18)),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: 220,
-                  child: LoginInputField(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    '🎸 기타 레슨 앱',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 24),
+                  LoginInputField(
                     controller: nameController,
-                    hintText: '이름 입력',
+                    hintText: '이름을 입력하세요',
                     onSubmitted: (_) => _attemptLogin(),
                   ),
-                ),
-                const SizedBox(height: 12),
-                ElevatedButton(
-                  onPressed: isLoading ? null : _attemptLogin,
-                  child:
-                      isLoading
-                          ? const CircularProgressIndicator()
-                          : const Text('로그인 ▶'),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: isLoading ? null : _attemptLogin,
+                    child:
+                        isLoading
+                            ? const CircularProgressIndicator()
+                            : const Text('로그인'),
+                  ),
+                ],
+              ),
             ),
           ),
         ],

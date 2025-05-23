@@ -1,21 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:jh_guitar_tree/models/student.dart';
 import 'package:jh_guitar_tree/services/student_service.dart';
-import 'package:jh_guitar_tree/services/auth_service.dart';
 
 class StudentEditDialog extends StatefulWidget {
   final Student? student;
-  final bool isAdmin;
-  final String role;
   final VoidCallback onRefresh;
 
-  const StudentEditDialog({
-    super.key,
-    this.student,
-    required this.isAdmin,
-    required this.role,
-    required this.onRefresh,
-  });
+  const StudentEditDialog({super.key, this.student, required this.onRefresh});
 
   @override
   State<StudentEditDialog> createState() => _StudentEditDialogState();
@@ -23,108 +15,160 @@ class StudentEditDialog extends StatefulWidget {
 
 class _StudentEditDialogState extends State<StudentEditDialog> {
   final _formKey = GlobalKey<FormState>();
+
   late TextEditingController nameController;
   late TextEditingController schoolController;
   late TextEditingController gradeController;
-  late TextEditingController phoneSuffixController;
-  late TextEditingController memoController;
+  late TextEditingController phoneController;
+  late String gender;
+  late bool isAdult;
+  late DateTime startDate;
 
-  String gender = '남';
-  bool isAdult = false;
+  final StudentService _studentService = StudentService();
 
   @override
   void initState() {
     super.initState();
-    nameController = TextEditingController(text: widget.student?.name ?? '');
-    schoolController = TextEditingController(
-      text: widget.student?.schoolName ?? '',
-    );
+    final student = widget.student;
+    nameController = TextEditingController(text: student?.name ?? '');
+    schoolController = TextEditingController(text: student?.schoolName ?? '');
     gradeController = TextEditingController(
-      text:
-          widget.student?.grade != null ? widget.student!.grade.toString() : '',
+      text: student != null ? student.grade.toString() : '',
     );
-    phoneSuffixController = TextEditingController(
-      text: widget.student?.phoneSuffix ?? '',
-    );
-    memoController = TextEditingController(text: widget.student?.memo ?? '');
-
-    gender = widget.student?.gender ?? '남';
-    isAdult = widget.student?.isAdult ?? false;
+    phoneController = TextEditingController(text: student?.phoneNumber ?? '');
+    gender = student?.gender ?? '남';
+    isAdult = student?.isAdult ?? false;
+    startDate = student?.startDate ?? DateTime.now();
   }
 
   void handleSave() async {
-    if (_formKey.currentState!.validate()) {
-      final newStudent = Student(
-        id: widget.student?.id ?? '',
-        name: nameController.text.trim(),
-        gender: gender,
-        isAdult: isAdult,
-        schoolName: isAdult ? '' : schoolController.text.trim(),
-        grade: isAdult ? 0 : int.tryParse(gradeController.text.trim()) ?? 0,
-        startDate:
-            widget.student?.startDate ?? DateTime.now().toIso8601String(),
-        teacherId:
-            widget.student?.teacherId ?? (AuthService().currentUserId ?? ''),
-        memo: memoController.text.trim(),
-        phoneSuffix: phoneSuffixController.text.trim(),
-      );
+    if (!_formKey.currentState!.validate()) return;
 
-      if (widget.student == null) {
-        await StudentService().addStudent(newStudent);
-      } else {
-        await StudentService().updateStudent(newStudent);
-      }
+    final student = Student(
+      id: widget.student?.id ?? '',
+      name: nameController.text.trim(),
+      gender: gender,
+      isAdult: isAdult,
+      schoolName: isAdult ? '' : schoolController.text.trim(),
+      grade: isAdult ? 0 : int.tryParse(gradeController.text) ?? 0,
+      phoneNumber: phoneController.text.trim(),
+      startDate: startDate,
+      teacherId: widget.student?.teacherId ?? '',
+      memo: widget.student?.memo ?? '',
+    );
 
-      widget.onRefresh();
-      if (mounted) Navigator.of(context).pop();
+    if (widget.student == null) {
+      await _studentService.addStudent(student);
+    } else {
+      await _studentService.updateStudent(student);
     }
+
+    if (!mounted) return;
+    widget.onRefresh();
+    Navigator.of(context).pop();
+  }
+
+  void pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: startDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) setState(() => startDate = picked);
+  }
+
+  Widget buildToggleButton(String label, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? Colors.blue : Colors.grey.shade300,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? Colors.white : Colors.black,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.student == null ? '학생 등록' : '학생 수정'),
+      title: const Text('📝 학생 정보 수정'),
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               TextFormField(
                 controller: nameController,
                 decoration: const InputDecoration(labelText: '이름'),
                 validator:
-                    (value) =>
-                        value == null || value.trim().isEmpty
-                            ? '이름을 입력해주세요'
-                            : null,
+                    (value) => value!.trim().isEmpty ? '이름을 입력해주세요' : null,
               ),
-              TextFormField(
-                controller: phoneSuffixController,
-                decoration: const InputDecoration(labelText: '전화번호 뒷자리'),
-                keyboardType: TextInputType.number,
-                validator:
-                    (value) =>
-                        value == null || value.length != 4 ? '4자리 입력' : null,
-              ),
-              DropdownButtonFormField<String>(
-                value: gender,
-                decoration: const InputDecoration(labelText: '성별'),
-                items: const [
-                  DropdownMenuItem(value: '남', child: Text('남')),
-                  DropdownMenuItem(value: '여', child: Text('여')),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: RadioListTile(
+                      title: const Text('남'),
+                      value: '남',
+                      groupValue: gender,
+                      onChanged: (val) => setState(() => gender = val!),
+                    ),
+                  ),
+                  Expanded(
+                    child: RadioListTile(
+                      title: const Text('여'),
+                      value: '여',
+                      groupValue: gender,
+                      onChanged: (val) => setState(() => gender = val!),
+                    ),
+                  ),
                 ],
-                onChanged: (value) {
-                  if (value != null) setState(() => gender = value);
-                },
               ),
-              CheckboxListTile(
-                value: isAdult,
-                onChanged: (value) {
-                  if (value != null) setState(() => isAdult = value);
-                },
-                title: const Text('성인'),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: phoneController,
+                decoration: const InputDecoration(
+                  labelText: '전화번호 (예: 010-1234-5678)',
+                ),
+                validator:
+                    (value) => value!.trim().isEmpty ? '전화번호를 입력해주세요' : null,
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Text('등록일: '),
+                  Text(DateFormat('yyyy.MM.dd').format(startDate)),
+                  IconButton(
+                    icon: const Icon(Icons.calendar_today),
+                    onPressed: pickDate,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  buildToggleButton('🧑‍🎓 학생', !isAdult, () {
+                    setState(() => isAdult = false);
+                  }),
+                  buildToggleButton('👤 성인', isAdult, () {
+                    setState(() => isAdult = true);
+                  }),
+                ],
               ),
               if (!isAdult) ...[
+                const SizedBox(height: 12),
                 TextFormField(
                   controller: schoolController,
                   decoration: const InputDecoration(labelText: '학교'),
@@ -135,12 +179,6 @@ class _StudentEditDialogState extends State<StudentEditDialog> {
                   keyboardType: TextInputType.number,
                 ),
               ],
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: memoController,
-                maxLines: 4,
-                decoration: const InputDecoration(labelText: '메모'),
-              ),
             ],
           ),
         ),

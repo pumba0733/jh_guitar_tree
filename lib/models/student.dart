@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class Student {
   final String id;
   final String name;
@@ -5,10 +7,10 @@ class Student {
   final bool isAdult;
   final String schoolName;
   final int grade;
-  final String startDate;
+  final DateTime startDate;
   final String teacherId;
+  final String phoneNumber;
   final String memo;
-  final String phoneSuffix;
 
   Student({
     required this.id,
@@ -19,26 +21,31 @@ class Student {
     required this.grade,
     required this.startDate,
     required this.teacherId,
+    required this.phoneNumber,
     required this.memo,
-    required this.phoneSuffix,
   });
 
   // ✅ JSON 변환
   Map<String, dynamic> toJson() => {
-    'id': id,
     'name': name,
     'gender': gender,
     'isAdult': isAdult,
     'schoolName': schoolName,
     'grade': grade,
-    'startDate': startDate,
+    'startDate': Timestamp.fromDate(startDate),
     'teacherId': teacherId,
+    'phoneNumber': phoneNumber,
     'memo': memo,
-    'phoneSuffix': phoneSuffix,
   };
 
-  // ✅ fromJson
+  // ✅ fromJson (with Firestore Timestamp safe parsing)
   factory Student.fromJson(Map<String, dynamic> json, String id) {
+    final rawDate = json['startDate'];
+    final parsedDate =
+        rawDate is Timestamp
+            ? rawDate.toDate()
+            : DateTime.tryParse(rawDate?.toString() ?? '') ?? DateTime.now();
+
     return Student(
       id: id,
       name: json['name'] ?? '',
@@ -46,10 +53,10 @@ class Student {
       isAdult: json['isAdult'] ?? false,
       schoolName: json['schoolName'] ?? '',
       grade: json['grade'] ?? 0,
-      startDate: json['startDate'] ?? '',
+      startDate: parsedDate,
       teacherId: json['teacherId'] ?? '',
+      phoneNumber: json['phoneNumber'] ?? '',
       memo: json['memo'] ?? '',
-      phoneSuffix: json['phoneSuffix'] ?? '',
     );
   }
 
@@ -61,10 +68,10 @@ class Student {
     bool? isAdult,
     String? schoolName,
     int? grade,
-    String? startDate,
+    DateTime? startDate,
     String? teacherId,
+    String? phoneNumber,
     String? memo,
-    String? phoneSuffix,
   }) {
     return Student(
       id: id ?? this.id,
@@ -75,8 +82,8 @@ class Student {
       grade: grade ?? this.grade,
       startDate: startDate ?? this.startDate,
       teacherId: teacherId ?? this.teacherId,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
       memo: memo ?? this.memo,
-      phoneSuffix: phoneSuffix ?? this.phoneSuffix,
     );
   }
 }

@@ -29,7 +29,7 @@ class _EditMemoDialogState extends State<EditMemoDialog> {
     final newMemo = memoController.text.trim();
     await _studentService.updateMemo(widget.studentId, newMemo);
     if (!mounted) return;
-    Navigator.of(context).pop(newMemo); // 안전하게 context 사용
+    Navigator.of(context).pop(newMemo);
   }
 
   @override
@@ -43,6 +43,7 @@ class _EditMemoDialogState extends State<EditMemoDialog> {
           hintText: '메모를 입력하세요...',
           border: OutlineInputBorder(),
         ),
+        onSubmitted: (_) => saveMemo(), // ✅ 엔터 키 저장
       ),
       actions: [
         TextButton(

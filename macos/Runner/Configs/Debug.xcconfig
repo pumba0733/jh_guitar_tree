@@ -1,2 +1,2 @@
-#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.${CONFIGURATION}.xcconfig"
-
+#include "../../Flutter/Flutter-Debug.xcconfig"
+#include "Warnings.xcconfig"
