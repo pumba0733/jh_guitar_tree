@@ -9,6 +9,7 @@ class StudentService {
     required String name,
     required String last4,
   }) async {
+    // 정확 매칭을 권장. ilike는 부분일치이므로, 동명이인 이슈 시 eq로 바꿔도 됨.
     final res = await _client
         .from(SupabaseTables.students)
         .select()

@@ -1,4 +1,3 @@
-// lib/supabase/supabase_tables.dart
 class SupabaseTables {
   static const students = 'students';
   static const teachers = 'teachers';
@@ -7,4 +6,3 @@ class SupabaseTables {
   static const feedbackKeywords = 'feedback_keywords';
   static const logs = 'logs';
 }
-//ㅇㅇ

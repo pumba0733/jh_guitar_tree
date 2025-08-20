@@ -1,5 +1,8 @@
 class AppRoutes {
   static const login = '/login';
-  static const home = '/home'; // v1.00에서 사용하던 강사/관리자 홈
-  static const studentHome = '/student_home'; // v1.01
+
+  // v1.02 역할별 홈 분리
+  static const studentHome = '/student_home';
+  static const teacherHome = '/teacher_home';
+  static const adminHome = '/admin_home';
 }

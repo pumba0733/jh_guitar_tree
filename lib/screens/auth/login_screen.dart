@@ -58,8 +58,22 @@ class _LoginScreenState extends State<LoginScreen>
             email: email,
             password: pwd,
           );
+
           if (!mounted) return;
-          Navigator.of(context).pushReplacementNamed(AppRoutes.home);
+
+          // ✅ v1.02: 로그인 후 역할 판정 → 각 홈으로 분기
+          final role = await AuthService().getRole();
+          switch (role) {
+            case UserRole.admin:
+              Navigator.of(context).pushReplacementNamed(AppRoutes.adminHome);
+              break;
+            case UserRole.teacher:
+              Navigator.of(context).pushReplacementNamed(AppRoutes.teacherHome);
+              break;
+            case UserRole.student:
+              Navigator.of(context).pushReplacementNamed(AppRoutes.studentHome);
+              break;
+          }
         }
       }
     } on AuthException catch (e) {
