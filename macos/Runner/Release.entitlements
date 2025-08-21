@@ -4,6 +4,8 @@
 <dict>
   <key>com.apple.security.app-sandbox</key>
   <true/>
+
+  <!-- 런타임에 외부 API 호출 필요하니 client만 남김 -->
   <key>com.apple.security.network.client</key>
   <true/>
 </dict>
