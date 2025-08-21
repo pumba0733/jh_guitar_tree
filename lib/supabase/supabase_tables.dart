@@ -1,8 +1,8 @@
 // lib/supabase/supabase_tables.dart
 class SupabaseTables {
-  static const String students = 'students';
-  static const String teachers = 'teachers';
-  static const String lessons = 'lessons';
-  static const String summaries = 'summaries';
-  static const String logs = 'logs';
+  static const students = 'students';
+  static const teachers = 'teachers';
+  static const lessons = 'lessons';
+  static const summaries = 'summaries';
+  static const logs = 'logs';
 }

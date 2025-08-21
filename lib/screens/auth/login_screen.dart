@@ -1,4 +1,6 @@
+// lib/screens/auth/login_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // ✅ for FilteringTextInputFormatter
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/auth_service.dart';
 import '../../routes/app_routes.dart';
@@ -32,10 +34,14 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _submit() async {
+    // ✅ await 전에 NavigatorState를 캐시해서 use_build_context_synchronously 경고 제거
+    final navigator = Navigator.of(context);
+
     setState(() {
       _loading = true;
       _error = null;
     });
+
     try {
       if (_role == LoginRole.student) {
         final ok = await AuthService().loginStudent(
@@ -43,8 +49,9 @@ class _LoginScreenState extends State<LoginScreen>
           last4: _studentLast4Ctrl.text,
         );
         if (!mounted) return;
+
         if (ok) {
-          Navigator.of(context).pushReplacementNamed(AppRoutes.studentHome);
+          navigator.pushReplacementNamed(AppRoutes.studentHome);
         } else {
           setState(() => _error = '학생 정보가 일치하지 않습니다.');
         }
@@ -58,20 +65,20 @@ class _LoginScreenState extends State<LoginScreen>
             email: email,
             password: pwd,
           );
-
           if (!mounted) return;
 
-          // ✅ v1.02: 로그인 후 역할 판정 → 각 홈으로 분기
           final role = await AuthService().getRole();
+          if (!mounted) return;
+
           switch (role) {
             case UserRole.admin:
-              Navigator.of(context).pushReplacementNamed(AppRoutes.adminHome);
+              navigator.pushReplacementNamed(AppRoutes.adminHome);
               break;
             case UserRole.teacher:
-              Navigator.of(context).pushReplacementNamed(AppRoutes.teacherHome);
+              navigator.pushReplacementNamed(AppRoutes.teacherHome);
               break;
             case UserRole.student:
-              Navigator.of(context).pushReplacementNamed(AppRoutes.studentHome);
+              navigator.pushReplacementNamed(AppRoutes.studentHome);
               break;
           }
         }
@@ -119,6 +126,7 @@ class _LoginScreenState extends State<LoginScreen>
             border: OutlineInputBorder(),
           ),
           keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly], // ✅
           maxLength: 4,
           onSubmitted: (_) => _submit(),
         ),
