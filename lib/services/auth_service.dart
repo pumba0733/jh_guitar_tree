@@ -54,7 +54,7 @@ class AuthService {
     await _client.auth.signOut(); // Supabase 세션 클리어
   }
 
-  /// ✅ 역할 판별 메서드 (클래스 내부 메서드로 반드시 존재해야 함)
+  /// ✅ 역할 판별 메서드
   Future<UserRole> getRole() async {
     // 1) 학생 간편 로그인 상태면 student
     if (isLoggedInAsStudent) return UserRole.student;
