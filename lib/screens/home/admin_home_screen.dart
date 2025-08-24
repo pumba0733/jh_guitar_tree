@@ -55,7 +55,7 @@ class AdminHomeScreen extends StatelessWidget {
               label: const Text('백업'),
             ),
             ElevatedButton.icon(
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.import),
+              onPressed: () => Navigator.pushNamed(context, AppRoutes.importData),
               icon: const Icon(Icons.upload),
               label: const Text('복원'),
             ),

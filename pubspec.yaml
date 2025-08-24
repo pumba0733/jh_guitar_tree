@@ -18,19 +18,23 @@ dependencies:
   provider: ^6.1.5
 
   # Supabase & Auth
-  supabase_flutter: ^2.5.0
+  supabase_flutter: ^2.6.0
 
   # Local Storage
   hive: ^2.2.3
   hive_flutter: ^1.1.0
 
   # File / Open
-  file_picker: ^6.1.1
+  file_picker: ^6.2.1
   open_filex: ^4.3.2
 
   # Utils
   intl: ^0.19.0
   path_provider: ^2.1.4
+
+  # 🔥 추가 (v1.21 신규 코드 사용 패키지)
+  http: ^1.2.2
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:

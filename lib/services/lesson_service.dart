@@ -1,4 +1,5 @@
 // lib/services/lesson_service.dart
+// v1.21 | 체인 타입 충돌 해결 + 시그니처 정리
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/lesson.dart';
 import '../supabase/supabase_tables.dart';
@@ -6,125 +7,223 @@ import '../supabase/supabase_tables.dart';
 class LessonService {
   final SupabaseClient _client = Supabase.instance.client;
 
-  Future<List<Lesson>> listByStudent(String studentId, {int limit = 50}) async {
+  LessonService._internal();
+  static final LessonService instance = LessonService._internal();
+  factory LessonService() => instance;
+
+  String _dateKey(DateTime d) => d.toIso8601String().split('T').first;
+
+  /// 화면용: 학생별 레슨(Map) 리스트
+  Future<List<Map<String, dynamic>>> listByStudent(
+    String studentId, {
+    DateTime? from,
+    DateTime? to,
+    int limit = 100,
+    int offset = 0,
+    bool asc = false,
+  }) async {
+    dynamic q = _client
+        .from(SupabaseTables.lessons)
+        .select()
+        .eq('student_id', studentId);
+
+    if (from != null) q = q.gte('date', _dateKey(from));
+    if (to != null) q = q.lte('date', _dateKey(to));
+
+    final res = await q
+        .order('date', ascending: asc)
+        .range(offset, offset + limit - 1);
+    return (res as List)
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  /// 기존 호환: 모델 리스트
+  Future<List<Lesson>> listByStudentAsModel(
+    String studentId, {
+    int limit = 50,
+  }) async {
     final res = await _client
         .from(SupabaseTables.lessons)
         .select()
         .eq('student_id', studentId)
         .order('date', ascending: false)
         .limit(limit);
-    return (res as List).map((e) => Lesson.fromMap(Map<String, dynamic>.from(e))).toList();
+    return (res as List)
+        .map((e) => Lesson.fromMap(Map<String, dynamic>.from(e as Map)))
+        .toList();
   }
 
-  Future<List<Lesson>> listStudentFiltered({
-    required String studentId,
-    DateTime? from,
-    DateTime? to,
+  /// 강사 기준 오늘 수업 목록
+  Future<List<Lesson>> listTodayByTeacher(String teacherId) async {
+    final today = DateTime.now();
+    final from = DateTime(today.year, today.month, today.day);
+    final to = from.add(const Duration(days: 1));
+
+    final res = await _client.rpc(
+      'list_lessons_by_teacher_filtered',
+      params: {
+        'p_teacher_id': teacherId,
+        'p_from': _dateKey(from),
+        'p_to': _dateKey(to),
+        'p_query': null,
+        'p_sort': 'asc',
+        'p_limit': 50,
+        'p_offset': 0,
+      },
+    );
+
+    return (res as List)
+        .map((e) => Lesson.fromMap(Map<String, dynamic>.from(e as Map)))
+        .toList();
+  }
+
+  /// 학생 히스토리 검색 필터 (.params → .or, 체인 순서 주의: or는 order/limit 이전에)
+  Future<List<Lesson>> listStudentFiltered(
+    String studentId, {
     String? query,
-    bool ascending = false,
-    int limit = 200,
+    int limit = 50,
   }) async {
-    final qb = _client
+    dynamic q = _client
         .from(SupabaseTables.lessons)
         .select()
         .eq('student_id', studentId);
-    if (from != null) {
-      qb.gte('date', from.toIso8601String());
-    }
-    if (to != null) {
-      qb.lte('date', to.toIso8601String());
-    }
+
     if (query != null && query.trim().isNotEmpty) {
-      final q = query.trim().toLowerCase();
-      qb.or('subject.ilike.%$q%,memo.ilike.%$q%,next_plan.ilike.%$q%');
+      final term = query.trim();
+      q = q.or(
+        'subject.ilike.%$term%,memo.ilike.%$term%,next_plan.ilike.%$term%',
+      );
     }
-    qb.order('date', ascending: ascending);
-    qb.limit(limit);
-    final res = await qb;
-    return (res as List).map((e) => Lesson.fromMap(Map<String, dynamic>.from(e))).toList();
+
+    final res = await q.order('date', ascending: false).limit(limit);
+    return (res as List)
+        .map((e) => Lesson.fromMap(Map<String, dynamic>.from(e as Map)))
+        .toList();
   }
 
-  Future<List<Lesson>> listTodayByTeacher(String teacherId) async {
-    final today = DateTime.now();
-    final day = DateTime(today.year, today.month, today.day).toIso8601String();
+  Future<Map<String, dynamic>?> _getRowByStudentAndDate(
+    String studentId,
+    DateTime date,
+  ) async {
     final res = await _client
         .from(SupabaseTables.lessons)
         .select()
-        .eq('teacher_id', teacherId)
-        .eq('date', day);
-    return (res as List).map((e) => Lesson.fromMap(Map<String, dynamic>.from(e))).toList();
+        .eq('student_id', studentId)
+        .eq('date', _dateKey(date))
+        .maybeSingle();
+    return (res == null) ? null : Map<String, dynamic>.from(res as Map);
   }
 
-  String _todayIsoDateOnly() {
-    final now = DateTime.now();
-    final dateOnly = DateTime(now.year, now.month, now.day);
-    return dateOnly.toIso8601String();
-  }
-
-  Future<Lesson> upsertToday({
+  /// 오늘 레슨 불러오기/생성
+  Future<Lesson> loadOrCreateLesson({
     required String studentId,
     String? teacherId,
+    DateTime? date,
     String? subject,
     String? memo,
     String? nextPlan,
     String? youtubeUrl,
+    List<String>? keywords,
   }) async {
-    final dateStr = _todayIsoDateOnly();
-    final payload = {
+    final theDate = date ?? DateTime.now();
+    final exists = await _getRowByStudentAndDate(studentId, theDate);
+    if (exists != null) return Lesson.fromMap(exists);
+
+    final insert = {
       'student_id': studentId,
-      'date': dateStr,
       if (teacherId != null) 'teacher_id': teacherId,
+      'date': _dateKey(theDate),
       if (subject != null) 'subject': subject,
       if (memo != null) 'memo': memo,
       if (nextPlan != null) 'next_plan': nextPlan,
       if (youtubeUrl != null) 'youtube_url': youtubeUrl,
+      if (keywords != null) 'keywords': keywords,
     };
 
-    final res = await _client.from(SupabaseTables.lessons)
-      .upsert(payload, onConflict: 'student_id,date')
-      .select()
-      .limit(1);
-    final row = (res as List).first;
-    return Lesson.fromMap(Map<String, dynamic>.from(row));
+    final data = await _client
+        .from(SupabaseTables.lessons)
+        .insert(insert)
+        .select()
+        .maybeSingle();
+    if (data == null) throw StateError('레슨 생성 실패');
+    return Lesson.fromMap(Map<String, dynamic>.from(data as Map));
   }
 
-  Future<Lesson> patchToday({
+  /// studentId+date 기준 upsert (Map 기반 upsert도 별도로 제공 중)
+  Future<Lesson> upsertLesson({
+    required String studentId,
+    DateTime? date,
+    String? subject,
+    String? memo,
+    String? nextPlan,
+    String? youtubeUrl,
+    List<String>? keywords,
+  }) async {
+    final theDate = date ?? DateTime.now();
+    final exists = await _getRowByStudentAndDate(studentId, theDate);
+    final patch = <String, dynamic>{
+      if (subject != null) 'subject': subject,
+      if (memo != null) 'memo': memo,
+      if (nextPlan != null) 'next_plan': nextPlan,
+      if (youtubeUrl != null) 'youtube_url': youtubeUrl,
+      if (keywords != null) 'keywords': keywords,
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+
+    Map<String, dynamic>? data;
+    if (exists == null) {
+      final insert = {
+        'student_id': studentId,
+        'date': _dateKey(theDate),
+        ...patch,
+      };
+      data = await _client
+          .from(SupabaseTables.lessons)
+          .insert(insert)
+          .select()
+          .maybeSingle();
+    } else {
+      data = await _client
+          .from(SupabaseTables.lessons)
+          .update(patch)
+          .eq('student_id', studentId)
+          .eq('date', _dateKey(theDate))
+          .select()
+          .maybeSingle();
+    }
+
+    if (data == null) throw StateError('레슨 upsert 실패');
+    return Lesson.fromMap(Map<String, dynamic>.from(data as Map));
+  }
+
+  /// Map 기반 upsert (오늘 레슨 생성/수정 등 화면 코드에서 사용 중)
+  Future<Map<String, dynamic>> upsert(Map<String, dynamic> lesson) async {
+    final data = await _client
+        .from(SupabaseTables.lessons)
+        .upsert(lesson)
+        .select()
+        .maybeSingle();
+    if (data == null) throw StateError('레슨 upsert 실패');
+    return Map<String, dynamic>.from(data as Map);
+  }
+
+  Future<Lesson> upsertToday({
     required String studentId,
     String? subject,
     String? memo,
     String? nextPlan,
     String? youtubeUrl,
-  }) async {
-    final dateStr = _todayIsoDateOnly();
-    final payload = <String, dynamic>{};
-    if (subject != null) payload['subject'] = subject;
-    if (memo != null) payload['memo'] = memo;
-    if (nextPlan != null) payload['next_plan'] = nextPlan;
-    if (youtubeUrl != null) payload['youtube_url'] = youtubeUrl;
-
-    if (payload.isEmpty) {
-      // Nothing to patch; return current row (upsert to ensure existence).
-      return upsertToday(studentId: studentId);
-    }
-
-    final res = await _client
-        .from(SupabaseTables.lessons)
-        .update(payload)
-        .eq('student_id', studentId)
-        .eq('date', dateStr)
-        .select()
-        .limit(1);
-    if (res is List && res.isNotEmpty) {
-      return Lesson.fromMap(Map<String, dynamic>.from(res.first));
-    } else {
-      // If not exists, create with given payload.
-      return upsertToday(
-        studentId: studentId,
-        subject: subject,
-        memo: memo,
-        nextPlan: nextPlan,
-        youtubeUrl: youtubeUrl,
-      );
-    }
+    List<String>? keywords,
+  }) {
+    return upsertLesson(
+      studentId: studentId,
+      date: DateTime.now(),
+      subject: subject,
+      memo: memo,
+      nextPlan: nextPlan,
+      youtubeUrl: youtubeUrl,
+      keywords: keywords,
+    );
   }
 }

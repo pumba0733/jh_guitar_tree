@@ -1,152 +1,130 @@
 // lib/screens/lesson/today_lesson_screen.dart
-import 'dart:async';
+// v1.21.2 | 오늘 수업 화면 (arguments 기반 studentId 전달)
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import '../../services/auth_service.dart';
 import '../../services/lesson_service.dart';
-import '../../services/retry_queue_service.dart';
-import '../../services/log_service.dart';
+import '../../services/auth_service.dart';
 import '../../ui/components/save_status_indicator.dart';
 
 class TodayLessonScreen extends StatefulWidget {
   const TodayLessonScreen({super.key});
+
   @override
   State<TodayLessonScreen> createState() => _TodayLessonScreenState();
 }
 
 class _TodayLessonScreenState extends State<TodayLessonScreen> {
-  final _lessonSvc = LessonService();
-  final _retry = RetryQueueService();
+  final LessonService _service = LessonService();
 
-  final _subject = TextEditingController();
-  final _memo = TextEditingController();
-  final _next = TextEditingController();
-  final _youtube = TextEditingController();
+  final _subjectCtl = TextEditingController();
+  final _memoCtl = TextEditingController();
+  final _nextCtl = TextEditingController();
 
-  SaveState _state = SaveState.idle;
-  DateTime? _savedAt;
-  Timer? _debounce;
+  bool _saving = false;
+  String? _lessonId;
+  late String _studentId;
+  String? _teacherId;
 
-  void _queueSave() {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () async {
-      final stu = AuthService().currentStudent;
-      if (stu == null) return;
-      final patch = {
-        'subject': _subject.text,
-        'memo': _memo.text,
-        'next_plan': _next.text,
-        'youtube_url': _youtube.text,
-      };
-      setState(() {
-        _state = SaveState.saving;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final args = ModalRoute.of(context)?.settings.arguments as Map?;
+    _studentId =
+        (args?['studentId'] as String?) ??
+        AuthService().currentStudent?.id ??
+        '';
+    _teacherId = args?['teacherId'] as String?;
+
+    if (_studentId.isEmpty) {
+      throw Exception('TodayLessonScreen requires studentId');
+    }
+
+    _ensureTodayRow();
+  }
+
+  Future<void> _ensureTodayRow() async {
+    final today = DateTime.now();
+    final d0 = DateTime(today.year, today.month, today.day);
+    final dateStr = d0.toIso8601String().split('T').first;
+
+    final list = await _service.listByStudent(
+      _studentId,
+      from: d0,
+      to: d0,
+      limit: 1,
+    );
+
+    Map<String, dynamic> row;
+    if (list.isNotEmpty) {
+      row = list.first;
+    } else {
+      row = await _service.upsert({
+        'student_id': _studentId,
+        if (_teacherId != null) 'teacher_id': _teacherId,
+        'date': dateStr,
+        'subject': '',
+        'memo': '',
+        'next_plan': '',
       });
-      try {
-        await _lessonSvc.patchToday(
-          studentId: stu.id,
-          subject: _subject.text,
-          memo: _memo.text,
-          nextPlan: _next.text,
-          youtubeUrl: _youtube.text,
-        );
-        setState(() {
-          _state = SaveState.saved;
-          _savedAt = DateTime.now();
-        });
-        await LogService.insertLog(type: 'lesson_save', payload: {'student_id': stu.id});
-      } catch (e) {
-        // 실패 시 큐에 넣고 표시
-        _retry.enqueueTodayPatch(stu.id, patch);
-        setState(() => _state = SaveState.error);
-      }
-    });
+    }
+
+    _lessonId = row['id']?.toString();
+    _subjectCtl.text = (row['subject'] ?? '').toString();
+    _memoCtl.text = (row['memo'] ?? '').toString();
+    _nextCtl.text = (row['next_plan'] ?? '').toString();
+
+    if (mounted) setState(() {});
   }
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final stu = AuthService().currentStudent;
-      if (stu == null) return;
-      try {
-        final lesson = await _lessonSvc.upsertToday(studentId: stu.id);
-        setState(() {
-          _subject.text = lesson.subject ?? '';
-          _memo.text = lesson.memo ?? '';
-          _next.text = lesson.nextPlan ?? '';
-          _youtube.text = lesson.youtubeUrl ?? '';
-        });
-      } catch (_) {/* ignore */}
-    });
-  }
-
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    _subject.dispose();
-    _memo.dispose();
-    _next.dispose();
-    _youtube.dispose();
-    super.dispose();
+  Future<void> _save() async {
+    if (_lessonId == null) return;
+    setState(() => _saving = true);
+    try {
+      await _service.upsert({
+        'id': _lessonId,
+        'student_id': _studentId,
+        if (_teacherId != null) 'teacher_id': _teacherId,
+        'subject': _subjectCtl.text,
+        'memo': _memoCtl.text,
+        'next_plan': _nextCtl.text,
+      });
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final SaveStatus status = _saving ? SaveStatus.saving : SaveStatus.idle;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('오늘 수업'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: Center(child: SaveStatusIndicator(state: _state, savedAt: _savedAt)),
-          )
-        ],
-      ),
-      body: ListView(
+      appBar: AppBar(title: const Text('오늘 수업')),
+      body: Padding(
         padding: const EdgeInsets.all(16),
-        children: [
-          TextField(
-            controller: _subject,
-            decoration: const InputDecoration(labelText: '주제'),
-            onChanged: (_) => _queueSave(),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _memo,
-            decoration: const InputDecoration(labelText: '메모'),
-            maxLines: 5,
-            onChanged: (_) => _queueSave(),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _next,
-            decoration: const InputDecoration(labelText: '다음 계획'),
-            maxLines: 3,
-            onChanged: (_) => _queueSave(),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _youtube,
-            decoration: const InputDecoration(labelText: '유튜브 링크'),
-            keyboardType: TextInputType.url,
-            inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
-            onChanged: (_) => _queueSave(),
-          ),
-          const SizedBox(height: 20),
-          Text('실패 큐: ${_retry.pendingCount}건', style: const TextStyle(color: Colors.black54)),
-          const SizedBox(height: 4),
-          ElevatedButton.icon(
-            onPressed: () async {
-              final (ok, fail) = await _retry.flushAll(lessonService: _lessonSvc);
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('재시도 완료: 성공 $ok, 실패 $fail')),
-              );
-            },
-            icon: const Icon(Icons.refresh),
-            label: const Text('저장 재시도'),
-          ),
-        ],
+        child: Column(
+          children: [
+            TextField(
+              controller: _subjectCtl,
+              decoration: const InputDecoration(labelText: '주제'),
+              onChanged: (_) => _save(),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _memoCtl,
+              decoration: const InputDecoration(labelText: '메모'),
+              maxLines: 4,
+              onChanged: (_) => _save(),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _nextCtl,
+              decoration: const InputDecoration(labelText: '다음 계획'),
+              onChanged: (_) => _save(),
+            ),
+            const SizedBox(height: 12),
+            SaveStatusIndicator(status: status),
+          ],
+        ),
       ),
     );
   }

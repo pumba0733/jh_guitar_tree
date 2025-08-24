@@ -1,11 +1,25 @@
 // lib/services/file_service.dart
-// 파일 첨부/열기 보조. 데스크탑 우선, 모바일/Web 제한 안내는 UI에서 처리.
-class FileService {
-  const FileService();
+// v1.21 데스크탑 파일 저장/열기 유틸
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 
-  Future<void> open(String pathOrUrl) async {
-    // 실제 open_file / url_launcher 등은 pubspec 의존 필요하므로
-    // 여기서는 UI에서 경고/안내만 처리하도록 남겨둔다.
-    // macOS/Windows에서는 추후 open_file5 패키지로 연결하는 것을 권장.
+class FileService {
+  /// Downloads/문서 폴더 중 가능한 경로 반환
+  static Future<Directory> _resolveDownloadDir() async {
+    try {
+      final d = await getDownloadsDirectory(); // macOS/Windows
+      if (d != null) return d;
+    } catch (_) {}
+    final docs = await getApplicationDocumentsDirectory();
+    return docs;
+  }
+
+  static Future<File> saveTextFile({
+    required String filename,
+    required String content,
+  }) async {
+    final dir = await _resolveDownloadDir();
+    final file = File('${dir.path}/$filename');
+    return file.writeAsString(content);
   }
 }

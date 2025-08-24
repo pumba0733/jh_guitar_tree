@@ -38,10 +38,10 @@ class AppRoutes {
   // 레슨
   static const String todayLesson = '/today_lesson';
   static const String lessonHistory = '/lesson_history';
-  static const String summaryResult = '/summary_result';
 
   // 요약
   static const String lessonSummary = '/lesson_summary';
+  static const String summaryResult = '/summary_result';
 
   // 관리
   static const String manageStudents = '/manage_students';
@@ -51,28 +51,35 @@ class AppRoutes {
   // 설정
   static const String logs = '/logs';
   static const String export = '/export';
-  static const String import = '/import';
+  static const String importData = '/import';
   static const String changePassword = '/change_password';
 
-  static Map<String, WidgetBuilder> get routes => <String, WidgetBuilder>{
+  static Map<String, WidgetBuilder> get routes => {
+    // 기본/인증
     login: (_) => const LoginScreen(),
+
+    // 홈
     studentHome: (_) => const StudentHomeScreen(),
     teacherHome: (_) => const TeacherHomeScreen(),
     adminHome: (_) => const AdminHomeScreen(),
 
+    // 레슨 (arguments는 각 화면에서 ModalRoute.of(context)로 처리)
     todayLesson: (_) => const TodayLessonScreen(),
     lessonHistory: (_) => const LessonHistoryScreen(),
+
+    // 요약
+    lessonSummary: (_) => const LessonSummaryScreen(),
     summaryResult: (_) => const SummaryResultScreen(),
 
-    lessonSummary: (_) => const LessonSummaryScreen(),
-
+    // 관리
     manageStudents: (_) => const ManageStudentsScreen(),
     manageTeachers: (_) => const ManageTeachersScreen(),
     manageKeywords: (_) => const ManageKeywordsScreen(),
 
+    // 설정
     logs: (_) => const LogsScreen(),
     export: (_) => const ExportScreen(),
-    import: (_) => const ImportScreen(),
+    importData: (_) => const ImportScreen(),
     changePassword: (_) => const ChangePasswordScreen(),
   };
 }

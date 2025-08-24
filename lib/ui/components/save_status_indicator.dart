@@ -1,49 +1,67 @@
 // lib/ui/components/save_status_indicator.dart
+// v1.21.2 | 재시도 큐 대기수 표시 옵션 추가
 import 'package:flutter/material.dart';
 
-enum SaveState { idle, saving, saved, error }
+enum SaveStatus { idle, saving, saved, failed }
 
 class SaveStatusIndicator extends StatelessWidget {
-  final SaveState state;
-  final DateTime? savedAt;
-  const SaveStatusIndicator({super.key, required this.state, this.savedAt});
+  final SaveStatus status;
+  final DateTime? lastSavedAt;
+  final int pendingRetryCount;
+
+  const SaveStatusIndicator({
+    super.key,
+    required this.status,
+    this.lastSavedAt,
+    this.pendingRetryCount = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
     IconData icon;
+    Color color;
     String text;
-    switch (state) {
-      case SaveState.saving:
-        icon = Icons.autorenew;
+
+    switch (status) {
+      case SaveStatus.idle:
+        icon = Icons.check_circle_outline;
+        color = Colors.grey;
+        text = '대기 중';
+        break;
+      case SaveStatus.saving:
+        icon = Icons.sync;
+        color = Colors.blue;
         text = '저장 중…';
         break;
-      case SaveState.saved:
+      case SaveStatus.saved:
         icon = Icons.check_circle;
-        text = '저장됨';
+        color = Colors.green;
+        final time = lastSavedAt != null ? ' (${_fmtTime(lastSavedAt!)})' : '';
+        final tail = pendingRetryCount > 0 ? ' · 재시도 ${pendingRetryCount}' : '';
+        text = '저장됨$time$tail';
         break;
-      case SaveState.error:
+      case SaveStatus.failed:
         icon = Icons.error_outline;
-        text = '오류';
+        color = Colors.red;
+        final tail = pendingRetryCount > 0 ? ' · 대기 ${pendingRetryCount}' : '';
+        text = '실패$tail';
         break;
-      case SaveState.idle:
-      default:
-        icon = Icons.more_horiz;
-        text = '대기';
     }
+
+    final style = TextStyle(fontSize: 12, color: color);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 16),
+        Icon(icon, size: 16, color: color),
         const SizedBox(width: 6),
-        Text(text, style: const TextStyle(fontSize: 12)),
-        if (state == SaveState.saved && savedAt != null) ...[
-          const SizedBox(width: 6),
-          Text(
-            '(${TimeOfDay.fromDateTime(savedAt!).format(context)})',
-            style: const TextStyle(fontSize: 12, color: Colors.black54),
-          ),
-        ]
+        Text(text, style: style),
       ],
     );
+  }
+
+  String _fmtTime(DateTime dt) {
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    return '$h:$m';
   }
 }
