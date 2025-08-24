@@ -1,5 +1,4 @@
 // lib/ui/components/save_status_indicator.dart
-// v1.06 | 저장 상태 표시 위젯 (⏳/✅/⚠️)
 import 'package:flutter/material.dart';
 
 enum SaveState { idle, saving, saved, error }
@@ -15,19 +14,16 @@ class SaveStatusIndicator extends StatelessWidget {
     String text;
     switch (state) {
       case SaveState.saving:
-        icon = Icons.sync;
+        icon = Icons.autorenew;
         text = '저장 중…';
         break;
       case SaveState.saved:
         icon = Icons.check_circle;
-        final t = savedAt != null
-            ? '저장됨 (${TimeOfDay.fromDateTime(savedAt!).format(context)})'
-            : '저장됨';
-        text = t;
+        text = '저장됨';
         break;
       case SaveState.error:
         icon = Icons.error_outline;
-        text = '저장 실패';
+        text = '오류';
         break;
       case SaveState.idle:
       default:
@@ -40,6 +36,13 @@ class SaveStatusIndicator extends StatelessWidget {
         Icon(icon, size: 16),
         const SizedBox(width: 6),
         Text(text, style: const TextStyle(fontSize: 12)),
+        if (state == SaveState.saved && savedAt != null) ...[
+          const SizedBox(width: 6),
+          Text(
+            '(${TimeOfDay.fromDateTime(savedAt!).format(context)})',
+            style: const TextStyle(fontSize: 12, color: Colors.black54),
+          ),
+        ]
       ],
     );
   }

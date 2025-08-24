@@ -10,6 +10,10 @@ class SupabaseTables {
   static const String curriculumAssignments = 'curriculum_assignments';
 }
 
+class SupabaseViews {
+  static const String logDailyCounts = 'log_daily_counts';
+}
+
 class SupabaseBuckets {
   static const String curriculumFiles = 'curriculum_files';
 }

@@ -1,24 +1,28 @@
-// lib/screens/lesson/lesson_history_screen.dart
+// lib/screens/summary/lesson_summary_screen.dart
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../services/auth_service.dart';
 import '../../services/lesson_service.dart';
+import '../../services/summary_service.dart';
 import '../../models/lesson.dart';
+import '../../routes/app_routes.dart';
 
-class LessonHistoryScreen extends StatefulWidget {
-  const LessonHistoryScreen({super.key});
+class LessonSummaryScreen extends StatefulWidget {
+  const LessonSummaryScreen({super.key});
 
   @override
-  State<LessonHistoryScreen> createState() => _LessonHistoryScreenState();
+  State<LessonSummaryScreen> createState() => _LessonSummaryScreenState();
 }
 
-class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
-  final _svc = LessonService();
+class _LessonSummaryScreenState extends State<LessonSummaryScreen> {
+  final _lessonSvc = LessonService();
+  final _summarySvc = SummaryService();
+
   List<Lesson> _items = const [];
-  bool _loading = false;
+  final _selected = <String>{};
   DateTime? _from;
   DateTime? _to;
   String? _query;
+  bool _loading = false;
 
   Future<void> _pickDate({required bool isFrom}) async {
     final now = DateTime.now();
@@ -49,7 +53,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
     }
     setState(() => _loading = true);
     try {
-      final data = await _svc.listStudentFiltered(
+      final data = await _lessonSvc.listStudentFiltered(
         studentId: stu.id,
         from: _from,
         to: _to,
@@ -67,10 +71,24 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
     _load();
   }
 
+  Future<void> _createSummary() async {
+    final stu = AuthService().currentStudent;
+    if (stu == null || _selected.isEmpty) return;
+    final id = await _summarySvc.createSummaryForSelectedLessons(
+      studentId: stu.id,
+      type: '기간별',
+      periodStart: _from,
+      periodEnd: _to,
+      selectedLessonIds: _selected.toList(),
+    );
+    if (!mounted) return;
+    Navigator.pushNamed(context, AppRoutes.summaryResult, arguments: id);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('지난 수업 복습')),
+      appBar: AppBar(title: const Text('수업 요약')),
       body: Column(
         children: [
           Padding(
@@ -110,12 +128,30 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                     itemBuilder: (_, i) {
                       final l = _items[i];
                       final date = l.date.toIso8601String().split('T').first;
-                      return ListTile(
+                      final checked = _selected.contains(l.id);
+                      return CheckboxListTile(
+                        value: checked,
+                        onChanged: (v) {
+                          setState(() {
+                            if (v == true) _selected.add(l.id);
+                            else _selected.remove(l.id);
+                          });
+                        },
                         title: Text(l.subject ?? '(제목 없음)'),
                         subtitle: Text('날짜: $date  유튜브: ${l.youtubeUrl ?? "-"}'),
                       );
                     },
                   ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: ElevatedButton.icon(
+                onPressed: _selected.isEmpty ? null : _createSummary,
+                icon: const Icon(Icons.auto_fix_high),
+                label: Text('요약 생성 (${_selected.length}개 선택됨)'),
+              ),
+            ),
           ),
         ],
       ),

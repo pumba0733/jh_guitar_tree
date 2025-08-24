@@ -1,5 +1,4 @@
 // lib/models/student.dart
-// v1.05 | 2025-08-24 | 로그인/리스트 공용 모델
 class Student {
   final String id;
   final String name;
@@ -20,14 +19,14 @@ class Student {
   factory Student.fromMap(Map<String, dynamic> m) {
     return Student(
       id: m['id'] as String,
-      name: (m['name'] ?? '') as String,
+      name: m['name'] as String,
       phoneLast4: (m['phone_last4'] ?? '') as String,
       teacherId: m['teacher_id'] as String?,
       createdAt: m['created_at'] != null
-          ? DateTime.tryParse(m['created_at'])
+          ? DateTime.tryParse('${m['created_at']}')
           : null,
       updatedAt: m['updated_at'] != null
-          ? DateTime.tryParse(m['updated_at'])
+          ? DateTime.tryParse('${m['updated_at']}')
           : null,
     );
   }

@@ -1,6 +1,6 @@
 // lib/screens/auth/login_screen.dart
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // ✅ for FilteringTextInputFormatter
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/auth_service.dart';
 import '../../routes/app_routes.dart';
@@ -9,13 +9,11 @@ enum LoginRole { student, teacher, admin }
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
-
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen>
-    with SingleTickerProviderStateMixin {
+class _LoginScreenState extends State<LoginScreen> {
   LoginRole _role = LoginRole.student;
 
   final _studentNameCtrl = TextEditingController();
@@ -34,132 +32,45 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _submit() async {
-    // ✅ await 전에 NavigatorState를 캐시해서 use_build_context_synchronously 경고 제거
-    final navigator = Navigator.of(context);
-
     setState(() {
       _loading = true;
       _error = null;
     });
-
     try {
+      final auth = AuthService();
+
       if (_role == LoginRole.student) {
-        final ok = await AuthService().loginStudent(
+        final ok = await auth.signInStudent(
           name: _studentNameCtrl.text,
           last4: _studentLast4Ctrl.text,
         );
-        if (!mounted) return;
-
-        if (ok) {
-          navigator.pushReplacementNamed(AppRoutes.studentHome);
-        } else {
-          setState(() => _error = '학생 정보가 일치하지 않습니다.');
+        if (!ok) throw Exception('학생을 찾을 수 없습니다.');
+        if (mounted) {
+          Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.studentHome, (_) => false);
         }
-      } else {
-        final email = _emailCtrl.text.trim();
-        final pwd = _passwordCtrl.text.trim();
-        if (email.isEmpty || pwd.isEmpty) {
-          setState(() => _error = '이메일/비밀번호를 입력해주세요.');
-        } else {
-          await AuthService().loginWithEmailPassword(
-            email: email,
-            password: pwd,
-          );
-          if (!mounted) return;
-
-          final role = await AuthService().getRole();
-          if (!mounted) return;
-
-          switch (role) {
-            case UserRole.admin:
-              navigator.pushReplacementNamed(AppRoutes.adminHome);
-              break;
-            case UserRole.teacher:
-              navigator.pushReplacementNamed(AppRoutes.teacherHome);
-              break;
-            case UserRole.student:
-              navigator.pushReplacementNamed(AppRoutes.studentHome);
-              break;
-          }
-        }
+        return;
       }
-    } on AuthException catch (e) {
-      setState(() => _error = e.message);
+
+      // teacher/admin email login
+      final ok = await auth.signInWithEmail(
+        email: _emailCtrl.text,
+        password: _passwordCtrl.text,
+      );
+      if (!ok) throw Exception('이메일 또는 비밀번호가 올바르지 않습니다.');
+
+      final role = await auth.getRole();
+      final route = switch (role) {
+        UserRole.admin => AppRoutes.adminHome,
+        _ => AppRoutes.teacherHome,
+      };
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil(route, (_) => false);
+      }
     } catch (e) {
-      setState(() => _error = '로그인 중 오류가 발생했습니다: $e');
+      setState(() => _error = '$e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  Widget _buildRoleSegment() {
-    return SegmentedButton<LoginRole>(
-      segments: const [
-        ButtonSegment(value: LoginRole.student, label: Text('학생')),
-        ButtonSegment(value: LoginRole.teacher, label: Text('강사')),
-        ButtonSegment(value: LoginRole.admin, label: Text('관리자')),
-      ],
-      selected: {_role},
-      onSelectionChanged: (set) => _setRole(set.first),
-    );
-  }
-
-  Widget _buildStudentForm() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('학생 간편 로그인', style: TextStyle(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _studentNameCtrl,
-          decoration: const InputDecoration(
-            labelText: '이름',
-            border: OutlineInputBorder(),
-          ),
-          textInputAction: TextInputAction.next,
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _studentLast4Ctrl,
-          decoration: const InputDecoration(
-            labelText: '전화번호 뒷자리 4자리',
-            border: OutlineInputBorder(),
-          ),
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly], // ✅
-          maxLength: 4,
-          onSubmitted: (_) => _submit(),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEmailForm(String title) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _emailCtrl,
-          decoration: const InputDecoration(
-            labelText: '이메일',
-            border: OutlineInputBorder(),
-          ),
-          textInputAction: TextInputAction.next,
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _passwordCtrl,
-          decoration: const InputDecoration(
-            labelText: '비밀번호',
-            border: OutlineInputBorder(),
-          ),
-          obscureText: true,
-          onSubmitted: (_) => _submit(),
-        ),
-      ],
-    );
   }
 
   @override
@@ -173,45 +84,85 @@ class _LoginScreenState extends State<LoginScreen>
 
   @override
   Widget build(BuildContext context) {
-    final title = switch (_role) {
-      LoginRole.student => '학생 로그인',
-      LoginRole.teacher => '강사 로그인',
-      LoginRole.admin => '관리자 로그인',
-    };
+    final roleTabs = ToggleButtons(
+      isSelected: [
+        _role == LoginRole.student,
+        _role == LoginRole.teacher,
+        _role == LoginRole.admin
+      ],
+      onPressed: (i) => _setRole(LoginRole.values[i]),
+      children: const [
+        Padding(padding: EdgeInsets.all(8), child: Text('학생')),
+        Padding(padding: EdgeInsets.all(8), child: Text('강사')),
+        Padding(padding: EdgeInsets.all(8), child: Text('관리자')),
+      ],
+    );
+
+    final studentForm = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _studentNameCtrl,
+          decoration: const InputDecoration(labelText: '학생 이름'),
+          inputFormatters: [LengthLimitingTextInputFormatter(20)],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _studentLast4Ctrl,
+          decoration: const InputDecoration(labelText: '전화번호 뒤 4자리'),
+          keyboardType: TextInputType.number,
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(4),
+          ],
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton(
+          onPressed: _loading ? null : _submit,
+          child: _loading ? const CircularProgressIndicator() : const Text('학생 로그인'),
+        ),
+      ],
+    );
+
+    final emailForm = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _emailCtrl,
+          decoration: const InputDecoration(labelText: '이메일'),
+          keyboardType: TextInputType.emailAddress,
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _passwordCtrl,
+          decoration: const InputDecoration(labelText: '비밀번호'),
+          obscureText: true,
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton(
+          onPressed: _loading ? null : _submit,
+          child: _loading ? const CircularProgressIndicator() : const Text('이메일 로그인'),
+        ),
+      ],
+    );
 
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(title: const Text('로그인')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildRoleSegment(),
-                const SizedBox(height: 16),
-                if (_role == LoginRole.student) _buildStudentForm(),
-                if (_role == LoginRole.teacher) _buildEmailForm('강사 로그인'),
-                if (_role == LoginRole.admin) _buildEmailForm('관리자 로그인'),
+                roleTabs,
+                const SizedBox(height: 20),
+                if (_role == LoginRole.student) studentForm else emailForm,
                 if (_error != null) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   Text(_error!, style: const TextStyle(color: Colors.red)),
                 ],
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: _loading ? null : _submit,
-                    child: _loading
-                        ? const SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('로그인'),
-                  ),
-                ),
               ],
             ),
           ),

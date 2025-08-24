@@ -1,7 +1,7 @@
 // lib/services/teacher_service.dart
-// v1.05 | 2025-08-24 | 이메일 존재 여부 확인 (역할 판별용)
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../supabase/supabase_tables.dart';
+import '../models/teacher.dart';
 
 class TeacherService {
   final SupabaseClient _client = Supabase.instance.client;
@@ -15,9 +15,22 @@ class TeacherService {
           .select('id')
           .eq('email', email.trim())
           .limit(1);
-      return res.isNotEmpty;
+      return res is List && res.isNotEmpty;
     } catch (_) {
       return false;
     }
+  }
+
+  Future<Teacher?> getByEmail(String email) async {
+    if (email.trim().isEmpty) return null;
+    final res = await _client
+        .from(SupabaseTables.teachers)
+        .select('id, name, email')
+        .eq('email', email.trim())
+        .limit(1);
+    if (res is List && res.isNotEmpty) {
+      return Teacher.fromMap(Map<String, dynamic>.from(res.first));
+    }
+    return null;
   }
 }

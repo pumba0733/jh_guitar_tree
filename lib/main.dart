@@ -7,7 +7,7 @@ import 'supabase/supabase_options.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Supabase 옵션 확인 (placeholder 방지)
+  // Ensure user put real values (prevent placeholder run).
   SupabaseOptions.ensureConfigured();
 
   await Supabase.initialize(
@@ -16,5 +16,5 @@ Future<void> main() async {
     debug: false,
   );
 
-  runApp(const App()); // ✅ GuitarTreeApp → App 로 수정
+  runApp(const App());
 }
