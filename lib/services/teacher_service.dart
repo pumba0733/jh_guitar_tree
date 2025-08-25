@@ -6,7 +6,6 @@ import '../models/teacher.dart';
 class TeacherService {
   final SupabaseClient _client = Supabase.instance.client;
 
-  /// teachers.email 정확 일치 여부
   Future<bool> existsByEmail(String email) async {
     if (email.trim().isEmpty) return false;
     try {
@@ -34,35 +33,36 @@ class TeacherService {
     return null;
   }
 
-  /// 이메일로 Auth 사용자와 teachers 링크를 강제 동기화 (RPC)
-  Future<String?> syncAuthUserIdByEmail(String email) async {
-    final out = await _client.rpc(
-      'sync_teacher_auth_by_email',
+  /// ✅ SQL의 실제 함수명으로 정정: sync_auth_user_id_by_email
+  Future<void> syncAuthUserIdByEmail(String email) async {
+    await _client.rpc(
+      'sync_auth_user_id_by_email', // <-- 이름 일치
       params: {'p_email': email.trim()},
     );
-    return out?.toString();
   }
 
-  /// 로그인 직후 현재 Auth 사용자 id를 teachers와 링크(없으면 upsert)
+  /// ✅ 로그인 직후 연동은 "upsert_teacher_min → sync_auth_user_id_by_email" RPC만 사용
   Future<void> syncCurrentAuthUserLink() async {
     final u = _client.auth.currentUser;
     if (u == null) return;
-    final email = u.email ?? '';
+    final email = (u.email ?? '').trim();
     if (email.isEmpty) return;
 
-    // teachers에 없으면 생성, 있으면 auth_user_id / last_login 갱신
-    await _client.from(SupabaseTables.teachers).upsert({
-      'email': email,
-      'name': email.split('@').first,
-      'auth_user_id': u.id,
-      'last_login': DateTime.now().toIso8601String(),
-    }, onConflict: 'email');
+    // 1) 없으면 생성(최소필드) / 있으면 이름/관리자 플래그 보정
+    await _client.rpc(
+      'upsert_teacher_min',
+      params: {
+        'p_email': email,
+        'p_name': email.split('@').first,
+        'p_is_admin':
+            (u.userMetadata?['role']?.toString().toLowerCase() == 'admin'),
+      },
+    );
 
-    // 최종 보정 (관리자 권한 포함) – RPC로 Auth 메타데이터 반영
+    // 2) auth.uid()를 teachers.auth_user_id에 링크 + last_login 갱신
     await syncAuthUserIdByEmail(email);
   }
 
-  /// 강사 회원가입(앱에서 생성) — Supabase Auth + teachers upsert
   Future<bool> registerTeacher({
     required String name,
     required String email,
@@ -76,13 +76,16 @@ class TeacherService {
     );
     if (signUp.user == null) return false;
 
-    await _client.from(SupabaseTables.teachers).upsert({
-      'email': email.trim(),
-      'name': name.trim().isEmpty ? email.split('@').first : name.trim(),
-      'is_admin': isAdmin,
-      'auth_user_id': signUp.user!.id,
-    }, onConflict: 'email');
-
+    // 가입 후에도 테이블 직접 upsert하지 않고 RPC로만 정리
+    await _client.rpc(
+      'upsert_teacher_min',
+      params: {
+        'p_email': email.trim(),
+        'p_name': name.trim().isEmpty ? email.split('@').first : name.trim(),
+        'p_is_admin': isAdmin,
+      },
+    );
+    await syncAuthUserIdByEmail(email.trim());
     return true;
   }
 }
