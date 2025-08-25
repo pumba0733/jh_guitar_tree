@@ -1,5 +1,8 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.22.1 | 학생용 오늘 수업 화면 (디바운스 자동저장/키워드/접힘 섹션) - currentTeacher 참조 제거 & unnecessary_cast 정리
+// v1.23.1 | 오늘 수업 화면 - 키워드 DB 연동 + 디바운스 자동저장
+// - FIX: onConflict(student_id,date) 대응 위해 저장 시 항상 'date' 포함
+// - FIX: 키워드 새로고침 버튼: invalidateCache 후 로드 재실행(서비스 수정 불필요)
+
 import 'dart:async';
 import 'dart:io' show Platform;
 
@@ -8,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/lesson_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/keyword_service.dart';
 import '../../ui/components/save_status_indicator.dart';
 
 enum _LocalSection { memo, nextPlan, link }
@@ -21,13 +25,13 @@ class TodayLessonScreen extends StatefulWidget {
 
 class _TodayLessonScreenState extends State<TodayLessonScreen> {
   final LessonService _service = LessonService();
+  final KeywordService _keyword = KeywordService();
 
   final _subjectCtl = TextEditingController();
   final _memoCtl = TextEditingController();
   final _nextCtl = TextEditingController();
   final _youtubeCtl = TextEditingController();
 
-  // 저장 상태
   SaveStatus _status = SaveStatus.idle;
   DateTime? _lastSavedAt;
   Timer? _debounce;
@@ -37,16 +41,13 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   late String _studentId;
   String? _teacherId;
 
-  // 키워드 프리셋 (임시)
-  final List<String> _allKeywords = const [
-    '박자',
-    '코드 전환',
-    '리듬',
-    '운지',
-    '스케일',
-    '톤',
-    '댐핑',
-  ];
+  // 오늘 날짜 (YYYY-MM-DD)
+  late final String _todayDateStr;
+
+  // 키워드 (DB) 상태
+  List<String> _categories = const [];
+  String? _selectedCategory;
+  List<KeywordItem> _items = const [];
   final Set<String> _selectedKeywords = {};
 
   // 접힘 상태
@@ -57,6 +58,8 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   };
 
   bool _initialized = false;
+  bool _loadingKeywords = false;
+
   bool get _isDesktop =>
       (Platform.isMacOS || Platform.isWindows || Platform.isLinux);
 
@@ -71,15 +74,20 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         AuthService().currentStudent?.id ??
         '';
 
-    // ⚠️ AuthService에는 currentTeacher가 없음 → args로만 teacherId 수신
     _teacherId = args?['teacherId'] as String?;
 
     if (_studentId.isEmpty) {
       throw Exception('TodayLessonScreen requires studentId');
     }
 
+    // 오늘 날짜 문자열 확정
+    final now = DateTime.now();
+    final d0 = DateTime(now.year, now.month, now.day);
+    _todayDateStr = d0.toIso8601String().split('T').first;
+
     _bindListeners();
     _ensureTodayRow();
+    _loadKeywordData();
     _initialized = true;
   }
 
@@ -94,7 +102,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     try {
       final today = DateTime.now();
       final d0 = DateTime(today.year, today.month, today.day);
-      final dateStr = d0.toIso8601String().split('T').first;
 
       final list = await _service.listByStudent(
         _studentId,
@@ -105,14 +112,13 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
       Map<String, dynamic> row;
       if (list.isNotEmpty) {
-        // unnecessary_cast 제거: listByStudent 반환이 이미 List<Map<String,dynamic>>
         row = list.first;
       } else {
-        // unnecessary_cast 제거: upsert 반환이 Map<String,dynamic>
+        // 최초 생성 시에도 date를 명시
         row = await _service.upsert({
           'student_id': _studentId,
           if (_teacherId != null) 'teacher_id': _teacherId,
-          'date': dateStr,
+          'date': _todayDateStr,
           'subject': '',
           'memo': '',
           'next_plan': '',
@@ -140,6 +146,65 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
   }
 
+  Future<void> _loadKeywordData() async {
+    setState(() => _loadingKeywords = true);
+
+    try {
+      final categories = await _keyword.fetchCategories();
+      var selectedCat = (categories.isNotEmpty) ? categories.first : null;
+      var items = <KeywordItem>[];
+
+      if (selectedCat != null) {
+        items = await _keyword.fetchItemsByCategory(selectedCat);
+      }
+
+      // DB 비어있을 때 안전한 fallback
+      if (categories.isEmpty || items.isEmpty) {
+        selectedCat ??= '기본';
+        final mutable = categories.isEmpty ? <String>['기본'] : categories;
+        if (!mounted) return;
+        setState(() {
+          _categories = mutable;
+          _selectedCategory = selectedCat;
+          _items = const [
+            KeywordItem('박자', '박자'),
+            KeywordItem('코드 전환', '코드 전환'),
+            KeywordItem('리듬', '리듬'),
+            KeywordItem('운지', '운지'),
+            KeywordItem('스케일', '스케일'),
+            KeywordItem('톤', '톤'),
+            KeywordItem('댐핑', '댐핑'),
+          ];
+        });
+      } else {
+        if (!mounted) return;
+        setState(() {
+          _categories = categories;
+          _selectedCategory = selectedCat;
+          _items = items;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _categories = const ['기본'];
+        _selectedCategory = '기본';
+        _items = const [
+          KeywordItem('박자', '박자'),
+          KeywordItem('코드 전환', '코드 전환'),
+          KeywordItem('리듬', '리듬'),
+          KeywordItem('운지', '운지'),
+          KeywordItem('스케일', '스케일'),
+          KeywordItem('톤', '톤'),
+          KeywordItem('댐핑', '댐핑'),
+        ];
+      });
+      _showError('키워드 목록을 불러오지 못했어요. 기본 목록으로 대체합니다.\n$e');
+    } finally {
+      if (mounted) setState(() => _loadingKeywords = false);
+    }
+  }
+
   void _scheduleSave() {
     _setStatus(SaveStatus.saving);
     _debounce?.cancel();
@@ -152,6 +217,8 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       await _service.upsert({
         'id': _lessonId,
         'student_id': _studentId,
+        // onConflict(student_id,date) 대응: 항상 날짜 포함!
+        'date': _todayDateStr,
         if (_teacherId != null) 'teacher_id': _teacherId,
         'subject': _subjectCtl.text.trim(),
         'memo': _memoCtl.text.trim(),
@@ -162,17 +229,16 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       _lastSavedAt = DateTime.now();
       _setStatus(SaveStatus.saved);
     } catch (e) {
-      // enum 명칭 통일: failed 사용
       _setStatus(SaveStatus.failed);
       _showError('저장 실패: $e');
     }
   }
 
-  void _toggleKeyword(String k) {
-    if (_selectedKeywords.contains(k)) {
-      _selectedKeywords.remove(k);
+  void _toggleKeyword(String value) {
+    if (_selectedKeywords.contains(value)) {
+      _selectedKeywords.remove(value);
     } else {
-      _selectedKeywords.add(k);
+      _selectedKeywords.add(value);
     }
     setState(() {});
     _scheduleSave();
@@ -235,6 +301,8 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           const SizedBox(height: 16),
 
           _sectionTitle('키워드'),
+          _buildKeywordControls(),
+          const SizedBox(height: 8),
           _buildKeywordChips(),
 
           const SizedBox(height: 8),
@@ -302,6 +370,60 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
   final GlobalKey _keywordsKey = GlobalKey();
 
+  Widget _buildKeywordControls() {
+    if (_loadingKeywords) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: LinearProgressIndicator(minHeight: 2),
+      );
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              labelText: '카테고리',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                isExpanded: true,
+                value: _selectedCategory,
+                items: _categories
+                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                    .toList(),
+                onChanged: (v) async {
+                  if (v == null) return;
+                  setState(() => _selectedCategory = v);
+                  final items = await _keyword.fetchItemsByCategory(v);
+                  if (!mounted) return;
+                  setState(() => _items = items);
+                },
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Tooltip(
+          message: '키워드 새로고침 (관리자 편집 반영)',
+          child: IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () async {
+              // 서비스 수정 없이 캐시 무효화 후 다시 로드
+              _keyword.invalidateCache();
+              await _loadKeywordData();
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('키워드 캐시를 초기화하고 다시 불러왔어요.')),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildKeywordChips() {
     return Padding(
       key: _keywordsKey,
@@ -309,12 +431,12 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
-        children: _allKeywords.map((k) {
-          final selected = _selectedKeywords.contains(k);
+        children: _items.map((it) {
+          final selected = _selectedKeywords.contains(it.value);
           return FilterChip(
-            label: Text(k),
+            label: Text(it.text),
             selected: selected,
-            onSelected: (_) => _toggleKeyword(k),
+            onSelected: (_) => _toggleKeyword(it.value),
           );
         }).toList(),
       ),

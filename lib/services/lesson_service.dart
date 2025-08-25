@@ -1,5 +1,5 @@
 // lib/services/lesson_service.dart
-// v1.21 | 체인 타입 충돌 해결 + 시그니처 정리
+// v1.23.1 | upsert(Map) 안전화: id 있으면 update, 새 레코드만 onConflict(student_id,date) + date 기본값 보강
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/lesson.dart';
 import '../supabase/supabase_tables.dart';
@@ -78,7 +78,7 @@ class LessonService {
         .toList();
   }
 
-  /// 학생 히스토리 검색 필터 (.params → .or, 체인 순서 주의: or는 order/limit 이전에)
+  /// 학생 히스토리 검색 필터
   Future<List<Lesson>> listStudentFiltered(
     String studentId, {
     String? query,
@@ -150,7 +150,7 @@ class LessonService {
     return Lesson.fromMap(Map<String, dynamic>.from(data as Map));
   }
 
-  /// studentId+date 기준 upsert (Map 기반 upsert도 별도로 제공 중)
+  /// studentId+date 기준 upsert (모델)
   Future<Lesson> upsertLesson({
     required String studentId,
     DateTime? date,
@@ -197,11 +197,37 @@ class LessonService {
     return Lesson.fromMap(Map<String, dynamic>.from(data as Map));
   }
 
-  /// Map 기반 upsert (오늘 레슨 생성/수정 등 화면 코드에서 사용 중)
+  /// Map 기반 upsert
+  /// - id가 있으면 update(id) 경로 (안전)
+  /// - 새 row일 때만 onConflict(student_id,date) 사용
   Future<Map<String, dynamic>> upsert(Map<String, dynamic> lesson) async {
+    final payload = Map<String, dynamic>.from(lesson);
+
+    // update(id) 경로
+    final id = payload.remove('id');
+    if (id != null) {
+      final data = await _client
+          .from(SupabaseTables.lessons)
+          .update(payload)
+          .eq('id', id)
+          .select()
+          .maybeSingle();
+      if (data == null) throw StateError('레슨 upsert 실패');
+      return Map<String, dynamic>.from(data as Map);
+    }
+
+    // insert/upsert 경로
+    // onConflict가 (student_id,date)이므로 반드시 포함
+    if (!payload.containsKey('student_id')) {
+      throw ArgumentError('upsert: student_id가 필요합니다');
+    }
+    if (!payload.containsKey('date') || (payload['date'] as String).isEmpty) {
+      payload['date'] = _dateKey(DateTime.now());
+    }
+
     final data = await _client
         .from(SupabaseTables.lessons)
-        .upsert(lesson, onConflict: 'student_id,date') // ← 추가
+        .upsert(payload, onConflict: 'student_id,date')
         .select()
         .maybeSingle();
     if (data == null) throw StateError('레슨 upsert 실패');
