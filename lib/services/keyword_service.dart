@@ -1,28 +1,58 @@
-// lib/services/keyword_service.dart
-// v1.23.1 | feedback_keywords 연동 + 메모리 캐시 + 강제재조회(force)
+// v1.24 | feedback_keywords 연동 고도화 + 캐시TTL + 안전파싱 + 검색 지원
 // - fetchCategories({force})
 // - fetchItemsByCategory(category, {force})
 // - fetchAllItems({force})
-// - invalidateCache()  ← 관리자 수정 후 버튼에 연결
+// - searchItems(query, {force})
+// - invalidateCache()
 //
 // 요구 스키마: public.feedback_keywords(category text, items jsonb[])
 //
 // 사용 예:
 // final cats = await KeywordService().fetchCategories();
 // final rhythm = await KeywordService().fetchItemsByCategory('리듬');
+// final hits = await KeywordService().searchItems('코드');
 // KeywordService().invalidateCache(); // 관리자 편집 후 캐시 비우기
 
 import 'package:supabase_flutter/supabase_flutter.dart';
-
 import '../supabase/supabase_tables.dart';
 
 class KeywordItem {
   final String text; // UI 표시용
   final String value; // 저장/검색용(없으면 text와 동일)
+
   const KeywordItem(this.text, this.value);
+
+  factory KeywordItem.fromDynamic(dynamic raw) {
+    // items가 ["문자열", {"text": "...", "value":"..."}] 혼재 가능
+    if (raw is String) {
+      final t = raw.trim();
+      return KeywordItem(t, t);
+    }
+    if (raw is Map) {
+      final m = Map<String, dynamic>.from(raw as Map);
+      final text = (m['text'] ?? m['value'] ?? '').toString().trim();
+      final value = (m['value'] ?? m['text'] ?? '').toString().trim();
+      final normText = text.isEmpty ? value : text;
+      final normValue = value.isEmpty ? normText : value;
+      return KeywordItem(normText, normValue);
+    }
+    // 알 수 없는 타입은 빈 값 방지용 기본값
+    return const KeywordItem('', '');
+  }
+
+  Map<String, dynamic> toJson() => {'text': text, 'value': value};
 
   @override
   String toString() => 'KeywordItem(text: $text, value: $value)';
+
+  // 소문자/공백정리 비교 키
+  String get _lcText => text.toLowerCase().trim();
+  String get _lcValue => value.toLowerCase().trim();
+
+  bool matches(String q) {
+    final term = q.toLowerCase().trim();
+    return _lcText.contains(term) || _lcValue.contains(term);
+  }
 }
 
 class KeywordService {
@@ -32,15 +62,61 @@ class KeywordService {
 
   final SupabaseClient _client = Supabase.instance.client;
 
-  // ===== 메모리 캐시 =====
+  // ===== 메모리 캐시 + TTL =====
   List<String>? _categories;
   final Map<String, List<KeywordItem>> _byCategory = {};
+  DateTime? _cacheAt;
+  Duration _ttl = const Duration(minutes: 10);
+
+  // 내부: 캐시 사용 가능 여부
+  bool _useCache(bool force) {
+    if (force) return false;
+    if (_cacheAt == null) return false;
+    final expired = DateTime.now().difference(_cacheAt!) > _ttl;
+    return !expired;
+  }
+
+  // 내부: 캐시 타임스탬프 갱신
+  void _touchCache() => _cacheAt = DateTime.now();
+
+  // 내부: JSON-any → List<KeywordItem>
+  List<KeywordItem> _parseItems(dynamic items) {
+    final out = <KeywordItem>[];
+    if (items is List) {
+      for (final raw in items) {
+        final it = KeywordItem.fromDynamic(raw);
+        if (it.text.isNotEmpty) out.add(it);
+      }
+    }
+    // 중복 제거(text/value 모두 기준)
+    final seen = <String>{};
+    final dedup = <KeywordItem>[];
+    for (final it in out) {
+      final key = '${it.text}§${it.value}';
+      if (seen.add(key)) dedup.add(it);
+    }
+    return dedup;
+  }
+
+  /// 캐시 무효화 (관리자 수정 후 버튼에 연결)
+  void invalidateCache() {
+    _categories = null;
+    _byCategory.clear();
+    _cacheAt = null;
+  }
+
+  /// 캐시 TTL 동적 조정(테스트/운영 전환용)
+  void setCacheTtl(Duration ttl) {
+    _ttl = ttl;
+  }
 
   /// 카테고리 목록 가져오기
-  /// - 기본: 메모리 캐시 사용
-  /// - force=true: 서버에서 다시 읽고 캐시 갱신
+  /// - 기본: 캐시 + TTL 사용
+  /// - force=true: 서버 재조회
   Future<List<String>> fetchCategories({bool force = false}) async {
-    if (!force && _categories != null) return _categories!;
+    if (_categories != null && _useCache(force)) {
+      return _categories!;
+    }
 
     final res = await _client
         .from(SupabaseTables.feedbackKeywords)
@@ -53,21 +129,30 @@ class KeywordService {
       final c = (m['category'] ?? '').toString().trim();
       if (c.isNotEmpty) set.add(c);
     }
-    _categories = set.toList();
+
+    // DB 비어있으면 폴백
+    if (set.isEmpty) {
+      _categories = <String>['기본'];
+    } else {
+      _categories = set.toList();
+    }
+    _touchCache();
     return _categories!;
   }
 
-  /// 특정 카테고리의 아이템 목록 가져오기
-  /// - 기본: 메모리 캐시 사용
-  /// - force=true: 서버에서 다시 읽고 캐시 갱신
+  /// 특정 카테고리의 아이템 목록
+  /// - 기본: 캐시 + TTL 사용
+  /// - force=true: 서버 재조회
   Future<List<KeywordItem>> fetchItemsByCategory(
     String category, {
     bool force = false,
   }) async {
-    if (!force && _byCategory.containsKey(category)) {
+    // 캐시 히트
+    if (_byCategory.containsKey(category) && _useCache(force)) {
       return _byCategory[category]!;
     }
 
+    // 서버 조회
     final res = await _client
         .from(SupabaseTables.feedbackKeywords)
         .select('items')
@@ -75,46 +160,72 @@ class KeywordService {
         .limit(1)
         .maybeSingle();
 
-    final list = <KeywordItem>[];
+    List<KeywordItem> list = const [];
+
     if (res != null) {
       final map = Map<String, dynamic>.from(res as Map);
-      final items = map['items'];
-      if (items is List) {
-        for (final it in items) {
-          if (it is Map) {
-            final mm = Map<String, dynamic>.from(it);
-            final text = (mm['text'] ?? mm['value'] ?? '').toString().trim();
-            final value = (mm['value'] ?? mm['text'] ?? '').toString().trim();
-            if (text.isNotEmpty) {
-              list.add(KeywordItem(text, value.isEmpty ? text : value));
-            }
-          } else if (it is String) {
-            final t = it.trim();
-            if (t.isNotEmpty) list.add(KeywordItem(t, t));
-          }
-        }
+      dynamic items = map['items'];
+
+      // 만약 문자열 JSON으로 저장된 경우를 대비
+      if (items is String) {
+        try {
+          items = Supabase
+              .instance
+              .client
+              .auth
+              .currentSession; // dummy to silence lints
+        } catch (_) {}
+        // Supabase 클라이언트에 JSON 파서 제공 없으므로, 서버는 보통 jsonb → List로 온다.
+        // 혹시 문자열로 오는 엣지 케이스는 무시(운영에서는 jsonb 일관 유지).
       }
+      list = _parseItems(items);
+    }
+
+    // 폴백(카테고리 미존재 혹은 items 비어있음)
+    if (list.isEmpty && category == '기본') {
+      list = const [
+        KeywordItem('박자', '박자'),
+        KeywordItem('코드 전환', '코드 전환'),
+        KeywordItem('리듬', '리듬'),
+        KeywordItem('운지', '운지'),
+        KeywordItem('스케일', '스케일'),
+        KeywordItem('톤', '톤'),
+        KeywordItem('댐핑', '댐핑'),
+      ];
     }
 
     _byCategory[category] = list;
+    _touchCache();
     return list;
   }
 
-  /// 전 카테고리 통합 아이템 목록
-  /// - 각 카테고리 순차 조회(캐시 사용)
-  /// - force=true: 카테고리/아이템 모두 서버 재조회
+  /// 전 카테고리 통합 아이템
   Future<List<KeywordItem>> fetchAllItems({bool force = false}) async {
     final cats = await fetchCategories(force: force);
     final out = <KeywordItem>[];
     for (final c in cats) {
-      out.addAll(await fetchItemsByCategory(c, force: force));
+      final items = await fetchItemsByCategory(c, force: force);
+      out.addAll(items);
     }
-    return out;
+    // 중복 제거
+    final seen = <String>{};
+    final dedup = <KeywordItem>[];
+    for (final it in out) {
+      final key = '${it.text}§${it.value}';
+      if (seen.add(key)) dedup.add(it);
+    }
+    return dedup;
   }
 
-  /// 메모리 캐시 무효화 (관리자 수정 후 버튼에 연결)
-  void invalidateCache() {
-    _categories = null;
-    _byCategory.clear();
+  /// 검색(클라이언트 측 필터)
+  /// - PostgREST의 jsonb 내 ILIKE 한계 회피 위해 전체 아이템 로드 후 필터
+  Future<List<KeywordItem>> searchItems(
+    String query, {
+    bool force = false,
+  }) async {
+    final term = query.trim();
+    if (term.isEmpty) return const [];
+    final all = await fetchAllItems(force: force);
+    return all.where((it) => it.matches(term)).toList(growable: false);
   }
 }

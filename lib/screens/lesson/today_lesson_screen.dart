@@ -1,7 +1,10 @@
-// lib/screens/lesson/today_lesson_screen.dart
-// v1.23.1 | 오늘 수업 화면 - 키워드 DB 연동 + 디바운스 자동저장
-// - FIX: onConflict(student_id,date) 대응 위해 저장 시 항상 'date' 포함
-// - FIX: 키워드 새로고침 버튼: invalidateCache 후 로드 재실행(서비스 수정 불필요)
+// v1.24.2 | 오늘 수업 화면 - 설계서 정합 보강
+// - 키워드 검색(디바운스) + 카테고리 필터
+// - '최근 다음 계획' 빠른 불러오기(상위 3개)
+// - 데스크탑 첨부 업로드/실행/삭제(파일 클립 UI 연동)
+// - 저장 성공 시 로그 기록(type: lesson_save)
+// - onConflict(student_id,date) 대비하여 항상 date 포함
+// - 350ms 디바운스 자동 저장 + 상태 인디케이터
 
 import 'dart:async';
 import 'dart:io' show Platform;
@@ -10,11 +13,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/lesson_service.dart';
-import '../../services/auth_service.dart';
 import '../../services/keyword_service.dart';
+import '../../services/file_service.dart';
+import '../../services/log_service.dart';
 import '../../ui/components/save_status_indicator.dart';
 
-enum _LocalSection { memo, nextPlan, link }
+enum _LocalSection { memo, nextPlan, link, attach }
 
 class TodayLessonScreen extends StatefulWidget {
   const TodayLessonScreen({super.key});
@@ -26,15 +30,19 @@ class TodayLessonScreen extends StatefulWidget {
 class _TodayLessonScreenState extends State<TodayLessonScreen> {
   final LessonService _service = LessonService();
   final KeywordService _keyword = KeywordService();
+  final FileService _file = FileService();
+  // LogService는 정적 메서드만 제공 → 인스턴스 불필요
 
   final _subjectCtl = TextEditingController();
   final _memoCtl = TextEditingController();
   final _nextCtl = TextEditingController();
   final _youtubeCtl = TextEditingController();
+  final _keywordSearchCtl = TextEditingController();
 
   SaveStatus _status = SaveStatus.idle;
   DateTime? _lastSavedAt;
   Timer? _debounce;
+  Timer? _kwSearchDebounce;
 
   // 식별자
   String? _lessonId;
@@ -48,39 +56,37 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   List<String> _categories = const [];
   String? _selectedCategory;
   List<KeywordItem> _items = const [];
+  List<KeywordItem> _filteredItems = const [];
   final Set<String> _selectedKeywords = {};
 
-  // 접힘 상태
-  final Map<_LocalSection, bool> _expanded = {
-    _LocalSection.memo: false,
-    _LocalSection.nextPlan: false,
-    _LocalSection.link: false,
-  };
+  // 최근 다음 계획 후보
+  List<String> _recentNextPlans = const [];
+
+  // 첨부
+  // attachments: list of `{ "path": "...", "url": "...", "name": "파일.ext" }`
+  final List<Map<String, dynamic>> _attachments = [];
 
   bool _initialized = false;
   bool _loadingKeywords = false;
 
   bool get _isDesktop =>
-      (Platform.isMacOS || Platform.isWindows || Platform.isLinux);
+      (Platform.isMacOS || Platform.isWindows || Platform.isLinux) && !kIsWeb;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_initialized) return;
 
-    final args = ModalRoute.of(context)?.settings.arguments as Map?;
-    _studentId =
-        (args?['studentId'] as String?) ??
-        AuthService().currentStudent?.id ??
-        '';
-
-    _teacherId = args?['teacherId'] as String?;
+    final args = (ModalRoute.of(context)?.settings.arguments as Map?) ?? {};
+    _studentId = (args['studentId'] as String?)?.trim() ?? '';
+    _teacherId = (args['teacherId'] as String?)?.trim();
 
     if (_studentId.isEmpty) {
-      throw Exception('TodayLessonScreen requires studentId');
+      throw Exception(
+        'TodayLessonScreen requires arguments: { "studentId": "<uuid>" }',
+      );
     }
 
-    // 오늘 날짜 문자열 확정
     final now = DateTime.now();
     final d0 = DateTime(now.year, now.month, now.day);
     _todayDateStr = d0.toIso8601String().split('T').first;
@@ -88,6 +94,8 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     _bindListeners();
     _ensureTodayRow();
     _loadKeywordData();
+    _loadRecentNextPlans();
+
     _initialized = true;
   }
 
@@ -96,6 +104,15 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     _memoCtl.addListener(_scheduleSave);
     _nextCtl.addListener(_scheduleSave);
     _youtubeCtl.addListener(_scheduleSave);
+
+    _keywordSearchCtl.addListener(() {
+      _kwSearchDebounce?.cancel();
+      _kwSearchDebounce = Timer(
+        const Duration(milliseconds: 200),
+        _applyKeywordSearch,
+      );
+      setState(() {});
+    });
   }
 
   Future<void> _ensureTodayRow() async {
@@ -114,15 +131,16 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       if (list.isNotEmpty) {
         row = list.first;
       } else {
-        // 최초 생성 시에도 date를 명시
         row = await _service.upsert({
           'student_id': _studentId,
-          if (_teacherId != null) 'teacher_id': _teacherId,
+          if (_teacherId != null && _teacherId!.isNotEmpty)
+            'teacher_id': _teacherId,
           'date': _todayDateStr,
           'subject': '',
           'memo': '',
           'next_plan': '',
           'keywords': <String>[],
+          'attachments': <Map<String, dynamic>>[],
           'youtube_url': '',
         });
       }
@@ -140,6 +158,18 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           ..addAll(kw.map((e) => e.toString()));
       }
 
+      final atts = row['attachments'];
+      if (atts is List) {
+        _attachments
+          ..clear()
+          ..addAll(
+            atts.map<Map<String, dynamic>>((e) {
+              if (e is Map) return Map<String, dynamic>.from(e);
+              return {'path': e.toString(), 'url': e.toString()};
+            }),
+          );
+      }
+
       if (mounted) setState(() {});
     } catch (e) {
       _showError('오늘 수업 데이터를 불러오지 못했어요.\n$e');
@@ -148,7 +178,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
   Future<void> _loadKeywordData() async {
     setState(() => _loadingKeywords = true);
-
     try {
       final categories = await _keyword.fetchCategories();
       var selectedCat = (categories.isNotEmpty) ? categories.first : null;
@@ -158,7 +187,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         items = await _keyword.fetchItemsByCategory(selectedCat);
       }
 
-      // DB 비어있을 때 안전한 fallback
       if (categories.isEmpty || items.isEmpty) {
         selectedCat ??= '기본';
         final mutable = categories.isEmpty ? <String>['기본'] : categories;
@@ -175,6 +203,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
             KeywordItem('톤', '톤'),
             KeywordItem('댐핑', '댐핑'),
           ];
+          _filteredItems = _items;
         });
       } else {
         if (!mounted) return;
@@ -182,6 +211,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           _categories = categories;
           _selectedCategory = selectedCat;
           _items = items;
+          _filteredItems = items;
         });
       }
     } catch (e) {
@@ -198,11 +228,49 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           KeywordItem('톤', '톤'),
           KeywordItem('댐핑', '댐핑'),
         ];
+        _filteredItems = _items;
       });
       _showError('키워드 목록을 불러오지 못했어요. 기본 목록으로 대체합니다.\n$e');
     } finally {
       if (mounted) setState(() => _loadingKeywords = false);
     }
+  }
+
+  Future<void> _loadRecentNextPlans() async {
+    try {
+      final yesterday = DateTime.now().subtract(const Duration(days: 1));
+      final list = await _service.listByStudent(
+        _studentId,
+        to: yesterday,
+        limit: 20,
+      );
+      final seen = <String>{};
+      final candidates = <String>[];
+      for (final r in list) {
+        final np = (r['next_plan'] ?? '').toString().trim();
+        if (np.isEmpty) continue;
+        if (seen.add(np)) candidates.add(np);
+        if (candidates.length >= 3) break;
+      }
+      if (!mounted) return;
+      setState(() => _recentNextPlans = candidates);
+    } catch (_) {
+      // 선택 기능: 실패 시 무시
+    }
+  }
+
+  void _applyKeywordSearch() {
+    final q = _keywordSearchCtl.text.trim();
+    if (q.isEmpty) {
+      _filteredItems = _items;
+    } else {
+      final lq = q.toLowerCase();
+      _filteredItems = _items.where((it) {
+        return it.text.toLowerCase().contains(lq) ||
+            it.value.toLowerCase().contains(lq);
+      }).toList();
+    }
+    if (mounted) setState(() {});
   }
 
   void _scheduleSave() {
@@ -217,17 +285,30 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       await _service.upsert({
         'id': _lessonId,
         'student_id': _studentId,
-        // onConflict(student_id,date) 대응: 항상 날짜 포함!
         'date': _todayDateStr,
-        if (_teacherId != null) 'teacher_id': _teacherId,
+        if (_teacherId != null && _teacherId!.isNotEmpty)
+          'teacher_id': _teacherId,
         'subject': _subjectCtl.text.trim(),
         'memo': _memoCtl.text.trim(),
         'next_plan': _nextCtl.text.trim(),
         'keywords': _selectedKeywords.toList(),
+        'attachments': _attachments,
         'youtube_url': _youtubeCtl.text.trim(),
       });
       _lastSavedAt = DateTime.now();
       _setStatus(SaveStatus.saved);
+
+      // 로그 기록 (정적 메서드)
+      unawaited(
+        LogService.insertLog(
+          type: 'lesson_save',
+          payload: {
+            'lesson_id': _lessonId,
+            'student_id': _studentId,
+            'date': _todayDateStr,
+          },
+        ),
+      );
     } catch (e) {
       _setStatus(SaveStatus.failed);
       _showError('저장 실패: $e');
@@ -242,6 +323,52 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
     setState(() {});
     _scheduleSave();
+  }
+
+  Future<void> _handleUploadAttachments() async {
+    if (!_isDesktop) return;
+    try {
+      final picked = await _file.pickAndUploadMultiple(
+        studentId: _studentId,
+        dateStr: _todayDateStr,
+      );
+      for (final e in picked) {
+        _attachments.add({
+          'path': e['path'],
+          'url': e['url'] ?? e['path'],
+          'name': e['name'] ?? (e['path'] ?? 'file'),
+          'size': e['size'],
+        });
+      }
+      setState(() {});
+      _scheduleSave();
+    } catch (e) {
+      _showError('첨부 업로드 실패: $e');
+    }
+  }
+
+  Future<void> _handleOpenAttachment(Map<String, dynamic> att) async {
+    try {
+      // `{path,url,...}` 형태를 통째로 넘겨 열기
+      await _file.openAttachment(att);
+    } catch (e) {
+      _showError('파일 열기 실패: $e');
+    }
+  }
+
+  Future<void> _handleRemoveAttachment(int index) async {
+    try {
+      final removed = _attachments.removeAt(index);
+      setState(() {});
+      _scheduleSave();
+
+      final urlOrPath = (removed['url'] ?? removed['path'] ?? '').toString();
+      if (urlOrPath.isNotEmpty) {
+        unawaited(_file.delete(urlOrPath));
+      }
+    } catch (e) {
+      _showError('첨부 삭제 실패: $e');
+    }
   }
 
   void _setStatus(SaveStatus s) {
@@ -259,16 +386,18 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _kwSearchDebounce?.cancel();
     _subjectCtl.dispose();
     _memoCtl.dispose();
     _nextCtl.dispose();
     _youtubeCtl.dispose();
+    _keywordSearchCtl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final canAttach = _isDesktop && !kIsWeb;
+    final canAttach = _isDesktop;
 
     return Scaffold(
       appBar: AppBar(title: const Text('오늘 수업')),
@@ -303,6 +432,8 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           _sectionTitle('키워드'),
           _buildKeywordControls(),
           const SizedBox(height: 8),
+          _buildKeywordSearchBox(),
+          const SizedBox(height: 8),
           _buildKeywordChips(),
 
           const SizedBox(height: 8),
@@ -322,13 +453,43 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           _buildExpandable(
             title: '🗓️ 다음 계획',
             section: _LocalSection.nextPlan,
-            child: TextField(
-              controller: _nextCtl,
-              decoration: const InputDecoration(
-                hintText: '다음 시간에 할 계획을 적어두세요',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 4,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_recentNextPlans.isNotEmpty) ...[
+                  Text(
+                    '최근 계획 가져오기',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _recentNextPlans.map((t) {
+                      return ActionChip(
+                        label: Text(
+                          t,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onPressed: () {
+                          _nextCtl.text = t;
+                          _scheduleSave();
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                TextField(
+                  controller: _nextCtl,
+                  decoration: const InputDecoration(
+                    hintText: '다음 시간에 할 계획을 적어두세요',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 4,
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 8),
@@ -344,6 +505,14 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                       hintText: 'https://youtu.be/...',
                       border: OutlineInputBorder(),
                     ),
+                    onSubmitted: (_) {
+                      final url = _youtubeCtl.text.trim();
+                      if (url.isEmpty) return;
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text('링크 열기: $url')));
+                      _scheduleSave();
+                    },
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -360,9 +529,12 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
               ],
             ),
           ),
-
-          const SizedBox(height: 16),
-          if (canAttach) _attachmentStub() else _platformNotice(),
+          const SizedBox(height: 8),
+          _buildExpandable(
+            title: '📎 첨부 파일',
+            section: _LocalSection.attach,
+            child: _isDesktop ? _attachmentDesktop() : _platformNotice(),
+          ),
         ],
       ),
     );
@@ -398,7 +570,10 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                   setState(() => _selectedCategory = v);
                   final items = await _keyword.fetchItemsByCategory(v);
                   if (!mounted) return;
-                  setState(() => _items = items);
+                  setState(() {
+                    _items = items;
+                    _applyKeywordSearch();
+                  });
                 },
               ),
             ),
@@ -410,7 +585,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           child: IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () async {
-              // 서비스 수정 없이 캐시 무효화 후 다시 로드
               _keyword.invalidateCache();
               await _loadKeywordData();
               if (!mounted) return;
@@ -424,6 +598,26 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     );
   }
 
+  Widget _buildKeywordSearchBox() {
+    return TextField(
+      controller: _keywordSearchCtl,
+      decoration: InputDecoration(
+        hintText: '키워드 검색…',
+        prefixIcon: const Icon(Icons.search),
+        suffixIcon: _keywordSearchCtl.text.isEmpty
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  _keywordSearchCtl.clear();
+                  _applyKeywordSearch();
+                },
+              ),
+        border: const OutlineInputBorder(),
+      ),
+    );
+  }
+
   Widget _buildKeywordChips() {
     return Padding(
       key: _keywordsKey,
@@ -431,7 +625,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
-        children: _items.map((it) {
+        children: _filteredItems.map((it) {
           final selected = _selectedKeywords.contains(it.value);
           return FilterChip(
             label: Text(it.text),
@@ -443,49 +637,41 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     );
   }
 
-  Widget _buildExpandable({
-    required String title,
-    required _LocalSection section,
-    required Widget child,
-  }) {
-    final isOpen = _expanded[section] ?? false;
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ExpansionTile(
-        initiallyExpanded: isOpen,
-        onExpansionChanged: (v) => setState(() => _expanded[section] = v),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        children: [child],
-      ),
-    );
-  }
-
-  Widget _attachmentStub() {
+  Widget _attachmentDesktop() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionTitle('📎 첨부 파일 (데스크탑)'),
-        const SizedBox(height: 8),
         Row(
           children: [
             ElevatedButton.icon(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('파일 선택 다이얼로그는 추후 연동 예정')),
-                );
-              },
-              icon: const Icon(Icons.attach_file),
-              label: const Text('파일 첨부'),
+              onPressed: _handleUploadAttachments,
+              icon: const Icon(Icons.upload_file),
+              label: const Text('업로드'),
             ),
             const SizedBox(width: 8),
             Text(
-              '첨부/실행은 데스크탑에서 지원됩니다.',
+              '데스크탑에서 다중 업로드/실행/삭제 지원',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ),
+        const SizedBox(height: 12),
+        if (_attachments.isEmpty)
+          Text('첨부 없음', style: Theme.of(context).textTheme.bodySmall),
+        if (_attachments.isNotEmpty)
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: List.generate(_attachments.length, (i) {
+              final att = _attachments[i];
+              final name = (att['name'] ?? att['path'] ?? 'file').toString();
+              return InputChip(
+                label: Text(name, overflow: TextOverflow.ellipsis),
+                onPressed: () => _handleOpenAttachment(att),
+                onDeleted: () => _handleRemoveAttachment(i),
+              );
+            }),
+          ),
       ],
     );
   }
@@ -498,6 +684,22 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         style: Theme.of(
           context,
         ).textTheme.bodySmall?.copyWith(color: Colors.orange),
+      ),
+    );
+  }
+
+  Widget _buildExpandable({
+    required String title,
+    required _LocalSection section,
+    required Widget child,
+  }) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ExpansionTile(
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [child],
       ),
     );
   }

@@ -16,4 +16,5 @@ class SupabaseViews {
 
 class SupabaseBuckets {
   static const String curriculumFiles = 'curriculum_files';
+  static const lessonAttachments = 'lesson_attachments';
 }
