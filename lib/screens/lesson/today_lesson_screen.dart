@@ -1,14 +1,12 @@
-// v1.24.2 | 오늘 수업 화면 - 설계서 정합 보강
-// - 키워드 검색(디바운스) + 카테고리 필터
-// - '최근 다음 계획' 빠른 불러오기(상위 3개)
-// - 데스크탑 첨부 업로드/실행/삭제(파일 클립 UI 연동)
-// - 저장 성공 시 로그 기록(type: lesson_save)
-// - onConflict(student_id,date) 대비하여 항상 date 포함
-// - 350ms 디바운스 자동 저장 + 상태 인디케이터
+// v1.24.3 | 오늘 수업 화면 - URL 외부 브라우저 열기 + 데스크탑 드래그&드롭 업로드
+// - 기존 v1.24.2 코드 기반
+// - desktop_drop 적용: 첨부 영역에 DropTarget 추가
 
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -17,6 +15,7 @@ import '../../services/keyword_service.dart';
 import '../../services/file_service.dart';
 import '../../services/log_service.dart';
 import '../../ui/components/save_status_indicator.dart';
+import '../../ui/components/drop_upload_area.dart';
 
 enum _LocalSection { memo, nextPlan, link, attach }
 
@@ -349,7 +348,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
   Future<void> _handleOpenAttachment(Map<String, dynamic> att) async {
     try {
-      // `{path,url,...}` 형태를 통째로 넘겨 열기
       await _file.openAttachment(att);
     } catch (e) {
       _showError('파일 열기 실패: $e');
@@ -505,24 +503,28 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                       hintText: 'https://youtu.be/...',
                       border: OutlineInputBorder(),
                     ),
-                    onSubmitted: (_) {
+                    onSubmitted: (_) async {
                       final url = _youtubeCtl.text.trim();
                       if (url.isEmpty) return;
-                      ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(SnackBar(content: Text('링크 열기: $url')));
+                      try {
+                        await _file.openUrl(url); // ✅ 외부 브라우저로
+                      } catch (e) {
+                        _showError('링크 열기 실패: $e');
+                      }
                       _scheduleSave();
                     },
                   ),
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton(
-                  onPressed: () {
+                  onPressed: () async {
                     final url = _youtubeCtl.text.trim();
                     if (url.isEmpty) return;
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text('링크 열기: $url')));
+                    try {
+                      await _file.openUrl(url); // ✅ 외부 브라우저로
+                    } catch (e) {
+                      _showError('링크 열기 실패: $e');
+                    }
                   },
                   child: const Text('열기'),
                 ),
@@ -650,11 +652,32 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
             ),
             const SizedBox(width: 8),
             Text(
-              '데스크탑에서 다중 업로드/실행/삭제 지원',
+              '드래그&드롭 또는 버튼으로 업로드',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ),
+        const SizedBox(height: 12),
+
+        // ⬇️ 드롭 영역 추가
+        DropUploadArea(
+          studentId: _studentId,
+          dateStr: _todayDateStr,
+          onUploaded: (list) {
+            for (final e in list) {
+              _attachments.add({
+                'path': e['path'],
+                'url': e['url'] ?? e['path'],
+                'name': e['name'] ?? (e['path'] ?? 'file'),
+                'size': e['size'],
+              });
+            }
+            setState(() {});
+            _scheduleSave();
+          },
+          onError: (err) => _showError('드래그 업로드 실패: $err'),
+        ),
+
         const SizedBox(height: 12),
         if (_attachments.isEmpty)
           Text('첨부 없음', style: Theme.of(context).textTheme.bodySmall),
@@ -675,6 +698,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       ],
     );
   }
+
 
   Widget _platformNotice() {
     return Padding(

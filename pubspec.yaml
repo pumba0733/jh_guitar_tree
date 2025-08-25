@@ -28,6 +28,8 @@ dependencies:
   # File / Open (v1.24 파일서비스 기준)
   file_picker: ^8.0.2
   open_filex: ^4.3.2
+  desktop_drop: ^0.4.4        # ⬅️ 드래그&드롭
+  cross_file: ^0.3.4+2        # ⬅️ DropTarget 전달 타입(XFile)
 
   # Utils
   intl: ^0.19.0

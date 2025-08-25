@@ -1,9 +1,13 @@
 // lib/services/lesson_service.dart
-// v1.24 | 안전 보강 + 헬퍼 확장 (키워드 정규화 / ensureTodayRow / getById / 첨부 시그니처)
-// - 기존 v1.23.1 시그니처 100% 호환 유지
+// v1.25 | 안전 보강 + 헬퍼 확장
+// - 기존 v1.24 시그니처 100% 호환 유지
 // - insert 경로: onConflict(student_id,date) 유지
-// - update 경로: DB 트리거(updated_at)로 안전
-// - listTodayByTeacher: 설계서의 RPC 사용 시그니처 준수
+// - update 경로: DB 트리거(updated_at) 의존 (클라이언트에서 updated_at 세팅 불필요)
+// - attachments/keywords 정규화 보강
+//
+// 참고: lessons 테이블 스키마
+//   attachments: jsonb  (표준 형태: [{path, url, name, size?}, ...])
+//   keywords:    jsonb  (문자열 배열)
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/lesson.dart';
@@ -24,12 +28,55 @@ class LessonService {
   List<String>? _normalizeKeywords(dynamic v) {
     if (v == null) return null;
     if (v is List) {
-      return v
-          .map((e) => e?.toString() ?? '')
-          .where((s) => s.isNotEmpty)
-          .toList();
+      final out = <String>[];
+      for (final e in v) {
+        final s = (e == null) ? '' : e.toString().trim();
+        if (s.isNotEmpty) out.add(s);
+      }
+      return out;
     }
     return null;
+  }
+
+  /// attachments를 [{path,url,name,size?}, ...]로 정규화
+  /// - 문자열(single URL/경로) 또는 혼합타입이 와도 최소 키를 보장
+  List<Map<String, dynamic>>? _normalizeAttachments(dynamic v) {
+    if (v == null) return null;
+    final out = <Map<String, dynamic>>[];
+    if (v is List) {
+      for (final e in v) {
+        if (e is Map) {
+          final m = Map<String, dynamic>.from(e);
+          final path = (m['path'] ?? '').toString();
+          final url = (m['url'] ?? '').toString();
+          final name = (m['name'] ?? (path.isNotEmpty ? path : url)).toString();
+          final size = m['size'];
+          out.add({
+            'path': path,
+            'url': url.isNotEmpty ? url : path,
+            'name': name,
+            if (size != null) 'size': size,
+          });
+        } else {
+          final s = e.toString();
+          out.add({
+            'path': s,
+            'url': s,
+            'name': s.split('/').isNotEmpty ? s.split('/').last : 'file',
+          });
+        }
+      }
+      return out;
+    }
+    // 단일 값 처리
+    final s = v.toString();
+    return [
+      {
+        'path': s,
+        'url': s,
+        'name': s.split('/').isNotEmpty ? s.split('/').last : 'file',
+      },
+    ];
   }
 
   // ========= 조회 =========
@@ -168,13 +215,14 @@ class LessonService {
 
     final insert = {
       'student_id': studentId,
-      if (teacherId != null) 'teacher_id': teacherId,
+      if (teacherId != null && teacherId.isNotEmpty) 'teacher_id': teacherId,
       'date': _dateKey(theDate),
-      if (subject != null) 'subject': subject,
-      if (memo != null) 'memo': memo,
-      if (nextPlan != null) 'next_plan': nextPlan,
-      if (youtubeUrl != null) 'youtube_url': youtubeUrl,
-      if (keywords != null) 'keywords': _normalizeKeywords(keywords),
+      'subject': subject ?? '',
+      'memo': memo ?? '',
+      'next_plan': nextPlan ?? '',
+      'keywords': _normalizeKeywords(keywords) ?? <String>[],
+      'attachments': <Map<String, dynamic>>[], // 기본값 명시
+      'youtube_url': youtubeUrl ?? '',
     };
 
     final data = await _client
@@ -187,7 +235,7 @@ class LessonService {
     return Lesson.fromMap(Map<String, dynamic>.from(data as Map));
   }
 
-  /// 오늘 row 보장(Map 버전) — 필요 시 UI에서 가볍게 사용
+  /// 오늘 row 보장(Map 버전)
   Future<Map<String, dynamic>> ensureTodayRow({
     required String studentId,
     String? teacherId,
@@ -198,12 +246,13 @@ class LessonService {
 
     final insert = {
       'student_id': studentId,
-      if (teacherId != null) 'teacher_id': teacherId,
+      if (teacherId != null && teacherId.isNotEmpty) 'teacher_id': teacherId,
       'date': _dateKey(today),
       'subject': '',
       'memo': '',
       'next_plan': '',
       'keywords': <String>[],
+      'attachments': <Map<String, dynamic>>[],
       'youtube_url': '',
     };
 
@@ -225,16 +274,21 @@ class LessonService {
     String? nextPlan,
     String? youtubeUrl,
     List<String>? keywords,
+    List<Map<String, dynamic>>? attachments,
+    String? teacherId,
   }) async {
     final theDate = date ?? DateTime.now();
     final exists = await _getRowByStudentAndDate(studentId, theDate);
     final patch = <String, dynamic>{
+      if (teacherId != null && teacherId.isNotEmpty) 'teacher_id': teacherId,
       if (subject != null) 'subject': subject,
       if (memo != null) 'memo': memo,
       if (nextPlan != null) 'next_plan': nextPlan,
       if (youtubeUrl != null) 'youtube_url': youtubeUrl,
       if (keywords != null) 'keywords': _normalizeKeywords(keywords),
-      'updated_at': DateTime.now().toIso8601String(),
+      if (attachments != null)
+        'attachments': _normalizeAttachments(attachments),
+      // updated_at은 트리거에서 처리
     };
 
     Map<String, dynamic>? data;
@@ -246,7 +300,7 @@ class LessonService {
       };
       data = await _client
           .from(SupabaseTables.lessons)
-          .insert(insert)
+          .upsert(insert, onConflict: 'student_id,date')
           .select()
           .maybeSingle();
     } else {
@@ -269,9 +323,12 @@ class LessonService {
   Future<Map<String, dynamic>> upsert(Map<String, dynamic> lesson) async {
     final payload = Map<String, dynamic>.from(lesson);
 
-    // keywords 정규화 (혼합 타입 방지)
+    // 정규화
     if (payload.containsKey('keywords')) {
       payload['keywords'] = _normalizeKeywords(payload['keywords']);
+    }
+    if (payload.containsKey('attachments')) {
+      payload['attachments'] = _normalizeAttachments(payload['attachments']);
     }
 
     // update(id) 경로
@@ -291,7 +348,8 @@ class LessonService {
     if (!payload.containsKey('student_id')) {
       throw ArgumentError('upsert: student_id가 필요합니다');
     }
-    if (!payload.containsKey('date') || (payload['date'] as String).isEmpty) {
+    if (!payload.containsKey('date') ||
+        (payload['date'] as String?)?.isNotEmpty != true) {
       payload['date'] = _dateKey(DateTime.now());
     }
 
@@ -312,6 +370,8 @@ class LessonService {
     String? nextPlan,
     String? youtubeUrl,
     List<String>? keywords,
+    List<Map<String, dynamic>>? attachments,
+    String? teacherId,
   }) {
     return upsertLesson(
       studentId: studentId,
@@ -321,19 +381,21 @@ class LessonService {
       nextPlan: nextPlan,
       youtubeUrl: youtubeUrl,
       keywords: keywords,
+      attachments: attachments,
+      teacherId: teacherId,
     );
   }
 
-  // ========= (선반영) 첨부 관련 시그니처 — 실제 구현은 P1에서 UI/Storage 연동 시 마저 연결 =========
+  // ========= 첨부 헬퍼 =========
 
-  /// attachments 전체 치환(서버 기준) — 안전하게 사용하려면 getById→머지 후 setAttachments 권장
+  /// attachments 전체 치환(서버 기준)
   Future<Map<String, dynamic>> setAttachments({
     required String id,
     required List<Map<String, dynamic>> attachments,
   }) async {
     final data = await _client
         .from(SupabaseTables.lessons)
-        .update({'attachments': attachments})
+        .update({'attachments': _normalizeAttachments(attachments)})
         .eq('id', id)
         .select()
         .maybeSingle();
@@ -341,7 +403,7 @@ class LessonService {
     return Map<String, dynamic>.from(data as Map);
   }
 
-  /// (옵션) 단건 추가/제거는 일단 클라이언트 머지 방식으로 제공 — 서버 jsonb 연산은 P1에서 RPC로 교체 예정
+  /// 단건 추가(클라이언트 병합)
   Future<Map<String, dynamic>> addAttachment({
     required String id,
     required Map<String, dynamic> attachment,
@@ -349,7 +411,7 @@ class LessonService {
     final cur = await getById(id);
     final list = <Map<String, dynamic>>[
       ...(cur?['attachments'] is List
-          ? (cur!['attachments'] as List).map(
+          ? (cur!['attachments'] as List).map<Map<String, dynamic>>(
               (e) => Map<String, dynamic>.from(e as Map),
             )
           : const <Map<String, dynamic>>[]),
@@ -358,6 +420,7 @@ class LessonService {
     return setAttachments(id: id, attachments: list);
   }
 
+  /// 조건 제거(클라이언트 병합)
   Future<Map<String, dynamic>> removeAttachment({
     required String id,
     required bool Function(Map<String, dynamic>) test,
@@ -365,7 +428,7 @@ class LessonService {
     final cur = await getById(id);
     final list = <Map<String, dynamic>>[
       ...(cur?['attachments'] is List
-          ? (cur!['attachments'] as List).map(
+          ? (cur!['attachments'] as List).map<Map<String, dynamic>>(
               (e) => Map<String, dynamic>.from(e as Map),
             )
           : const <Map<String, dynamic>>[]),
