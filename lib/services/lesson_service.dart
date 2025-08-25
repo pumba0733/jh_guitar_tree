@@ -201,7 +201,7 @@ class LessonService {
   Future<Map<String, dynamic>> upsert(Map<String, dynamic> lesson) async {
     final data = await _client
         .from(SupabaseTables.lessons)
-        .upsert(lesson)
+        .upsert(lesson, onConflict: 'student_id,date') // ← 추가
         .select()
         .maybeSingle();
     if (data == null) throw StateError('레슨 upsert 실패');

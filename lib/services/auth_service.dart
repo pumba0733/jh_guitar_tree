@@ -68,9 +68,14 @@ class AuthService {
     if (isLoggedInAsStudent) return UserRole.student;
 
     final u = currentAuthUser;
-    if (u == null) return UserRole.teacher;
+    if (u == null) {
+      // 기존: return UserRole.teacher;
+      // 권장: 명확히 미로그인 상태 처리
+      throw StateError(
+        '로그인 정보가 없습니다',
+      ); // 또는 UserRole.student로 통일 불가하면 별도 상태를 고려
+    }
 
-    // Supabase Auth user_metadata.role 기반 (admin / teacher)
     final metaRole = u.userMetadata?['role'];
     if (metaRole is String && metaRole.toLowerCase() == 'admin') {
       return UserRole.admin;
