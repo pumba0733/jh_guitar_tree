@@ -281,6 +281,13 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   Future<void> _saveInternal() async {
     if (_lessonId == null) return;
     try {
+      // ⬇️ 저장용으로 localPath 제거
+      final attachmentsForSave = _attachments.map((m) {
+        final c = Map<String, dynamic>.from(m);
+        c.remove('localPath');
+        return c;
+      }).toList();
+
       await _service.upsert({
         'id': _lessonId,
         'student_id': _studentId,
@@ -291,7 +298,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         'memo': _memoCtl.text.trim(),
         'next_plan': _nextCtl.text.trim(),
         'keywords': _selectedKeywords.toList(),
-        'attachments': _attachments,
+        'attachments': attachmentsForSave, // ✅ 여기 사용
         'youtube_url': _youtubeCtl.text.trim(),
       });
       _lastSavedAt = DateTime.now();

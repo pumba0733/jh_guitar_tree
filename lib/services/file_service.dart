@@ -1,24 +1,23 @@
 // lib/services/file_service.dart
-// v1.24.4 | 데스크탑 파일 첨부/업로드/열기/삭제 + 텍스트 저장 + XFile 지원 + 파일명 정규화
-//        | ✅ macOS 권한 이슈 해결: 언제나 tempDir로 복사 후 업로드
+// v1.26.3 | 첨부 업로드/열기/삭제 + 텍스트 저장 + XFile 지원
+//        | ⚙️ Storage object key ASCII-safe 처리(InvalidKey 해결)
+//        | 기본앱으로 열기(로컬 temp 캐시) + Downloads 저장 + Finder 표시
 //
-// 요구 의존성 (pubspec.yaml):
-//   file_picker: ^8
-//   open_filex: ^4
-//   url_launcher: ^6
-//   supabase_flutter: ^2
-//   path_provider: ^2
-//   path: ^1
-//   cross_file: ^0.3
+// 의존성: file_picker ^8 / open_filex ^4 / url_launcher ^6 / supabase_flutter ^2
+//        path_provider ^2 / path ^1 / cross_file ^0.3
 //
-// 표준 attachments 구조: `{path, url, name, size}`
-// 보관 경로 규칙: {studentId}/{YYYY-MM-DD}/{filename}
+// attachments 구조: { path, url, name, size, localPath? }
+//   - name: 화면 표시는 원본명(한글/공백 포함 OK)
+//   - path: Storage object key (ASCII-safe)
+//   - localPath: temp 캐시(저장 시 DB에 넣지 말 것)
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, consolidateHttpClientResponseBytes;
 import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -38,22 +37,46 @@ class FileService {
   static const String _bucketName = 'lesson_attachments';
 
   // -----------------------------
-  // 파일명 정규화 (공백/한글/특수문자 → _ 치환, 확장자 유지)
+  // 화면 표시용 파일명(유니코드 보존, 경로/제어문자만 치환)
   // -----------------------------
-  String _sanitizeFileName(String raw) {
+  String _displaySafeName(String raw) {
     final ext = p.extension(raw);
     final base = p.basenameWithoutExtension(raw);
-    final safeBase = base.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-    final finalBase = safeBase.isEmpty
+    final sanitizedBase = base
+        .replaceAll(RegExp(r'[\/\\\x00-\x1F]'), '_')
+        .trim();
+    final finalBase = sanitizedBase.isEmpty
         ? DateTime.now().millisecondsSinceEpoch.toString()
-        : safeBase;
+        : sanitizedBase;
     return '$finalBase$ext';
   }
 
   // -----------------------------
-  // 기본 다운로드/문서 폴더
+  // Storage object key용 파일명(ASCII만 허용: A-Z a-z 0-9 . _ -)
+  //  - 공백/한글/특수문자 전부 '_'로 치환 → InvalidKey 방지
   // -----------------------------
-  static Future<Directory> _resolveDownloadDir() async {
+  String _keySafeName(String raw) {
+    final ext = p.extension(raw);
+    var base = p.basenameWithoutExtension(raw);
+    // 제어/경로문자 제거
+    base = base.replaceAll(RegExp(r'[\/\\\x00-\x1F]'), '_');
+    // ASCII whitelist
+    base = base.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    // 연속 '_' 압축
+    base = base.replaceAll(RegExp(r'_+'), '_').trim();
+    if (base.isEmpty) {
+      base = DateTime.now().millisecondsSinceEpoch.toString();
+    }
+    // 확장자도 안전화
+    var safeExt = ext.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '');
+    if (safeExt.length > 10) safeExt = safeExt.substring(0, 10);
+    return '$base$safeExt';
+  }
+
+  // -----------------------------
+  // 기본 폴더(resolve)
+  // -----------------------------
+  static Future<Directory> _resolveDownloadsDir() async {
     try {
       if (_isDesktop) {
         final d = await getDownloadsDirectory();
@@ -67,9 +90,9 @@ class FileService {
     required String filename,
     required String content,
   }) async {
-    final dir = await _resolveDownloadDir();
-    final file = File(p.join(dir.path, filename));
-    return file.writeAsString(content);
+    final dir = await _resolveDownloadsDir();
+    final f = File(p.join(dir.path, filename));
+    return f.writeAsString(content);
   }
 
   // -----------------------------
@@ -86,115 +109,111 @@ class FileService {
       allowMultiple: allowMultiple,
       type: allowedExtensions == null ? FileType.any : FileType.custom,
       allowedExtensions: allowedExtensions,
-      withData: false,
       withReadStream: true,
+      withData: true,
+      dialogTitle: '첨부할 파일을 선택하세요',
     );
     if (result == null) return const [];
     return result.files;
   }
 
-  // ✅ Finder 드래그(XFile) → 언제나 tempDir로 안전 복사 후 업로드
+  // 드래그(XFile) 업로드: temp 복사 후 업로드
   Future<Map<String, dynamic>> uploadXFile({
     required XFile xfile,
     required String studentId,
     required String dateStr,
   }) async {
-    final safeName = _sanitizeFileName(xfile.name);
+    final displayName = xfile.name.isNotEmpty
+        ? xfile.name
+        : p.basename(xfile.path);
     final tempDir = await getTemporaryDirectory();
-    final tempPath = p.join(tempDir.path, safeName);
+    final tmpPath = p.join(tempDir.path, _displaySafeName(displayName));
 
     if (xfile.path.isNotEmpty) {
-      // 원본 경로는 읽기만 가능한 경우가 많음 → tempDir로 복사
-      final src = File(xfile.path);
-      await src.copy(tempPath);
-      return uploadPathToStorage(
-        absolutePath: tempPath,
-        studentId: studentId,
-        dateStr: dateStr,
-      );
+      await File(xfile.path).copy(tmpPath);
+    } else {
+      final bytes = await xfile.readAsBytes();
+      await File(tmpPath).writeAsBytes(bytes);
     }
 
-    final bytes = await xfile.readAsBytes();
-    final f = await File(tempPath).writeAsBytes(bytes);
-    return uploadPathToStorage(
-      absolutePath: f.path,
+    final uploaded = await uploadPathToStorage(
+      absolutePath: tmpPath,
       studentId: studentId,
       dateStr: dateStr,
+      originalName: displayName,
     );
+    uploaded['localPath'] = tmpPath;
+    return uploaded;
   }
 
+  // 파일 경로 업로드
   Future<Map<String, dynamic>> uploadPathToStorage({
     required String absolutePath,
     required String studentId,
     required String dateStr, // YYYY-MM-DD
+    String? originalName,
   }) async {
     final file = File(absolutePath);
     if (!file.existsSync()) {
       throw ArgumentError('파일을 찾을 수 없습니다: $absolutePath');
     }
 
-    final filename = _sanitizeFileName(p.basename(absolutePath));
-    final storageKey = '$studentId/$dateStr/$filename';
+    final displayName = originalName ?? p.basename(absolutePath);
+    final keyName = _keySafeName(displayName); // ✅ Storage용 ASCII
+    final objectKey = '$studentId/$dateStr/$keyName';
     final bytes = await file.readAsBytes();
 
     await _sb.storage
         .from(_bucketName)
         .uploadBinary(
-          storageKey,
+          objectKey,
           bytes,
           fileOptions: const FileOptions(upsert: true),
         );
 
-    final publicUrl = _sb.storage.from(_bucketName).getPublicUrl(storageKey);
+    final publicUrl = _sb.storage.from(_bucketName).getPublicUrl(objectKey);
     return {
-      'path': storageKey,
+      'path': objectKey, // ASCII-safe 키
       'url': publicUrl,
-      'name': filename,
+      'name': displayName, // 화면 표시는 원본명
       'size': bytes.length,
     };
   }
 
-  // ✅ FilePicker(PlatformFile) → path가 있어도 tempDir로 복사 후 업로드
+  // FilePicker(PlatformFile) 업로드
   Future<Map<String, dynamic>> uploadPickedFile({
     required PlatformFile picked,
     required String studentId,
     required String dateStr,
   }) async {
-    final safeName = _sanitizeFileName(picked.name);
+    final displayName = picked.name.isNotEmpty ? picked.name : 'file';
     final tempDir = await getTemporaryDirectory();
-    final tempPath = p.join(tempDir.path, safeName);
+    final tmpPath = p.join(tempDir.path, _displaySafeName(displayName));
 
     if (picked.path != null) {
-      final src = File(picked.path!);
-      await src.copy(tempPath);
-      return uploadPathToStorage(
-        absolutePath: tempPath,
-        studentId: studentId,
-        dateStr: dateStr,
-      );
-    }
-
-    final out = File(tempPath).openWrite();
-    if (picked.readStream != null) {
+      await File(picked.path!).copy(tmpPath);
+    } else if (picked.readStream != null) {
+      final out = File(tmpPath).openWrite();
       await picked.readStream!.pipe(out);
-    } else if (picked.bytes != null) {
-      out.add(picked.bytes!);
       await out.flush();
       await out.close();
+    } else if (picked.bytes != null) {
+      await File(tmpPath).writeAsBytes(picked.bytes!);
     } else {
-      await out.close();
       throw StateError('파일 데이터를 읽을 수 없습니다: ${picked.name}');
     }
-    return uploadPathToStorage(
-      absolutePath: tempPath,
+
+    final uploaded = await uploadPathToStorage(
+      absolutePath: tmpPath,
       studentId: studentId,
       dateStr: dateStr,
+      originalName: displayName,
     );
+    uploaded['localPath'] = tmpPath;
+    return uploaded;
   }
 
-  // -----------------------------
-  // 화면에서 기대하는 래퍼 (호환용)
-  // -----------------------------
+  // 화면 호환 래퍼
   Future<List<Map<String, dynamic>>> pickAndUploadMultiple({
     required String studentId,
     required String dateStr,
@@ -217,10 +236,10 @@ class FileService {
   }
 
   // -----------------------------
-  // 열기/URL
+  // 열기 / URL
   // -----------------------------
   Future<void> open(String pathOrUrl) async {
-    if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+    if (pathOrUrl.startsWith('http')) {
       await openUrl(pathOrUrl);
     } else {
       await openLocal(pathOrUrl);
@@ -228,10 +247,11 @@ class FileService {
   }
 
   Future<void> openLocal(String absolutePath) async {
-    if (!_isDesktop) {
-      throw UnsupportedError('이 기능은 데스크탑에서만 지원됩니다.');
+    if (!_isDesktop) throw UnsupportedError('이 기능은 데스크탑에서만 지원됩니다.');
+    final r = await OpenFilex.open(absolutePath);
+    if (r.type != ResultType.done) {
+      throw StateError('기본 앱으로 열 수 없습니다: ${r.message}');
     }
-    await OpenFilex.open(absolutePath);
   }
 
   Future<void> openUrl(String url) async {
@@ -242,41 +262,103 @@ class FileService {
     if (!ok) throw StateError('URL을 열 수 없습니다: $url');
   }
 
-  Future<void> openAttachment(Map<String, dynamic> att) async {
-    final local = (att['localPath'] ?? '').toString();
+  // -----------------------------
+  // 로컬 캐시 확보(없으면 다운로드)
+  // -----------------------------
+  String? _extractStorageKeyFromUrl(String url) {
+    final idx = url.indexOf('/object/public/');
+    if (idx < 0) return null;
+    final sub = url.substring(idx + '/object/public/'.length);
+    final parts = sub.split('/');
+    if (parts.isEmpty) return null;
+    if (parts.first == _bucketName) {
+      return parts.skip(1).join('/');
+    }
+    return null;
+  }
+
+  Future<String> _ensureLocalCopy(Map<String, dynamic> att) async {
+    final existing = (att['localPath'] ?? '').toString();
+    if (existing.isNotEmpty && File(existing).existsSync()) {
+      return existing;
+    }
+
+    Uint8List bytes;
+    String fallbackName;
+
     final url = (att['url'] ?? '').toString();
-    if (local.isNotEmpty && File(local).existsSync()) {
-      await openLocal(local);
-      return;
-    }
     if (url.isNotEmpty) {
-      await openUrl(url);
-      return;
+      final key = _extractStorageKeyFromUrl(url);
+      if (key != null) {
+        bytes = await _sb.storage.from(_bucketName).download(key);
+        fallbackName = p.basename(key);
+      } else {
+        final client = HttpClient();
+        final res = await (await client.getUrl(Uri.parse(url))).close();
+        if (res.statusCode != 200) {
+          throw StateError('파일 다운로드 실패(HTTP ${res.statusCode})');
+        }
+        bytes = Uint8List.fromList(
+          await consolidateHttpClientResponseBytes(res),
+        );
+        fallbackName = p.basename(Uri.parse(url).path);
+      }
+    } else {
+      final path = (att['path'] ?? '').toString();
+      if (path.isEmpty) throw ArgumentError('열 수 있는 경로/URL이 없습니다.');
+      bytes = await _sb.storage.from(_bucketName).download(path);
+      fallbackName = p.basename(path);
     }
-    throw ArgumentError('열 수 있는 경로/URL이 없습니다.');
+
+    final tempDir = await getTemporaryDirectory();
+    final fname = _displaySafeName(att['name']?.toString() ?? fallbackName);
+    final outPath = p.join(tempDir.path, fname);
+    await File(outPath).writeAsBytes(bytes);
+    att['localPath'] = outPath;
+    return outPath;
+  }
+
+  Future<void> openAttachment(Map<String, dynamic> att) async {
+    final local = await _ensureLocalCopy(att);
+    await openLocal(local);
+  }
+
+  // -----------------------------
+  // 다운로드(영구 저장): Downloads 폴더에 저장 + Finder에서 보기
+  // -----------------------------
+  Future<String> saveAttachmentToDownloads(Map<String, dynamic> att) async {
+    final local = await _ensureLocalCopy(att);
+    final bytes = await File(local).readAsBytes();
+    final dir = await _resolveDownloadsDir();
+    final outName = _displaySafeName(
+      att['name']?.toString() ?? p.basename(local),
+    );
+    final outPath = p.join(dir.path, outName);
+    await File(outPath).writeAsBytes(bytes);
+    return outPath;
+  }
+
+  Future<void> revealInFinder(String absolutePath) async {
+    if (!Platform.isMacOS) return;
+    try {
+      await Process.run('open', ['-R', absolutePath]);
+    } catch (_) {}
   }
 
   // -----------------------------
   // Storage 삭제
   // -----------------------------
   Future<void> delete(String urlOrPath) async {
-    String? storageKey;
+    String? key;
     if (urlOrPath.startsWith('http')) {
-      final idx = urlOrPath.indexOf('/object/public/');
-      if (idx >= 0) {
-        final sub = urlOrPath.substring(idx + '/object/public/'.length);
-        final parts = sub.split('/');
-        if (parts.isNotEmpty && parts.first == _bucketName) {
-          storageKey = parts.skip(1).join('/');
-        }
-      }
+      key = _extractStorageKeyFromUrl(urlOrPath);
     } else {
-      storageKey = urlOrPath;
-      if (storageKey.startsWith('$_bucketName/')) {
-        storageKey = storageKey.substring(_bucketName.length + 1);
+      key = urlOrPath;
+      if (key.startsWith('$_bucketName/')) {
+        key = key.substring(_bucketName.length + 1);
       }
     }
-    if (storageKey == null || storageKey.isEmpty) return;
-    await _sb.storage.from(_bucketName).remove([storageKey]);
+    if (key == null || key.isEmpty) return;
+    await _sb.storage.from(_bucketName).remove([key]);
   }
 }
