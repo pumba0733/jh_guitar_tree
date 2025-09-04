@@ -1,15 +1,20 @@
 // lib/screens/manage/manage_students_screen.dart
-// v1.35.4 | 학생 관리(관리자 전용)
+// v1.36.2 | 학생 관리(관리자 전용) – 설계 필드 전면 지원
 // 변경점 요약
-// 1) CRUD 전체 try/catch + 스낵바/다이얼로그 피드백 확실화
-// 2) 권한 오류 추정 시 ensureTeacherLink() 수행 후 1회 자동 재시도
-// 3) AppBar에 ⋯(더보기) 진단 메뉴 추가:
-//    - "권한/연결 진단" : 현재 로그인/관리자 여부/RLS로 인한 오류/임시 INSERT→DELETE까지 점검
-//    - "권한 링크 동기화" : teachers.auth_user_id 매핑 즉시 동기화
-// 4) _onEdit에서 teacherId 빈문자→null 정규화 (UPDATE 무반응 방지)
-// 5) phoneLast4 null 안전 표시
+// 1) 다이얼로그 필드 확장: gender, isAdult, schoolName, grade, startDate, instrument, memo, isActive
+// 2) create/update에 확장 필드 전달 (StudentService v1.36.0 정합)
+// 3) 빈문자 -> NULL 정규화 유지(서비스/모델에 위임) + last4 유효성 가드
+// 4) 목록 subtitle에 핵심 요약(담당강사/연령/악기/학교/시작일/활성) 표시
+// 5) 기존 진단도구/권한 링크 동기화/재시도 흐름 유지
+//
+// 의존:
+// - services: AuthService, StudentService, TeacherService
+// - models: Student, Teacher
+// - supabase: SupabaseTables
+// - pub: intl (날짜표시용; pubspec에 intl 포함되어 있음)
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/auth_service.dart';
@@ -41,6 +46,8 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
   List<Student> _list = const [];
   List<Teacher> _teachers = const [];
   Map<String, String> _teacherNameById = const {}; // id -> name
+
+  final _dateFmt = DateFormat('yyyy-MM-dd');
 
   @override
   void initState() {
@@ -74,7 +81,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
         };
       });
     } catch (_) {
-      // 교사 목록 실패 시에도 학생목록은 보이도록 무시
+      /* 교사 목록 실패 시에도 학생목록은 보이도록 무시 */
     }
   }
 
@@ -117,8 +124,6 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
 
   String _friendlyError(Object e) {
     if (e is PostgrestException) {
-      final msg = (e.message ?? '').toLowerCase();
-      final hint = (e.hint ?? '').toLowerCase();
       final isPerm = _isPermError(e);
       if (isPerm) {
         return '권한이 없습니다. 관리자 계정과 RLS 정책을 확인하세요.';
@@ -177,6 +182,14 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
           name: r.name,
           phoneLast4: r.last4,
           teacherId: r.teacherId?.trim().isEmpty == true ? null : r.teacherId,
+          gender: r.gender,
+          isAdult: r.isAdult,
+          schoolName: r.schoolName,
+          grade: r.grade,
+          startDate: r.startDate,
+          instrument: r.instrument,
+          memo: r.memo,
+          isActive: r.isActive,
         );
         ScaffoldMessenger.of(
           context,
@@ -192,6 +205,14 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
               teacherId: r.teacherId?.trim().isEmpty == true
                   ? null
                   : r.teacherId,
+              gender: r.gender,
+              isAdult: r.isAdult,
+              schoolName: r.schoolName,
+              grade: r.grade,
+              startDate: r.startDate,
+              instrument: r.instrument,
+              memo: r.memo,
+              isActive: r.isActive,
             );
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('학생이 등록되었습니다. (링크 보정 후)')),
@@ -215,6 +236,14 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
         initialName: s.name,
         initialLast4: s.phoneLast4 ?? '',
         initialTeacherId: s.teacherId,
+        initialGender: s.gender,
+        initialIsAdult: s.isAdult,
+        initialSchoolName: s.schoolName,
+        initialGrade: s.grade,
+        initialStartDate: s.startDate,
+        initialInstrument: s.instrument,
+        initialMemo: s.memo,
+        initialIsActive: s.isActive,
         teachers: _teachers,
       ),
     );
@@ -226,9 +255,15 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
           id: s.id,
           name: r.name,
           phoneLast4: r.last4,
-          teacherId: r.teacherId?.trim().isEmpty == true
-              ? null
-              : r.teacherId, // ✅
+          teacherId: r.teacherId?.trim().isEmpty == true ? null : r.teacherId,
+          gender: r.gender,
+          isAdult: r.isAdult,
+          schoolName: r.schoolName,
+          grade: r.grade,
+          startDate: r.startDate,
+          instrument: r.instrument,
+          memo: r.memo,
+          isActive: r.isActive,
         );
         ScaffoldMessenger.of(
           context,
@@ -245,6 +280,14 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
               teacherId: r.teacherId?.trim().isEmpty == true
                   ? null
                   : r.teacherId,
+              gender: r.gender,
+              isAdult: r.isAdult,
+              schoolName: r.schoolName,
+              grade: r.grade,
+              startDate: r.startDate,
+              instrument: r.instrument,
+              memo: r.memo,
+              isActive: r.isActive,
             );
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('학생 정보가 저장되었습니다. (링크 보정 후)')),
@@ -510,7 +553,6 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                // ⬇ 에러 시, 링크 보정 + 재시도
                 ? _ErrorView(message: _error!, onRetry: _retryRepair)
                 : _list.isEmpty
                 ? _EmptyView(onRetry: _load)
@@ -526,17 +568,28 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                           ? (_teacherNameById[s.teacherId!] ?? '미배정')
                           : '미배정';
                       final last4 = s.phoneLast4?.trim() ?? '';
+                      final start = s.startDate == null
+                          ? null
+                          : _dateFmt.format(s.startDate!.toLocal());
+                      final info = <String>[
+                        if (last4.isNotEmpty) '전화: ****-$last4',
+                        '강사: $teacherName',
+                        s.isAdult ? '성인' : '학생',
+                        if ((s.instrument ?? '').isNotEmpty)
+                          '악기: ${s.instrument}',
+                        if ((s.schoolName ?? '').isNotEmpty)
+                          '학교: ${s.schoolName}${s.grade == null ? '' : ' ${s.grade}학년'}',
+                        if (start != null) '시작일: $start',
+                        s.isActive ? '활성' : '비활성',
+                        if (s.createdAt != null)
+                          '등록: ${_dateFmt.format(s.createdAt!.toLocal())}',
+                      ].join(' · ');
                       return ListTile(
-                        leading: const Icon(Icons.person),
-                        title: Text(s.name),
-                        subtitle: Text(
-                          [
-                            if (last4.isNotEmpty) '전화 뒷자리: $last4',
-                            '담당강사: $teacherName',
-                            if (s.createdAt != null)
-                              '등록: ${s.createdAt!.toIso8601String().split("T").first}',
-                          ].join(' · '),
+                        leading: Icon(
+                          s.isActive ? Icons.person : Icons.person_off,
                         ),
+                        title: Text(s.name),
+                        subtitle: Text(info),
                         trailing: Wrap(
                           spacing: 4,
                           children: [
@@ -622,19 +675,58 @@ class _EditResult {
   final String name;
   final String last4;
   final String? teacherId;
-  const _EditResult(this.name, this.last4, this.teacherId);
+  final String? gender; // '남' | '여'
+  final bool isAdult;
+  final String? schoolName;
+  final int? grade;
+  final DateTime? startDate; // date-only
+  final String? instrument; // '통기타' | '일렉기타' | '클래식기타'
+  final String? memo;
+  final bool isActive;
+
+  const _EditResult({
+    required this.name,
+    required this.last4,
+    required this.teacherId,
+    required this.gender,
+    required this.isAdult,
+    required this.schoolName,
+    required this.grade,
+    required this.startDate,
+    required this.instrument,
+    required this.memo,
+    required this.isActive,
+  });
 }
 
 class _EditStudentDialog extends StatefulWidget {
   final String? initialName;
   final String? initialLast4;
   final String? initialTeacherId;
+
+  final String? initialGender;
+  final bool? initialIsAdult;
+  final String? initialSchoolName;
+  final int? initialGrade;
+  final DateTime? initialStartDate;
+  final String? initialInstrument;
+  final String? initialMemo;
+  final bool? initialIsActive;
+
   final List<Teacher> teachers;
 
   const _EditStudentDialog({
     this.initialName,
     this.initialLast4,
     this.initialTeacherId,
+    this.initialGender,
+    this.initialIsAdult,
+    this.initialSchoolName,
+    this.initialGrade,
+    this.initialStartDate,
+    this.initialInstrument,
+    this.initialMemo,
+    this.initialIsActive,
     required this.teachers,
   });
 
@@ -645,26 +737,72 @@ class _EditStudentDialog extends StatefulWidget {
 class _EditStudentDialogState extends State<_EditStudentDialog> {
   late final TextEditingController _nameCtl;
   late final TextEditingController _last4Ctl;
+  late final TextEditingController _schoolCtl;
+  late final TextEditingController _gradeCtl;
+  late final TextEditingController _memoCtl;
+
   String? _selectedTeacherId;
+  String? _gender; // '남' | '여' | null
+  bool _isAdult = true;
+  String? _instrument; // '통기타' | '일렉기타' | '클래식기타' | null
+  DateTime? _startDate; // date-only
+  bool _isActive = true;
+
+  final _dateFmt = DateFormat('yyyy-MM-dd');
 
   @override
   void initState() {
     super.initState();
     _nameCtl = TextEditingController(text: widget.initialName ?? '');
     _last4Ctl = TextEditingController(text: widget.initialLast4 ?? '');
+    _schoolCtl = TextEditingController(text: widget.initialSchoolName ?? '');
+    _gradeCtl = TextEditingController(
+      text: widget.initialGrade?.toString() ?? '',
+    );
+    _memoCtl = TextEditingController(text: widget.initialMemo ?? '');
     _selectedTeacherId = widget.initialTeacherId;
+    _gender = widget.initialGender;
+    _isAdult = widget.initialIsAdult ?? true;
+    _instrument = widget.initialInstrument;
+    _startDate = widget.initialStartDate;
+    _isActive = widget.initialIsActive ?? true;
   }
 
   @override
   void dispose() {
     _nameCtl.dispose();
     _last4Ctl.dispose();
+    _schoolCtl.dispose();
+    _gradeCtl.dispose();
+    _memoCtl.dispose();
     super.dispose();
   }
 
   bool _isValidLast4(String v) {
     if (v.trim().isEmpty) return true; // 빈값 허용(선택 입력)
     return RegExp(r'^[0-9]{4}$').hasMatch(v.trim());
+  }
+
+  int? _parseGrade(String v) {
+    final t = v.trim();
+    if (t.isEmpty) return null;
+    return int.tryParse(t);
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final init = _startDate ?? DateTime(now.year, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: init,
+      firstDate: DateTime(2000, 1, 1),
+      lastDate: DateTime(now.year + 2, 12, 31),
+    );
+    if (picked != null) {
+      setState(
+        () => _startDate = DateTime(picked.year, picked.month, picked.day),
+      );
+    }
   }
 
   @override
@@ -674,54 +812,212 @@ class _EditStudentDialogState extends State<_EditStudentDialog> {
     return AlertDialog(
       title: Text(isEdit ? '학생 정보 수정' : '학생 추가'),
       content: SizedBox(
-        width: 460,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _nameCtl,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: '이름',
-                hintText: '예: 홍길동',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _last4Ctl,
-              maxLength: 4,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: '전화 뒷자리 4',
-                hintText: '예: 1234',
-                counterText: '',
-              ),
-            ),
-            const SizedBox(height: 16),
-            // 담당 강사
-            InputDecorator(
-              decoration: const InputDecoration(
-                labelText: '담당 강사(선택)',
-                border: OutlineInputBorder(),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String?>(
-                  isExpanded: true,
-                  value: _selectedTeacherId?.isEmpty == true
-                      ? null
-                      : _selectedTeacherId,
-                  items: <DropdownMenuItem<String?>>[
-                    const DropdownMenuItem(value: null, child: Text('미배정')),
-                    ...widget.teachers.map((t) {
-                      final label = t.name.trim().isEmpty ? t.email : t.name;
-                      return DropdownMenuItem(value: t.id, child: Text(label));
-                    }),
-                  ],
-                  onChanged: (v) => setState(() => _selectedTeacherId = v),
+        width: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 이름
+              TextField(
+                controller: _nameCtl,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: '이름 *',
+                  hintText: '예: 홍길동',
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+
+              // 전화 뒷자리
+              TextField(
+                controller: _last4Ctl,
+                maxLength: 4,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: '전화 뒷자리 4',
+                  hintText: '예: 1234',
+                  counterText: '',
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // 담당 강사
+              InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: '담당 강사(선택)',
+                  border: OutlineInputBorder(),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String?>(
+                    isExpanded: true,
+                    value: _selectedTeacherId?.isEmpty == true
+                        ? null
+                        : _selectedTeacherId,
+                    items: <DropdownMenuItem<String?>>[
+                      const DropdownMenuItem(value: null, child: Text('미배정')),
+                      ...widget.teachers.map((t) {
+                        final label = t.name.trim().isEmpty ? t.email : t.name;
+                        return DropdownMenuItem(
+                          value: t.id,
+                          child: Text(label),
+                        );
+                      }),
+                    ],
+                    onChanged: (v) => setState(() => _selectedTeacherId = v),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // 성별 + 성인여부
+              Row(
+                children: [
+                  Expanded(
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: '성별(선택)',
+                        border: OutlineInputBorder(),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String?>(
+                          isExpanded: true,
+                          value: _gender,
+                          items: const [
+                            DropdownMenuItem(value: null, child: Text('미지정')),
+                            DropdownMenuItem(value: '남', child: Text('남')),
+                            DropdownMenuItem(value: '여', child: Text('여')),
+                          ],
+                          onChanged: (v) => setState(() => _gender = v),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SwitchListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                      ),
+                      title: const Text('성인'),
+                      value: _isAdult,
+                      onChanged: (v) => setState(() => _isAdult = v),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // 학교/학년
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: _schoolCtl,
+                      decoration: const InputDecoration(
+                        labelText: '학교(선택)',
+                        hintText: '예: 한빛고, 샛별초, 희망중',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _gradeCtl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: '학년(선택)',
+                        hintText: '예: 2',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // 시작일 + 악기
+              Row(
+                children: [
+                  Expanded(
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: '시작일(선택)',
+                        border: OutlineInputBorder(),
+                      ),
+                      child: InkWell(
+                        onTap: _pickDate,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.event, size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                _startDate == null
+                                    ? '미지정'
+                                    : _dateFmt.format(_startDate!.toLocal()),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: '악기(선택)',
+                        border: OutlineInputBorder(),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String?>(
+                          isExpanded: true,
+                          value: _instrument,
+                          items: const [
+                            DropdownMenuItem(value: null, child: Text('미지정')),
+                            DropdownMenuItem(value: '통기타', child: Text('통기타')),
+                            DropdownMenuItem(
+                              value: '일렉기타',
+                              child: Text('일렉기타'),
+                            ),
+                            DropdownMenuItem(
+                              value: '클래식기타',
+                              child: Text('클래식기타'),
+                            ),
+                          ],
+                          onChanged: (v) => setState(() => _instrument = v),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // 활성/비활성
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('활성(수업 대상)'),
+                subtitle: const Text('비활성으로 두면 검색/배정에서 제외(정산/기록은 유지)'),
+                value: _isActive,
+                onChanged: (v) => setState(() => _isActive = v),
+              ),
+              const SizedBox(height: 8),
+
+              // 메모
+              TextField(
+                controller: _memoCtl,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: '메모(선택)',
+                  hintText: '특이사항, 곡 취향, 수업 메모 등',
+                  alignLabelWithHint: true,
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       actions: [
@@ -735,7 +1031,23 @@ class _EditStudentDialogState extends State<_EditStudentDialog> {
             final l4 = _last4Ctl.text.trim();
             if (name.isEmpty) return;
             if (!_isValidLast4(l4)) return;
-            Navigator.pop(context, _EditResult(name, l4, _selectedTeacherId));
+
+            final result = _EditResult(
+              name: name,
+              last4: l4,
+              teacherId: _selectedTeacherId,
+              gender: _gender,
+              isAdult: _isAdult,
+              schoolName: _schoolCtl.text.trim().isEmpty
+                  ? null
+                  : _schoolCtl.text.trim(),
+              grade: _parseGrade(_gradeCtl.text),
+              startDate: _startDate,
+              instrument: _instrument,
+              memo: _memoCtl.text.trim().isEmpty ? null : _memoCtl.text.trim(),
+              isActive: _isActive,
+            );
+            Navigator.pop(context, result);
           },
           child: Text(isEdit ? '저장' : '추가'),
         ),

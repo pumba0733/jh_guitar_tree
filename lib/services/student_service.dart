@@ -1,10 +1,7 @@
 // lib/services/student_service.dart
-// v1.35.0 | 학생 CRUD 확장 + 정규화 + UPDATE 반영 확정
-// - create/update에 설계서 필드 지원: gender, isAdult, schoolName, grade, startDate, instrument, isActive, memo
-// - 빈문자('') → NULL 정규화 (phone_last4/teacher_id/문자 필드)
-// - UPDATE 후 .select().single()로 최신값 반환 (UI에서 재조회 시 확실히 반영)
-// - 기존 시그니처 호환: 기존 파라미터만 전달해도 동작
-
+// v1.36.0 | 학생 CRUD + 검색 + find_student RPC
+// - create/update에 설계 필드(gender, isAdult, schoolName, grade, startDate, instrument, memo, isActive) 추가
+// - 빈문자→NULL 정규화, 날짜는 'YYYY-MM-DD' 전송
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../supabase/supabase_tables.dart';
 import '../models/student.dart';
@@ -12,31 +9,21 @@ import '../models/student.dart';
 class StudentService {
   final SupabaseClient _client = Supabase.instance.client;
 
-  // ---------- helpers ----------
-  String? _normStr(String? v) {
+  // ---------- 내부 유틸 ----------
+  String? _normNullable(String? v) {
     if (v == null) return null;
     final s = v.trim();
     return s.isEmpty ? null : s;
   }
 
-  String? _normLast4(String? v) {
+  String? _normPhoneLast4(String? v) {
     if (v == null) return null;
     final s = v.trim();
     return s.isEmpty ? null : s;
   }
 
-  String? _normTeacherId(String? v) {
-    if (v == null) return null;
-    final s = v.trim();
-    return s.isEmpty ? null : s;
-  }
-
-  String? _dateOnly(DateTime? d) {
-    if (d == null) return null;
-    // start_date는 DATE 컬럼 → YYYY-MM-DD 로 전달
-    return d.toIso8601String().split('T').first;
-    // PostgREST는 ISO도 받아주지만 DATE 컬럼에는 date-only 전달이 안전
-  }
+  String? _dateOnly(DateTime? d) =>
+      d == null ? null : d.toIso8601String().split('T').first;
 
   // ---------- 단건 조회 (RPC 우선) ----------
   Future<Student?> findByNameAndLast4({
@@ -103,31 +90,37 @@ class StudentService {
   // ---------- 생성 ----------
   Future<Student> create({
     required String name,
-    String phoneLast4 = '',
+    String? phoneLast4,
     String? teacherId,
 
-    // 확장 필드 (선택)
+    // 설계 필드
     String? gender, // '남' | '여'
-    bool isAdult = true, // true=성인, false=학생
+    bool isAdult = true,
     String? schoolName,
     int? grade,
-    DateTime? startDate, // DATE
+    DateTime? startDate,
     String? instrument, // '통기타' | '일렉기타' | '클래식기타'
-    bool isActive = true,
     String? memo,
+    bool isActive = true,
   }) async {
     final payload = <String, dynamic>{
       'name': name.trim(),
-      'phone_last4': _normLast4(phoneLast4),
-      'teacher_id': _normTeacherId(teacherId),
-      'is_active': isActive,
-      'memo': _normStr(memo),
-      'gender': _normStr(gender),
+      if (_normPhoneLast4(phoneLast4) != null)
+        'phone_last4': _normPhoneLast4(phoneLast4),
+      if (_normNullable(teacherId) != null)
+        'teacher_id': _normNullable(teacherId),
+
+      // 설계 필드
       'is_adult': isAdult,
-      'school_name': _normStr(schoolName),
-      'grade': grade,
-      'start_date': _dateOnly(startDate),
-      'instrument': _normStr(instrument),
+      'is_active': isActive,
+      if (_normNullable(gender) != null) 'gender': _normNullable(gender),
+      if (_normNullable(schoolName) != null)
+        'school_name': _normNullable(schoolName),
+      if (grade != null) 'grade': grade,
+      if (startDate != null) 'start_date': _dateOnly(startDate),
+      if (_normNullable(instrument) != null)
+        'instrument': _normNullable(instrument),
+      if (_normNullable(memo) != null) 'memo': _normNullable(memo),
     };
 
     final res = await _client
@@ -135,7 +128,6 @@ class StudentService {
         .insert(payload)
         .select()
         .single();
-
     return Student.fromMap(Map<String, dynamic>.from(res));
   }
 
@@ -146,54 +138,29 @@ class StudentService {
     String? phoneLast4,
     String? teacherId,
 
-    // 확장 필드 (선택)
+    // 설계 필드
     String? gender,
     bool? isAdult,
     String? schoolName,
     int? grade,
-    DateTime? startDate, // null을 명시적으로 전달하면 NULL로 갱신됨
+    DateTime? startDate,
     String? instrument,
-    bool? isActive,
     String? memo,
+    bool? isActive,
   }) async {
     final patch = <String, dynamic>{};
-
     if (name != null) patch['name'] = name.trim();
-    if (phoneLast4 != null) patch['phone_last4'] = _normLast4(phoneLast4);
-    if (teacherId != null) patch['teacher_id'] = _normTeacherId(teacherId);
+    if (phoneLast4 != null) patch['phone_last4'] = _normPhoneLast4(phoneLast4);
+    if (teacherId != null) patch['teacher_id'] = _normNullable(teacherId);
 
-    if (gender != null) patch['gender'] = _normStr(gender);
+    if (gender != null) patch['gender'] = _normNullable(gender);
     if (isAdult != null) patch['is_adult'] = isAdult;
-    if (schoolName != null) patch['school_name'] = _normStr(schoolName);
+    if (schoolName != null) patch['school_name'] = _normNullable(schoolName);
     if (grade != null) patch['grade'] = grade;
+    if (startDate != null) patch['start_date'] = _dateOnly(startDate);
+    if (instrument != null) patch['instrument'] = _normNullable(instrument);
+    if (memo != null) patch['memo'] = _normNullable(memo);
     if (isActive != null) patch['is_active'] = isActive;
-    if (memo != null) patch['memo'] = _normStr(memo);
-    if (instrument != null) patch['instrument'] = _normStr(instrument);
-
-    // startDate는 DateTime?라서, 호출자가 null을 명시적으로 넘기면 컬럼을 NULL로 만든다.
-    if (startDate != null || patch.containsKey('start_date')) {
-      // 위 containsKey는 방어적 의미 — 실제론 없지만 향후 확장 대비
-    }
-    if (startDate != null) {
-      patch['start_date'] = _dateOnly(startDate); // 값 지정
-    } else if (startDate == null &&
-        ( // 명시적으로 null을 전달하여 초기화하고 싶은 경우
-        // 호출부에서 명시적으로 startDate: null 을 넘겨주면 여길 태운다.
-        // 이 함수 시그니처 특성상 null 전달과 미전달이 같아서,
-        // "초기화"가 필요하면 별도 clear 플래그를 도입하는 것을 권장.
-        false)) {
-      patch['start_date'] = null;
-    }
-
-    if (patch.isEmpty) {
-      // 변경 없음: 현재 레코드 반환
-      final current = await _client
-          .from(SupabaseTables.students)
-          .select()
-          .eq('id', id)
-          .single();
-      return Student.fromMap(Map<String, dynamic>.from(current));
-    }
 
     final res = await _client
         .from(SupabaseTables.students)
@@ -201,7 +168,6 @@ class StudentService {
         .eq('id', id)
         .select()
         .single();
-
     return Student.fromMap(Map<String, dynamic>.from(res));
   }
 
