@@ -1,5 +1,8 @@
 // lib/ui/components/drop_upload_area.dart
-// v1.26.2 | desktop_drop 드래그&드롭 → FileService.uploadXFile로 업로드
+// v1.28.3 | 드래그&드롭: 동시 업로드 제한(3) + 진행 n/N
+// - desktop_drop 0.4.4 호환(List<XFile>)
+// - 업로드 중 재드롭 방지, 호버 UI 유지
+
 import 'dart:io';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
@@ -27,9 +30,74 @@ class DropUploadArea extends StatefulWidget {
 class _DropUploadAreaState extends State<DropUploadArea> {
   bool _hover = false;
   bool _uploading = false;
+  int _done = 0;
+  int _total = 0;
 
   bool get _isDesktop =>
       Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+
+  Future<void> _handleDropFiles(List<XFile> files) async {
+    if (_uploading) return;
+
+    setState(() {
+      _uploading = true;
+      _done = 0;
+      _total = files.length;
+    });
+
+    try {
+      final fs = FileService.instance;
+      final uploads = <Map<String, dynamic>>[];
+
+      // 동시 업로드 제한: 3개씩 배치 처리
+      const concurrent = 3;
+      for (var i = 0; i < files.length; i += concurrent) {
+        final batch = files.sublist(
+          i,
+          (i + concurrent > files.length) ? files.length : i + concurrent,
+        );
+
+        final results = await Future.wait(
+          batch.map((xf) async {
+            final u = await fs.uploadXFile(
+              xfile: XFile(xf.path, name: xf.name),
+              studentId: widget.studentId,
+              dateStr: widget.dateStr,
+            );
+            if (!mounted) return u;
+            setState(() => _done += 1);
+            return u;
+          }),
+        );
+
+        uploads.addAll(results);
+      }
+
+      widget.onUploaded(uploads);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${uploads.length}개 파일 업로드 완료'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      widget.onError?.call(e);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('드래그 업로드 실패: $e')));
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _hover = false;
+        _uploading = false;
+        _done = 0;
+        _total = 0;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,42 +107,8 @@ class _DropUploadAreaState extends State<DropUploadArea> {
       onDragEntered: (_) => setState(() => _hover = true),
       onDragExited: (_) => setState(() => _hover = false),
       onDragDone: (detail) async {
-        setState(() => _uploading = true);
-        try {
-          final file = FileService.instance;
-          final uploads = <Map<String, dynamic>>[];
-          for (final f in detail.files) {
-            final u = await file.uploadXFile(
-              xfile: XFile(f.path, name: f.name),
-              studentId: widget.studentId,
-              dateStr: widget.dateStr,
-            );
-            uploads.add(u);
-          }
-          widget.onUploaded(uploads);
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('${uploads.length}개 파일 업로드 완료'),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          }
-        } catch (e) {
-          widget.onError?.call(e);
-          if (context.mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text('드래그 업로드 실패: $e')));
-          }
-        } finally {
-          if (mounted) {
-            setState(() {
-              _hover = false;
-              _uploading = false;
-            });
-          }
-        }
+        if (_uploading) return;
+        await _handleDropFiles(detail.files);
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
@@ -90,20 +124,20 @@ class _DropUploadAreaState extends State<DropUploadArea> {
           ),
           borderRadius: BorderRadius.circular(12),
           color: _hover
-              ? Theme.of(context).colorScheme.primary.withOpacity(0.06)
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.06)
               : null,
         ),
         child: _uploading
-            ? const Row(
+            ? Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  SizedBox(
+                  const SizedBox(
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
-                  SizedBox(width: 8),
-                  Text('업로드 중…'),
+                  const SizedBox(width: 8),
+                  Text('업로드 중… $_done/$_total'),
                 ],
               )
             : Row(

@@ -1,13 +1,5 @@
 // lib/services/lesson_service.dart
-// v1.25 | 안전 보강 + 헬퍼 확장
-// - 기존 v1.24 시그니처 100% 호환 유지
-// - insert 경로: onConflict(student_id,date) 유지
-// - update 경로: DB 트리거(updated_at) 의존 (클라이언트에서 updated_at 세팅 불필요)
-// - attachments/keywords 정규화 보강
-//
-// 참고: lessons 테이블 스키마
-//   attachments: jsonb  (표준 형태: [{path, url, name, size?}, ...])
-//   keywords:    jsonb  (문자열 배열)
+// v1.28.2 | 삭제 API 정식 추가(P2) + 기존 기능 유지
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/lesson.dart';
@@ -24,7 +16,6 @@ class LessonService {
 
   // ========= 내부 유틸 =========
 
-  /// keywords가 혼합타입(List<dynamic>)로 넘어와도 문자열 배열로 정규화
   List<String>? _normalizeKeywords(dynamic v) {
     if (v == null) return null;
     if (v is List) {
@@ -38,8 +29,6 @@ class LessonService {
     return null;
   }
 
-  /// attachments를 [{path,url,name,size?}, ...]로 정규화
-  /// - 문자열(single URL/경로) 또는 혼합타입이 와도 최소 키를 보장
   List<Map<String, dynamic>>? _normalizeAttachments(dynamic v) {
     if (v == null) return null;
     final out = <Map<String, dynamic>>[];
@@ -68,7 +57,6 @@ class LessonService {
       }
       return out;
     }
-    // 단일 값 처리
     final s = v.toString();
     return [
       {
@@ -81,11 +69,30 @@ class LessonService {
 
   // ========= 조회 =========
 
-  /// 화면용: 학생별 레슨(Map) 리스트
   Future<List<Map<String, dynamic>>> listByStudent(
     String studentId, {
     DateTime? from,
     DateTime? to,
+    int limit = 100,
+    int offset = 0,
+    bool asc = false,
+  }) async {
+    return listByStudentPaged(
+      studentId,
+      from: from,
+      to: to,
+      query: null,
+      limit: limit,
+      offset: offset,
+      asc: asc,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> listByStudentPaged(
+    String studentId, {
+    DateTime? from,
+    DateTime? to,
+    String? query,
     int limit = 100,
     int offset = 0,
     bool asc = false,
@@ -98,6 +105,13 @@ class LessonService {
     if (from != null) q = q.gte('date', _dateKey(from));
     if (to != null) q = q.lte('date', _dateKey(to));
 
+    if (query != null && query.trim().isNotEmpty) {
+      final term = query.trim();
+      q = q.or(
+        'subject.ilike.%$term%,memo.ilike.%$term%,next_plan.ilike.%$term%',
+      );
+    }
+
     final res = await q
         .order('date', ascending: asc)
         .range(offset, offset + limit - 1);
@@ -107,7 +121,6 @@ class LessonService {
         .toList();
   }
 
-  /// 기존 호환: 모델 리스트
   Future<List<Lesson>> listByStudentAsModel(
     String studentId, {
     int limit = 50,
@@ -124,7 +137,6 @@ class LessonService {
         .toList();
   }
 
-  /// 강사 기준 오늘 수업 목록 (당일 00:00 ~ +1일 00:00, 날짜 오름차순)
   Future<List<Lesson>> listTodayByTeacher(String teacherId) async {
     final today = DateTime.now();
     final from = DateTime(today.year, today.month, today.day);
@@ -137,7 +149,7 @@ class LessonService {
         'p_from': _dateKey(from),
         'p_to': _dateKey(to),
         'p_query': null,
-        'p_sort': 'asc', // 오름차순
+        'p_sort': 'asc',
         'p_limit': 50,
         'p_offset': 0,
       },
@@ -148,7 +160,6 @@ class LessonService {
         .toList();
   }
 
-  /// 학생 히스토리 검색 필터
   Future<List<Lesson>> listStudentFiltered(
     String studentId, {
     String? query,
@@ -172,7 +183,6 @@ class LessonService {
         .toList();
   }
 
-  /// 단건 조회(id)
   Future<Map<String, dynamic>?> getById(String id) async {
     final res = await _client
         .from(SupabaseTables.lessons)
@@ -198,7 +208,6 @@ class LessonService {
 
   // ========= 생성/갱신 =========
 
-  /// 오늘 레슨 불러오기/생성 (모델 반환)
   Future<Lesson> loadOrCreateLesson({
     required String studentId,
     String? teacherId,
@@ -221,7 +230,7 @@ class LessonService {
       'memo': memo ?? '',
       'next_plan': nextPlan ?? '',
       'keywords': _normalizeKeywords(keywords) ?? <String>[],
-      'attachments': <Map<String, dynamic>>[], // 기본값 명시
+      'attachments': <Map<String, dynamic>>[],
       'youtube_url': youtubeUrl ?? '',
     };
 
@@ -235,7 +244,6 @@ class LessonService {
     return Lesson.fromMap(Map<String, dynamic>.from(data as Map));
   }
 
-  /// 오늘 row 보장(Map 버전)
   Future<Map<String, dynamic>> ensureTodayRow({
     required String studentId,
     String? teacherId,
@@ -265,7 +273,6 @@ class LessonService {
     return Map<String, dynamic>.from(data as Map);
   }
 
-  /// studentId+date 기준 upsert (모델 반환)
   Future<Lesson> upsertLesson({
     required String studentId,
     DateTime? date,
@@ -288,7 +295,6 @@ class LessonService {
       if (keywords != null) 'keywords': _normalizeKeywords(keywords),
       if (attachments != null)
         'attachments': _normalizeAttachments(attachments),
-      // updated_at은 트리거에서 처리
     };
 
     Map<String, dynamic>? data;
@@ -317,13 +323,9 @@ class LessonService {
     return Lesson.fromMap(Map<String, dynamic>.from(data as Map));
   }
 
-  /// Map 기반 upsert
-  /// - id가 있으면 update(id)
-  /// - 새 row일 때만 onConflict(student_id,date)
   Future<Map<String, dynamic>> upsert(Map<String, dynamic> lesson) async {
     final payload = Map<String, dynamic>.from(lesson);
 
-    // 정규화
     if (payload.containsKey('keywords')) {
       payload['keywords'] = _normalizeKeywords(payload['keywords']);
     }
@@ -331,7 +333,6 @@ class LessonService {
       payload['attachments'] = _normalizeAttachments(payload['attachments']);
     }
 
-    // update(id) 경로
     final id = payload.remove('id');
     if (id != null) {
       final data = await _client
@@ -344,7 +345,6 @@ class LessonService {
       return Map<String, dynamic>.from(data as Map);
     }
 
-    // insert/upsert 경로 — onConflict(student_id,date) 보장
     if (!payload.containsKey('student_id')) {
       throw ArgumentError('upsert: student_id가 필요합니다');
     }
@@ -362,33 +362,8 @@ class LessonService {
     return Map<String, dynamic>.from(data as Map);
   }
 
-  /// 오늘자 upsert (모델 반환)
-  Future<Lesson> upsertToday({
-    required String studentId,
-    String? subject,
-    String? memo,
-    String? nextPlan,
-    String? youtubeUrl,
-    List<String>? keywords,
-    List<Map<String, dynamic>>? attachments,
-    String? teacherId,
-  }) {
-    return upsertLesson(
-      studentId: studentId,
-      date: DateTime.now(),
-      subject: subject,
-      memo: memo,
-      nextPlan: nextPlan,
-      youtubeUrl: youtubeUrl,
-      keywords: keywords,
-      attachments: attachments,
-      teacherId: teacherId,
-    );
-  }
-
   // ========= 첨부 헬퍼 =========
 
-  /// attachments 전체 치환(서버 기준)
   Future<Map<String, dynamic>> setAttachments({
     required String id,
     required List<Map<String, dynamic>> attachments,
@@ -403,7 +378,6 @@ class LessonService {
     return Map<String, dynamic>.from(data as Map);
   }
 
-  /// 단건 추가(클라이언트 병합)
   Future<Map<String, dynamic>> addAttachment({
     required String id,
     required Map<String, dynamic> attachment,
@@ -420,7 +394,6 @@ class LessonService {
     return setAttachments(id: id, attachments: list);
   }
 
-  /// 조건 제거(클라이언트 병합)
   Future<Map<String, dynamic>> removeAttachment({
     required String id,
     required bool Function(Map<String, dynamic>) test,
@@ -434,5 +407,27 @@ class LessonService {
           : const <Map<String, dynamic>>[]),
     ]..removeWhere(test);
     return setAttachments(id: id, attachments: list);
+  }
+
+  // ========= 삭제 =========
+
+  /// 하드 삭제(테이블에 soft delete 컬럼이 없을 때)
+  Future<void> deleteById(String id) async {
+    await _client.from(SupabaseTables.lessons).delete().eq('id', id);
+  }
+
+  /// (선택) soft-delete: lessons 테이블에 is_deleted, deleted_at 컬럼이 있을 때만 사용
+  Future<Map<String, dynamic>> softDeleteById(String id) async {
+    final data = await _client
+        .from(SupabaseTables.lessons)
+        .update({
+          'is_deleted': true,
+          'deleted_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', id)
+        .select()
+        .maybeSingle();
+    if (data == null) throw StateError('레슨 soft-delete 실패');
+    return Map<String, dynamic>.from(data as Map);
   }
 }

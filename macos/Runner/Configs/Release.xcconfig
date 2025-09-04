@@ -1,2 +1,9 @@
+// CocoaPods (Release)
+#include? "../../Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
+
+// Flutter (Release)
 #include "../../Flutter/Flutter-Release.xcconfig"
+
+// 공통 앱 메타 + 경고 규칙
+#include "AppInfoCommon.xcconfig"
 #include "Warnings.xcconfig"

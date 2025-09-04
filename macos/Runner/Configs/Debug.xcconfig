@@ -1,2 +1,9 @@
+// CocoaPods (Debug)
+#include? "../../Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
+
+// Flutter (Debug)
 #include "../../Flutter/Flutter-Debug.xcconfig"
+
+// 공통 앱 메타 + 경고 규칙
+#include "AppInfoCommon.xcconfig"
 #include "Warnings.xcconfig"

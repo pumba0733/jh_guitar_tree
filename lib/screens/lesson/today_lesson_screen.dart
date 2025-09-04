@@ -1,15 +1,17 @@
-// v1.24.3 | 오늘 수업 화면 - URL 외부 브라우저 열기 + 데스크탑 드래그&드롭 업로드
-// - 기존 v1.24.2 코드 기반
-// - desktop_drop 적용: 첨부 영역에 DropTarget 추가
+// lib/screens/lesson/today_lesson_screen.dart
+// v1.31.0 | 오늘 수업 화면 - 인자 가드/lessonId 옵션 지원/안정성 보강
+// - v1.24.4 기반
+// 변경점:
+//   1) arguments 가드: studentId 누락 시 스낵바+뒤로가기 (throw 제거)
+//   2) arguments 확장: lessonId(옵션) 지원 → (해당 학생 && 오늘 날짜)인 경우 해당 행 사용
+//   3) mounted/에러 표시 보강, 키워드/저장 흐름 유지, fromHistoryId 프리필 유지
 
-import 'dart:async';
+import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
 
-import 'package:desktop_drop/desktop_drop.dart';
-import 'package:cross_file/cross_file.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-
+import '../../ui/components/file_clip.dart';
 import '../../services/lesson_service.dart';
 import '../../services/keyword_service.dart';
 import '../../services/file_service.dart';
@@ -30,7 +32,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   final LessonService _service = LessonService();
   final KeywordService _keyword = KeywordService();
   final FileService _file = FileService();
-  // LogService는 정적 메서드만 제공 → 인스턴스 불필요
 
   final _subjectCtl = TextEditingController();
   final _memoCtl = TextEditingController();
@@ -44,12 +45,15 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   Timer? _kwSearchDebounce;
 
   // 식별자
-  String? _lessonId;
-  late String _studentId;
-  String? _teacherId;
+  String? _lessonId; // (옵션) args.lessonId 또는 ensure에서 생성/조회
+  late String _studentId; // (필수) args.studentId
+  String? _teacherId; // (옵션) args.teacherId
+
+  // 진입 프리필용
+  String? _fromHistoryId; // (옵션) args.fromHistoryId
 
   // 오늘 날짜 (YYYY-MM-DD)
-  late final String _todayDateStr;
+  late String _todayDateStr;
 
   // 키워드 (DB) 상태
   List<String> _categories = const [];
@@ -62,7 +66,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   List<String> _recentNextPlans = const [];
 
   // 첨부
-  // attachments: list of `{ "path": "...", "url": "...", "name": "파일.ext" }`
+  // attachments: list of `{ "path": "...", "url": "...", "name": "파일.ext", "size": <int?> }`
   final List<Map<String, dynamic>> _attachments = [];
 
   bool _initialized = false;
@@ -75,27 +79,69 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_initialized) return;
+    _initialized = true;
 
-    final args = (ModalRoute.of(context)?.settings.arguments as Map?) ?? {};
+    // ===== 인자 파싱 & 가드 =====
+    final raw = ModalRoute.of(context)?.settings.arguments;
+    final args = (raw is Map)
+        ? Map<String, dynamic>.from(raw as Map)
+        : <String, dynamic>{};
+
     _studentId = (args['studentId'] as String?)?.trim() ?? '';
     _teacherId = (args['teacherId'] as String?)?.trim();
+    _fromHistoryId = (args['fromHistoryId'] as String?)?.trim();
+    final argLessonId = (args['lessonId'] as String?)?.trim();
 
-    if (_studentId.isEmpty) {
-      throw Exception(
-        'TodayLessonScreen requires arguments: { "studentId": "<uuid>" }',
-      );
-    }
-
+    // 오늘 날짜 문자열 계산
     final now = DateTime.now();
     final d0 = DateTime(now.year, now.month, now.day);
     _todayDateStr = d0.toIso8601String().split('T').first;
 
-    _bindListeners();
-    _ensureTodayRow();
-    _loadKeywordData();
-    _loadRecentNextPlans();
+    if (_studentId.isEmpty) {
+      // 필수 인자 누락: 안내 후 뒤로가기
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showError('잘못된 진입입니다. 학생 정보가 누락되었습니다.');
+        Navigator.maybePop(context);
+      });
+      return;
+    }
 
-    _initialized = true;
+    _bindListeners();
+
+    // 비동기 초기화: (선택)lessonId 검증 → 오늘 행 보장 → (선택)히스토리 프리필 → 키워드/최근계획
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initAsync(initialLessonId: argLessonId);
+    });
+  }
+
+  Future<void> _initAsync({String? initialLessonId}) async {
+    // 1) (옵션) lessonId로 먼저 시도: 해당 학생 && 오늘 날짜면 사용
+    if (initialLessonId != null && initialLessonId.isNotEmpty) {
+      try {
+        final row = await _service.getById(initialLessonId);
+        if (row != null) {
+          final sid = (row['student_id'] ?? '').toString();
+          final dateStr = (row['date'] ?? '').toString();
+          if (sid == _studentId && dateStr == _todayDateStr) {
+            _applyRow(row);
+          }
+        }
+      } catch (_) {
+        // 무시하고 ensureTodayRow로 진행
+      }
+    }
+
+    // 2) 오늘 행 보장(이미 _lessonId가 채워졌으면 내부에서 그대로 유지)
+    await _ensureTodayRow();
+
+    // 3) (옵션) 히스토리 프리필
+    if (_fromHistoryId != null && _fromHistoryId!.isNotEmpty) {
+      await _prefillFromHistory(_fromHistoryId!);
+    }
+
+    // 4) 키워드/최근 계획 로딩
+    await _loadKeywordData();
+    await _loadRecentNextPlans();
   }
 
   void _bindListeners() {
@@ -104,18 +150,30 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     _nextCtl.addListener(_scheduleSave);
     _youtubeCtl.addListener(_scheduleSave);
 
+    // 키워드 검색창: 200ms 디바운스 후 전역 검색
     _keywordSearchCtl.addListener(() {
       _kwSearchDebounce?.cancel();
       _kwSearchDebounce = Timer(
         const Duration(milliseconds: 200),
-        _applyKeywordSearch,
+        () => _applyKeywordSearch(),
       );
+      // suffixIcon(지우기 버튼) 표시/숨김 갱신
       setState(() {});
     });
   }
 
   Future<void> _ensureTodayRow() async {
     try {
+      // 이미 lessonId가 세팅되어 있으면 현재 값으로 필드/선택 상태만 재세팅하고 리턴
+      if (_lessonId != null && _lessonId!.isNotEmpty) {
+        final row = await _service.getById(_lessonId!);
+        if (row != null) {
+          _applyRow(row);
+          return;
+        }
+        // 못 찾으면 신규 보장 로직으로 진행
+      }
+
       final today = DateTime.now();
       final d0 = DateTime(today.year, today.month, today.day);
 
@@ -144,34 +202,74 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         });
       }
 
-      _lessonId = row['id']?.toString();
-      _subjectCtl.text = (row['subject'] ?? '').toString();
-      _memoCtl.text = (row['memo'] ?? '').toString();
-      _nextCtl.text = (row['next_plan'] ?? '').toString();
-      _youtubeCtl.text = (row['youtube_url'] ?? '').toString();
-
-      final kw = row['keywords'];
-      if (kw is List) {
-        _selectedKeywords
-          ..clear()
-          ..addAll(kw.map((e) => e.toString()));
-      }
-
-      final atts = row['attachments'];
-      if (atts is List) {
-        _attachments
-          ..clear()
-          ..addAll(
-            atts.map<Map<String, dynamic>>((e) {
-              if (e is Map) return Map<String, dynamic>.from(e);
-              return {'path': e.toString(), 'url': e.toString()};
-            }),
-          );
-      }
-
-      if (mounted) setState(() {});
+      _applyRow(row);
     } catch (e) {
       _showError('오늘 수업 데이터를 불러오지 못했어요.\n$e');
+    }
+  }
+
+  void _applyRow(Map<String, dynamic> row) {
+    _lessonId = row['id']?.toString();
+
+    _subjectCtl.text = (row['subject'] ?? '').toString();
+    _memoCtl.text = (row['memo'] ?? '').toString();
+    _nextCtl.text = (row['next_plan'] ?? '').toString();
+    _youtubeCtl.text = (row['youtube_url'] ?? '').toString();
+
+    final kw = row['keywords'];
+    if (kw is List) {
+      _selectedKeywords
+        ..clear()
+        ..addAll(kw.map((e) => e.toString()));
+    }
+
+    final atts = row['attachments'];
+    if (atts is List) {
+      _attachments
+        ..clear()
+        ..addAll(
+          atts.map<Map<String, dynamic>>((e) {
+            if (e is Map) return Map<String, dynamic>.from(e);
+            final v = e.toString();
+            return {'path': v, 'url': v};
+          }),
+        );
+    }
+
+    if (mounted) setState(() {});
+  }
+
+  /// 히스토리에서 넘어온 레슨을 오늘 레슨에 프리필
+  Future<void> _prefillFromHistory(String historyId) async {
+    try {
+      final row = await _service.getById(historyId);
+      if (row == null) {
+        _showError('복습할 기록을 찾을 수 없습니다.');
+        return;
+      }
+
+      // 주제/메모/키워드/링크만 프리필 (첨부는 복사하지 않음)
+      final subject = (row['subject'] ?? '').toString();
+      final memo = (row['memo'] ?? '').toString();
+      final nextPlan = (row['next_plan'] ?? '').toString();
+      final youtube = (row['youtube_url'] ?? '').toString();
+      final kw = (row['keywords'] is List)
+          ? (row['keywords'] as List)
+          : const [];
+
+      _subjectCtl.text = subject;
+      _memoCtl.text = memo;
+      _nextCtl.text = nextPlan;
+      _youtubeCtl.text = youtube;
+
+      _selectedKeywords
+        ..clear()
+        ..addAll(kw.map((e) => e.toString()));
+
+      setState(() {});
+      _scheduleSave(); // 프리필 즉시 저장
+    } catch (e) {
+      _showError('복습 프리필 중 오류가 발생했어요: $e');
     }
   }
 
@@ -258,18 +356,20 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
   }
 
-  void _applyKeywordSearch() {
+  Future<void> _applyKeywordSearch() async {
     final q = _keywordSearchCtl.text.trim();
     if (q.isEmpty) {
       _filteredItems = _items;
-    } else {
-      final lq = q.toLowerCase();
-      _filteredItems = _items.where((it) {
-        return it.text.toLowerCase().contains(lq) ||
-            it.value.toLowerCase().contains(lq);
-      }).toList();
+      if (mounted) setState(() {});
+      return;
     }
-    if (mounted) setState(() {});
+    try {
+      final hits = await _keyword.searchItems(q);
+      if (!mounted) return;
+      setState(() => _filteredItems = hits.isNotEmpty ? hits : _items);
+    } catch (_) {
+      if (mounted) setState(() => _filteredItems = _items);
+    }
   }
 
   void _scheduleSave() {
@@ -279,9 +379,9 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   }
 
   Future<void> _saveInternal() async {
-    if (_lessonId == null) return;
+    if (_lessonId == null || _lessonId!.isEmpty) return;
     try {
-      // ⬇️ 저장용으로 localPath 제거
+      // 저장용으로 localPath 제거
       final attachmentsForSave = _attachments.map((m) {
         final c = Map<String, dynamic>.from(m);
         c.remove('localPath');
@@ -298,13 +398,13 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         'memo': _memoCtl.text.trim(),
         'next_plan': _nextCtl.text.trim(),
         'keywords': _selectedKeywords.toList(),
-        'attachments': attachmentsForSave, // ✅ 여기 사용
+        'attachments': attachmentsForSave,
         'youtube_url': _youtubeCtl.text.trim(),
       });
       _lastSavedAt = DateTime.now();
       _setStatus(SaveStatus.saved);
 
-      // 로그 기록 (정적 메서드)
+      // 로그 기록
       unawaited(
         LogService.insertLog(
           type: 'lesson_save',
@@ -514,7 +614,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                       final url = _youtubeCtl.text.trim();
                       if (url.isEmpty) return;
                       try {
-                        await _file.openUrl(url); // ✅ 외부 브라우저로
+                        await _file.openUrl(url); // 외부 브라우저
                       } catch (e) {
                         _showError('링크 열기 실패: $e');
                       }
@@ -528,7 +628,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                     final url = _youtubeCtl.text.trim();
                     if (url.isEmpty) return;
                     try {
-                      await _file.openUrl(url); // ✅ 외부 브라우저로
+                      await _file.openUrl(url); // 외부 브라우저
                     } catch (e) {
                       _showError('링크 열기 실패: $e');
                     }
@@ -542,7 +642,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           _buildExpandable(
             title: '📎 첨부 파일',
             section: _LocalSection.attach,
-            child: _isDesktop ? _attachmentDesktop() : _platformNotice(),
+            child: canAttach ? _attachmentDesktop() : _platformNotice(),
           ),
         ],
       ),
@@ -581,8 +681,8 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                   if (!mounted) return;
                   setState(() {
                     _items = items;
-                    _applyKeywordSearch();
                   });
+                  await _applyKeywordSearch();
                 },
               ),
             ),
@@ -666,7 +766,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         ),
         const SizedBox(height: 12),
 
-        // ⬇️ 드롭 영역 추가
         DropUploadArea(
           studentId: _studentId,
           dateStr: _todayDateStr,
@@ -695,17 +794,21 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
             children: List.generate(_attachments.length, (i) {
               final att = _attachments[i];
               final name = (att['name'] ?? att['path'] ?? 'file').toString();
-              return InputChip(
-                label: Text(name, overflow: TextOverflow.ellipsis),
-                onPressed: () => _handleOpenAttachment(att),
-                onDeleted: () => _handleRemoveAttachment(i),
+              return FileClip(
+                name: name,
+                path: (att['path'] ?? '').toString().isNotEmpty
+                    ? att['path']
+                    : null,
+                url: (att['url'] ?? '').toString().isNotEmpty
+                    ? att['url']
+                    : null,
+                onDelete: () => _handleRemoveAttachment(i),
               );
             }),
           ),
       ],
     );
   }
-
 
   Widget _platformNotice() {
     return Padding(

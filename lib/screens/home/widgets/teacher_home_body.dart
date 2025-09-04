@@ -1,23 +1,21 @@
-// lib/screens/home/teacher_home_screen.dart
-// v1.32.0 | 강사 홈: '내 학생 관리' 버튼 추가(설계서 정합)
-// - 하단 액션 영역에 '내 학생 관리' 추가 → AppRoutes.manageStudents로 이동
-// - 노출 조건: 교사/관리자(UserRole.teacher || UserRole.admin)
+// lib/screens/home/widgets/teacher_home_body.dart
+// v1.32.0 | 강사/관리자 공용 홈 바디
 
 import 'package:flutter/material.dart';
-import '../../services/auth_service.dart';
-import '../../services/lesson_service.dart';
-import '../../services/student_service.dart';
-import '../../models/lesson.dart';
-import '../../routes/app_routes.dart';
+import '../../../services/auth_service.dart';
+import '../../../services/lesson_service.dart';
+import '../../../services/student_service.dart';
+import '../../../models/lesson.dart';
+import '../../../routes/app_routes.dart';
 
-class TeacherHomeScreen extends StatefulWidget {
-  const TeacherHomeScreen({super.key});
+class TeacherHomeBody extends StatefulWidget {
+  const TeacherHomeBody({super.key});
 
   @override
-  State<TeacherHomeScreen> createState() => _TeacherHomeScreenState();
+  State<TeacherHomeBody> createState() => _TeacherHomeBodyState();
 }
 
-class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
+class _TeacherHomeBodyState extends State<TeacherHomeBody> {
   final _lessonSvc = LessonService();
   final _studentSvc = StudentService();
 
@@ -41,16 +39,9 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
       final role = await AuthService().getRole();
       if (!mounted) return;
       setState(() => _role = role);
-
-      if (!(role == UserRole.teacher || role == UserRole.admin)) {
-        // 학생이면 학생 홈으로
-        Navigator.of(
-          context,
-        ).pushNamedAndRemoveUntil(AppRoutes.studentHome, (_) => false);
-        return;
-      }
     } catch (_) {
-      // 역할 판정 실패 시 게스트 취급 (버튼 노출 최소화)
+      if (!mounted) return;
+      setState(() => _role = null);
     }
     await _load();
   }
@@ -73,8 +64,6 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
       }
 
       final data = await _lessonSvc.listTodayByTeacher(user.id);
-
-      // 학생 이름 맵 구성 (id -> name)
       final ids = data
           .map((e) => e.studentId)
           .where((s) => s.trim().isNotEmpty)
@@ -94,8 +83,6 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
   }
 
   Future<void> _refresh() async => _load();
-
-  // ===== 학생 선택 & 라우팅 유틸 =====
 
   Future<String?> _pickStudentId() async {
     final ids = _today
@@ -163,86 +150,51 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     nav.pushNamed(AppRoutes.lessonHistory, arguments: {'studentId': studentId});
   }
 
-  void _goManageStudents() {
-    Navigator.pushNamed(context, AppRoutes.manageStudents);
-  }
-
   @override
   Widget build(BuildContext context) {
-    final canSeeLogs = _isTeacherOrAdmin;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('강사 홈'),
-        actions: [
-          if (canSeeLogs)
-            IconButton(
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.logs),
-              icon: const Icon(Icons.list_alt),
-              tooltip: '로그',
-            ),
-          IconButton(
-            onPressed: () async {
-              await AuthService().signOutAll();
-              if (!mounted) return;
-              Navigator.of(
-                context,
-              ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
-            },
-            icon: const Icon(Icons.logout),
-            tooltip: '로그아웃',
+    return Column(
+      children: [
+        Expanded(child: _buildList()),
+        Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              if (_isTeacherOrAdmin)
+                ElevatedButton.icon(
+                  onPressed: _goLessonSummary,
+                  icon: const Icon(Icons.summarize),
+                  label: const Text('수업 요약'),
+                ),
+              ElevatedButton.icon(
+                onPressed: _goLessonHistory,
+                icon: const Icon(Icons.history),
+                label: const Text('지난 수업 복습'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _loading ? null : _refresh,
+                icon: const Icon(Icons.refresh),
+                label: const Text('새로고침'),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: _buildBody(),
-      bottomNavigationBar: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Wrap(
-          alignment: WrapAlignment.center,
-          spacing: 12,
-          runSpacing: 8,
-          children: [
-            if (_isTeacherOrAdmin)
-              ElevatedButton.icon(
-                onPressed: _goLessonSummary,
-                icon: const Icon(Icons.summarize),
-                label: const Text('수업 요약'),
-              ),
-            ElevatedButton.icon(
-              onPressed: _goLessonHistory,
-              icon: const Icon(Icons.history),
-              label: const Text('지난 수업 복습'),
-            ),
-            // ✅ 추가: 내 학생 관리 (설계서 정합)
-            if (_isTeacherOrAdmin)
-              ElevatedButton.icon(
-                onPressed: _goManageStudents,
-                icon: const Icon(Icons.people),
-                label: const Text('내 학생 관리'),
-              ),
-            OutlinedButton.icon(
-              onPressed: _loading ? null : _refresh,
-              icon: const Icon(Icons.refresh),
-              label: const Text('새로고침'),
-            ),
-          ],
         ),
-      ),
+      ],
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildList() {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-
     if (_error != null) {
       return _ErrorView(
         message: '오늘 수업을 불러오지 못했습니다.\n$_error',
         onRetry: _refresh,
       );
     }
-
     if (_today.isEmpty) {
       return _EmptyView(onRetry: _refresh);
     }

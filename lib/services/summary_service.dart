@@ -165,7 +165,15 @@ class SummaryService {
           payload: {'row': row},
         ),
       );
-      return Summary.fromMap(row);
+
+      // ⬇️ Fallback 레코드에 최소 필드 보강
+      final nowIso = DateTime.now().toIso8601String();
+      final local = {
+        'id': 'local_${DateTime.now().millisecondsSinceEpoch}', // 임시 ID
+        'created_at': nowIso,
+        ...row,
+      };
+      return Summary.fromMap(Map<String, dynamic>.from(local));
     }
   }
 

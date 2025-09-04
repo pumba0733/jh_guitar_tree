@@ -1,16 +1,9 @@
 // lib/services/file_service.dart
-// v1.26.3 | 첨부 업로드/열기/삭제 + 텍스트 저장 + XFile 지원
-//        | ⚙️ Storage object key ASCII-safe 처리(InvalidKey 해결)
-//        | 기본앱으로 열기(로컬 temp 캐시) + Downloads 저장 + Finder 표시
-//
-// 의존성: file_picker ^8 / open_filex ^4 / url_launcher ^6 / supabase_flutter ^2
-//        path_provider ^2 / path ^1 / cross_file ^0.3
-//
-// attachments 구조: { path, url, name, size, localPath? }
-//   - name: 화면 표시는 원본명(한글/공백 포함 OK)
-//   - path: Storage object key (ASCII-safe)
-//   - localPath: temp 캐시(저장 시 DB에 넣지 말 것)
+// v1.28.3 | 네트워크 안정화(P2): 지수적 재시도 + 타임아웃 / 동작은 기존과 동일
+// - 업로드/다운로드/삭제 경로에 _retry(...) 적용
+// - (유지) 스마트 오픈, Finder 표시, 텍스트/바이너리 저장, 업로드 API 변경 없음
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -36,9 +29,51 @@ class FileService {
 
   static const String _bucketName = 'lesson_attachments';
 
-  // -----------------------------
-  // 화면 표시용 파일명(유니코드 보존, 경로/제어문자만 치환)
-  // -----------------------------
+  // ===== 재시도 유틸 =====
+  Future<T> _retry<T>(
+    Future<T> Function() task, {
+    int maxAttempts = 3,
+    Duration baseDelay = const Duration(milliseconds: 250),
+    Duration timeout = const Duration(seconds: 15),
+    bool Function(Object e)? shouldRetry,
+  }) async {
+    int attempt = 0;
+    Object? lastError;
+    while (attempt < maxAttempts) {
+      attempt++;
+      try {
+        return await task().timeout(timeout);
+      } on TimeoutException catch (e) {
+        lastError = e;
+        // 계속 진행하여 backoff
+      } catch (e) {
+        lastError = e;
+        final retry = shouldRetry?.call(e) ?? _defaultShouldRetry(e);
+        if (!retry || attempt >= maxAttempts) rethrow;
+      }
+      if (attempt < maxAttempts) {
+        final wait =
+            baseDelay * (1 << (attempt - 1)); // 250ms, 500ms, 1000ms...
+        await Future.delayed(wait);
+      }
+    }
+    // maxAttempts을 모두 소진
+    throw lastError ?? StateError('알 수 없는 네트워크 오류');
+  }
+
+  bool _defaultShouldRetry(Object e) {
+    // Socket/HTTP/스토리지 일시 오류에 대해 재시도
+    return e is SocketException ||
+        e is HttpException ||
+        e is TimeoutException ||
+        e.toString().contains('ENETUNREACH') ||
+        e.toString().contains('Connection closed') ||
+        e.toString().contains('temporarily unavailable') ||
+        e.toString().contains('503') ||
+        e.toString().contains('502') ||
+        e.toString().contains('429');
+  }
+
   String _displaySafeName(String raw) {
     final ext = p.extension(raw);
     final base = p.basenameWithoutExtension(raw);
@@ -51,30 +86,22 @@ class FileService {
     return '$finalBase$ext';
   }
 
-  // -----------------------------
-  // Storage object key용 파일명(ASCII만 허용: A-Z a-z 0-9 . _ -)
-  //  - 공백/한글/특수문자 전부 '_'로 치환 → InvalidKey 방지
-  // -----------------------------
   String _keySafeName(String raw) {
     final ext = p.extension(raw);
     var base = p.basenameWithoutExtension(raw);
-    // 제어/경로문자 제거
     base = base.replaceAll(RegExp(r'[\/\\\x00-\x1F]'), '_');
-    // ASCII whitelist
     base = base.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-    // 연속 '_' 압축
     base = base.replaceAll(RegExp(r'_+'), '_').trim();
     if (base.isEmpty) {
       base = DateTime.now().millisecondsSinceEpoch.toString();
     }
-    // 확장자도 안전화
     var safeExt = ext.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '');
     if (safeExt.length > 10) safeExt = safeExt.substring(0, 10);
     return '$base$safeExt';
   }
 
   // -----------------------------
-  // 기본 폴더(resolve)
+  // Downloads 폴더/대체 폴더
   // -----------------------------
   static Future<Directory> _resolveDownloadsDir() async {
     try {
@@ -95,8 +122,17 @@ class FileService {
     return f.writeAsString(content);
   }
 
+  static Future<File> saveBytesFile({
+    required String filename,
+    required List<int> bytes,
+  }) async {
+    final dir = await _resolveDownloadsDir();
+    final f = File(p.join(dir.path, filename));
+    return f.writeAsBytes(bytes, flush: true);
+  }
+
   // -----------------------------
-  // 로컬 선택 + 업로드
+  // 로컬 선택/업로드
   // -----------------------------
   Future<List<PlatformFile>> pickLocalFiles({
     List<String>? allowedExtensions,
@@ -117,7 +153,6 @@ class FileService {
     return result.files;
   }
 
-  // 드래그(XFile) 업로드: temp 복사 후 업로드
   Future<Map<String, dynamic>> uploadXFile({
     required XFile xfile,
     required String studentId,
@@ -146,7 +181,6 @@ class FileService {
     return uploaded;
   }
 
-  // 파일 경로 업로드
   Future<Map<String, dynamic>> uploadPathToStorage({
     required String absolutePath,
     required String studentId,
@@ -159,28 +193,29 @@ class FileService {
     }
 
     final displayName = originalName ?? p.basename(absolutePath);
-    final keyName = _keySafeName(displayName); // ✅ Storage용 ASCII
+    final keyName = _keySafeName(displayName);
     final objectKey = '$studentId/$dateStr/$keyName';
     final bytes = await file.readAsBytes();
 
-    await _sb.storage
-        .from(_bucketName)
-        .uploadBinary(
-          objectKey,
-          bytes,
-          fileOptions: const FileOptions(upsert: true),
-        );
+    await _retry(
+      () => _sb.storage
+          .from(_bucketName)
+          .uploadBinary(
+            objectKey,
+            bytes,
+            fileOptions: const FileOptions(upsert: true),
+          ),
+    );
 
     final publicUrl = _sb.storage.from(_bucketName).getPublicUrl(objectKey);
     return {
-      'path': objectKey, // ASCII-safe 키
+      'path': objectKey,
       'url': publicUrl,
-      'name': displayName, // 화면 표시는 원본명
+      'name': displayName,
       'size': bytes.length,
     };
   }
 
-  // FilePicker(PlatformFile) 업로드
   Future<Map<String, dynamic>> uploadPickedFile({
     required PlatformFile picked,
     required String studentId,
@@ -213,7 +248,6 @@ class FileService {
     return uploaded;
   }
 
-  // 화면 호환 래퍼
   Future<List<Map<String, dynamic>>> pickAndUploadMultiple({
     required String studentId,
     required String dateStr,
@@ -236,16 +270,8 @@ class FileService {
   }
 
   // -----------------------------
-  // 열기 / URL
+  // 열기(기본앱 고정)
   // -----------------------------
-  Future<void> open(String pathOrUrl) async {
-    if (pathOrUrl.startsWith('http')) {
-      await openUrl(pathOrUrl);
-    } else {
-      await openLocal(pathOrUrl);
-    }
-  }
-
   Future<void> openLocal(String absolutePath) async {
     if (!_isDesktop) throw UnsupportedError('이 기능은 데스크탑에서만 지원됩니다.');
     final r = await OpenFilex.open(absolutePath);
@@ -262,9 +288,22 @@ class FileService {
     if (!ok) throw StateError('URL을 열 수 없습니다: $url');
   }
 
-  // -----------------------------
-  // 로컬 캐시 확보(없으면 다운로드)
-  // -----------------------------
+  /// URL이라도 "항상 기본 앱"으로 열기 위한 스마트 오픈
+  Future<void> openSmart({String? path, String? url, String? name}) async {
+    if (path != null && path.isNotEmpty && File(path).existsSync()) {
+      await openLocal(path);
+      return;
+    }
+    if (url == null || url.isEmpty) {
+      throw ArgumentError('openSmart: path 또는 url 중 하나가 필요합니다.');
+    }
+    final local = await _ensureLocalCopy({
+      'url': url,
+      'name': name ?? p.basename(Uri.parse(url).path),
+    });
+    await openLocal(local);
+  }
+
   String? _extractStorageKeyFromUrl(String url) {
     final idx = url.indexOf('/object/public/');
     if (idx < 0) return null;
@@ -290,11 +329,13 @@ class FileService {
     if (url.isNotEmpty) {
       final key = _extractStorageKeyFromUrl(url);
       if (key != null) {
-        bytes = await _sb.storage.from(_bucketName).download(key);
+        bytes = await _retry(() => _sb.storage.from(_bucketName).download(key));
         fallbackName = p.basename(key);
       } else {
         final client = HttpClient();
-        final res = await (await client.getUrl(Uri.parse(url))).close();
+        final res = await _retry<HttpClientResponse>(
+          () => client.getUrl(Uri.parse(url)).then((rq) => rq.close()),
+        );
         if (res.statusCode != 200) {
           throw StateError('파일 다운로드 실패(HTTP ${res.statusCode})');
         }
@@ -306,7 +347,7 @@ class FileService {
     } else {
       final path = (att['path'] ?? '').toString();
       if (path.isEmpty) throw ArgumentError('열 수 있는 경로/URL이 없습니다.');
-      bytes = await _sb.storage.from(_bucketName).download(path);
+      bytes = await _retry(() => _sb.storage.from(_bucketName).download(path));
       fallbackName = p.basename(path);
     }
 
@@ -324,7 +365,7 @@ class FileService {
   }
 
   // -----------------------------
-  // 다운로드(영구 저장): Downloads 폴더에 저장 + Finder에서 보기
+  // 다운로드(영구 저장)
   // -----------------------------
   Future<String> saveAttachmentToDownloads(Map<String, dynamic> att) async {
     final local = await _ensureLocalCopy(att);
@@ -359,6 +400,7 @@ class FileService {
       }
     }
     if (key == null || key.isEmpty) return;
-    await _sb.storage.from(_bucketName).remove([key]);
+
+    await _retry(() => _sb.storage.from(_bucketName).remove([key!]));
   }
 }

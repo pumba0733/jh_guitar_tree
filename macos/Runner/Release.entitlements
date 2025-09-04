@@ -2,16 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <!-- App Sandbox -->
-  <key>com.apple.security.app-sandbox</key><true/>
-
-  <!-- 런타임 네트워크 클라이언트 권한 -->
-  <key>com.apple.security.network.client</key><true/>
-
-  <!-- 파일 접근: 사용자가 선택한 파일/폴더 읽기·쓰기 -->
-  <key>com.apple.security.files.user-selected.read-write</key><true/>
-
-  <!-- Downloads 폴더 직접 읽기·쓰기 (영구 저장/내려받기 용) -->
-  <key>com.apple.security.files.downloads.read-write</key><true/>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.files.downloads.read-write</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
 </dict>
 </plist>

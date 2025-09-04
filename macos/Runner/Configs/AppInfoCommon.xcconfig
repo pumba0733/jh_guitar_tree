@@ -1,0 +1,4 @@
+// 모든 구성에서 공통으로 쓰는 앱 메타데이터
+PRODUCT_NAME = guitartree
+PRODUCT_BUNDLE_IDENTIFIER = com.example.guitartree
+PRODUCT_COPYRIGHT = Copyright © 2025 com.example. All rights reserved.
