@@ -1,11 +1,8 @@
 // lib/screens/auth/login_screen.dart
-// v1.29.2 | 작성일: 2025-08-26 | 작성자: GPT
-//
-// 변경점
-// - 폼 검증(학생/이메일 각각), trim/엔터 제출/포커스 이동
-// - 로딩 상태 일관 처리, 에러 접근성, 비밀번호 토글
-// - 마지막 선택 역할 SharedPreferences에 저장/복원
-// - UI 정리(폭, 여백)
+// v1.36.6 | App-Auth용 로그인 화면
+// - 학생: 기존 간편로그인 유지
+// - 강사/관리자: AuthService.signInTeacherAdmin(email, password) 호출
+// - 비밀번호 검증: 4자 이상 (원하면 4자리 고정도 가능)
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -57,18 +54,14 @@ class _LoginScreenState extends State<LoginScreen> {
       if (idx != null && idx >= 0 && idx < LoginRole.values.length) {
         setState(() => _role = LoginRole.values[idx]);
       }
-    } catch (_) {
-      // ignore
-    }
+    } catch (_) {}
   }
 
   Future<void> _persistRole(LoginRole r) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_prefsKeyRole, r.index);
-    } catch (_) {
-      // ignore
-    }
+    } catch (_) {}
   }
 
   void _setRole(LoginRole r) {
@@ -101,6 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return null;
   }
 
+  // ✅ 요구사항: 비밀번호 4자 이상
   String? _validatePassword(String? v) {
     final s = v ?? '';
     if (s.length < 4) return '비밀번호는 4자 이상이어야 합니다';
@@ -136,14 +130,14 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // teacher/admin: 이메일 로그인
-      final ok = await auth.signInWithEmail(
+      // 강사/관리자: App-Auth 사용
+      final ok = await auth.signInTeacherAdmin(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text,
       );
       if (!ok) throw Exception('이메일 또는 비밀번호가 올바르지 않습니다.');
 
-      final role = await auth.getRole(); // JWT/DB 기반 역할 판정
+      final role = await auth.getRole(); // App-Auth 메모리 기반 판별
       final route = switch (role) {
         UserRole.admin => AppRoutes.adminHome,
         _ => AppRoutes.teacherHome,

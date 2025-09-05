@@ -11,15 +11,17 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
   meta: ^1.11.0
-
-  # UI
   cupertino_icons: ^1.0.8
   provider: ^6.1.5
 
   # Supabase & Auth
   supabase_flutter: ^2.6.0
+
+  # 🔽 추가
+  crypto: ^3.0.3
+  shared_preferences: ^2.3.2   # ← login_screen.dart에서 import 중이면 필요
+  # (shared_preferences를 실제로 안 쓰면 import 지우고 이 줄도 빼도 됩니다)
 
   # Local Storage
   hive: ^2.2.3
