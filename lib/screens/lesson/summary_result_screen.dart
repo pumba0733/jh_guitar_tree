@@ -1,12 +1,10 @@
 // lib/screens/lesson/summary_result_screen.dart
-// v1.29.1 | 작성일: 2025-08-26 | 작성자: GPT
+// v1.29.2 | unused_import(dart:io) 제거
 //
-// 변경점(1.29.1):
-// - Summary 모델(v1.21) 스키마 정합: updatedAt 참조 제거 → createdAt만 사용
-// - non-null 필드(id, studentId)에서 불필요한 `?? '-'` 제거 → dead_null_aware_expression 해소
-// - 나머지 구조(복사/MD 내보내기/Refresh/메타 카드)는 1.29.0과 동일
+// 변경점(1.29.2):
+// - 미사용 import: 'dart:io' 삭제 → unused_import 린트 해소
+// - 나머지 로직/UX 동일 유지
 
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';

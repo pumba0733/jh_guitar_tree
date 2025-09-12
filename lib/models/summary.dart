@@ -47,7 +47,7 @@ class Summary {
   });
 
   factory Summary.fromMap(Map<String, dynamic> map) {
-    List<String> _asStringList(dynamic v) {
+    List<String> asStringList(dynamic v) {
       if (v == null) return <String>[];
       if (v is List) {
         return v
@@ -68,7 +68,7 @@ class Summary {
       return <String>[];
     }
 
-    DateTime? _asDate(dynamic v) {
+    DateTime? asDate(dynamic v) {
       if (v == null) return null;
       // Supabase(Postgres date/timestamptz) 문자열 대응
       return DateTime.tryParse(v.toString());
@@ -79,17 +79,17 @@ class Summary {
       studentId: map['student_id']?.toString() ?? '',
       teacherId: map['teacher_id']?.toString(),
       type: map['type']?.toString(),
-      periodStart: _asDate(map['period_start']),
-      periodEnd: _asDate(map['period_end']),
-      keywords: _asStringList(map['keywords']),
-      selectedLessonIds: _asStringList(map['selected_lesson_ids']),
+      periodStart: asDate(map['period_start']),
+      periodEnd: asDate(map['period_end']),
+      keywords: asStringList(map['keywords']),
+      selectedLessonIds: asStringList(map['selected_lesson_ids']),
       studentInfo: (map['student_info'] as Map?)?.cast<String, dynamic>(),
       resultStudent: map['result_student']?.toString(),
       resultParent: map['result_parent']?.toString(),
       resultBlog: map['result_blog']?.toString(),
       resultTeacher: map['result_teacher']?.toString(),
-      visibleTo: _asStringList(map['visible_to']),
-      createdAt: _asDate(map['created_at']),
+      visibleTo: asStringList(map['visible_to']),
+      createdAt: asDate(map['created_at']),
     );
   }
 

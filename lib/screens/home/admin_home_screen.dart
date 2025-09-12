@@ -1,5 +1,5 @@
 // lib/screens/home/admin_home_screen.dart
-// v1.32.0 | 관리자 홈 = 강사 홈 바디 + 관리자 패널
+// v1.44.1 | 관리자 홈: Material 3 전환 + 아이콘/const 오류 수정 + 브라우저 바로가기
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../routes/app_routes.dart';
@@ -25,7 +25,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Future<void> _guard() async {
     try {
       final role = await AuthService().getRole();
-      if (!mounted) return;
+      if (!mounted) {
+        return; // 블록화
+      }
       final isAdmin = role == UserRole.admin;
       setState(() {
         _isAdmin = isAdmin;
@@ -40,7 +42,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         Navigator.of(context).pushNamedAndRemoveUntil(route, (_) => false);
       }
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted) {
+        return; // 블록화
+      }
       setState(() => _guarding = false);
     }
   }
@@ -97,7 +101,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           IconButton(
             onPressed: () async {
               await AuthService().signOutAll();
-              if (!mounted) return;
+              if (!context.mounted) {
+                return; // 블록화
+              }
               Navigator.of(
                 context,
               ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
@@ -120,7 +126,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   runSpacing: 12,
                   alignment: WrapAlignment.center,
                   children: [
-                    ElevatedButton.icon(
+                    // ===== 관리 패널 =====
+                    FilledButton.tonalIcon(
                       onPressed: !_isAdmin
                           ? null
                           : () => Navigator.pushNamed(
@@ -130,7 +137,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                       icon: const Icon(Icons.people),
                       label: const Text('학생 관리'),
                     ),
-                    ElevatedButton.icon(
+                    FilledButton.tonalIcon(
                       onPressed: !_isAdmin
                           ? null
                           : () => Navigator.pushNamed(
@@ -140,7 +147,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                       icon: const Icon(Icons.school),
                       label: const Text('강사 관리'),
                     ),
-                    ElevatedButton.icon(
+                    FilledButton.tonalIcon(
                       onPressed: !_isAdmin
                           ? null
                           : () => Navigator.pushNamed(
@@ -150,13 +157,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                       icon: const Icon(Icons.label),
                       label: const Text('키워드 관리'),
                     ),
-                    ElevatedButton.icon(
+                    FilledButton.tonalIcon(
                       onPressed: () =>
                           Navigator.pushNamed(context, AppRoutes.logs),
                       icon: const Icon(Icons.list_alt),
                       label: const Text('로그'),
                     ),
-                    ElevatedButton.icon(
+                    FilledButton.icon(
                       onPressed: !_isAdmin
                           ? null
                           : () async {
@@ -166,13 +173,15 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                                 message: '현재 데이터를 내보냅니다. 진행할까요?',
                                 confirmText: '백업',
                               );
-                              if (!ok || !mounted) return;
+                              if (!ok || !context.mounted) {
+                                return; // 블록화
+                              }
                               Navigator.pushNamed(context, AppRoutes.export);
                             },
                       icon: const Icon(Icons.download),
                       label: const Text('백업'),
                     ),
-                    ElevatedButton.icon(
+                    FilledButton.icon(
                       onPressed: !_isAdmin
                           ? null
                           : () async {
@@ -183,7 +192,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                                 confirmText: '복원 진행',
                                 danger: true,
                               );
-                              if (!ok || !mounted) return;
+                              if (!ok || !context.mounted) {
+                                return; // 블록화
+                              }
                               Navigator.pushNamed(
                                 context,
                                 AppRoutes.importData,
@@ -191,6 +202,29 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                             },
                       icon: const Icon(Icons.upload),
                       label: const Text('복원'),
+                    ),
+
+                    // ===== 커리큘럼 패널 =====
+                    FilledButton.tonalIcon(
+                      onPressed: !_isAdmin
+                          ? null
+                          : () => Navigator.pushNamed(
+                              context,
+                              AppRoutes.curriculumStudio,
+                            ),
+                      icon: const Icon(Icons.account_tree),
+                      label: const Text('커리큘럼 스튜디오'),
+                    ),
+                    // ✅ 배정 진입점: 커리큘럼 브라우저
+                    FilledButton.tonalIcon(
+                      onPressed: !_isAdmin
+                          ? null
+                          : () => Navigator.pushNamed(
+                              context,
+                              AppRoutes.curriculumBrowser,
+                            ),
+                      icon: const Icon(Icons.travel_explore),
+                      label: const Text('커리큘럼 브라우저'),
                     ),
                   ],
                 ),

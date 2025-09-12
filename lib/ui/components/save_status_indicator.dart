@@ -37,13 +37,13 @@ class SaveStatusIndicator extends StatelessWidget {
         icon = Icons.check_circle;
         color = Colors.green;
         final time = lastSavedAt != null ? ' (${_fmtTime(lastSavedAt!)})' : '';
-        final tail = pendingRetryCount > 0 ? ' · 재시도 ${pendingRetryCount}' : '';
+        final tail = pendingRetryCount > 0 ? ' · 재시도 $pendingRetryCount' : '';
         text = '저장됨$time$tail';
         break;
       case SaveStatus.failed:
         icon = Icons.error_outline;
         color = Colors.red;
-        final tail = pendingRetryCount > 0 ? ' · 대기 ${pendingRetryCount}' : '';
+        final tail = pendingRetryCount > 0 ? ' · 대기 $pendingRetryCount' : '';
         text = '실패$tail';
         break;
     }

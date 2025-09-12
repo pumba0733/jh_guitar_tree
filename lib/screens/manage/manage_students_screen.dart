@@ -24,6 +24,8 @@ import '../../models/student.dart';
 import '../../models/teacher.dart';
 import '../../supabase/supabase_tables.dart';
 
+String _asStr(Object? v) => v is String ? v : (v?.toString() ?? '');
+
 class ManageStudentsScreen extends StatefulWidget {
   const ManageStudentsScreen({super.key});
 
@@ -73,6 +75,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
   Future<void> _loadTeachers() async {
     try {
       final list = await _teacherSvc.listBasic();
+      if (!mounted) return;
       setState(() {
         _teachers = list;
         _teacherNameById = {
@@ -86,6 +89,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -98,8 +102,10 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
         orderBy: 'created_at',
         ascending: false,
       );
+      if (!mounted) return;
       setState(() => _list = data);
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = _friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -109,9 +115,10 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
   // ---- 오류 핸들링 유틸 ----
   bool _isPermError(Object e) {
     if (e is PostgrestException) {
-      final msg = (e.message ?? '').toLowerCase();
-      final hint = (e.hint ?? '').toLowerCase();
-      final code = (e.code ?? '').toLowerCase();
+      final msg = _asStr(e.message).toLowerCase();
+      final hint = _asStr(e.hint).toLowerCase();
+      final code = _asStr(e.code).toLowerCase();
+
       return code == '42501' ||
           msg.contains('permission denied') ||
           msg.contains('violates row-level security') ||
@@ -128,7 +135,8 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
       if (isPerm) {
         return '권한이 없습니다. 관리자 계정과 RLS 정책을 확인하세요.';
       }
-      return '작업 중 오류가 발생했습니다.\n${e.message ?? e.toString()}';
+      // 여기 수정
+      return '작업 중 오류가 발생했습니다.\n${e.message}';
     }
     final s = e.toString().toLowerCase();
     if (s.contains('network') || s.contains('timeout')) {
@@ -191,6 +199,8 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
           memo: r.memo,
           isActive: r.isActive,
         );
+        // 🔒 async 이후 UI 접근 가드
+        if (!mounted) return;
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('학생이 등록되었습니다.')));
@@ -214,15 +224,18 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
               memo: r.memo,
               isActive: r.isActive,
             );
+            if (!mounted) return; // 🔒
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('학생이 등록되었습니다. (링크 보정 후)')),
             );
             await _load();
             return;
           } catch (e2) {
+            if (!mounted) return; // 🔒
             _showError(_friendlyError(e2));
           }
         } else {
+          if (!mounted) return; // 🔒
           _showError(_friendlyError(e));
         }
       }
@@ -265,6 +278,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
           memo: r.memo,
           isActive: r.isActive,
         );
+        if (!mounted) return; // 🔒
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('학생 정보가 저장되었습니다.')));
@@ -289,15 +303,18 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
               memo: r.memo,
               isActive: r.isActive,
             );
+            if (!mounted) return; // 🔒
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('학생 정보가 저장되었습니다. (링크 보정 후)')),
             );
             await _load();
             return;
           } catch (e2) {
+            if (!mounted) return; // 🔒
             _showError(_friendlyError(e2));
           }
         } else {
+          if (!mounted) return; // 🔒
           _showError(_friendlyError(e));
         }
       }
@@ -327,6 +344,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
     await _withBusy(() async {
       try {
         await _svc.remove(s.id);
+        if (!mounted) return; // 🔒
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('학생이 삭제되었습니다.')));
@@ -336,15 +354,18 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
           await _auth.ensureTeacherLink();
           try {
             await _svc.remove(s.id);
+            if (!mounted) return; // 🔒
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('학생이 삭제되었습니다. (링크 보정 후)')),
             );
             await _load();
             return;
           } catch (e2) {
+            if (!mounted) return; // 🔒
             _showError(_friendlyError(e2));
           }
         } else {
+          if (!mounted) return; // 🔒
           _showError(_friendlyError(e));
         }
       }
@@ -373,13 +394,14 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
     Map<String, dynamic>? teacherRow;
     Object? teacherErr;
     try {
-      final r = await _sp
+      final List r = await _sp
           .from(SupabaseTables.teachers)
           .select('id, email, is_admin, auth_user_id')
           .eq('email', email)
           .limit(1);
-      if (r is List && r.isNotEmpty) {
-        teacherRow = Map<String, dynamic>.from(r.first);
+
+      if (r.isNotEmpty) {
+        teacherRow = Map<String, dynamic>.from(r.first as Map);
       }
     } catch (e) {
       teacherErr = e;
@@ -399,12 +421,14 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
     Object? deleteErr;
     try {
       final tmpName = '__diag_${DateTime.now().millisecondsSinceEpoch}';
-      final ins = await _sp
-          .from(SupabaseTables.students)
-          .insert({'name': tmpName})
-          .select('id')
-          .single();
-      tmpId = (ins is Map && ins['id'] is String) ? ins['id'] as String : null;
+      final Map ins =
+          await _sp
+                  .from(SupabaseTables.students)
+                  .insert({'name': tmpName})
+                  .select('id')
+                  .single()
+              as Map;
+      tmpId = ins['id'] is String ? ins['id'] as String : null;
     } catch (e) {
       insertErr = e;
     }
@@ -562,9 +586,11 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                     separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final s = _list[i];
+                      // 🔧 dead_null_aware_expression 제거:
+                      // 앞에서 null 체크했으므로 ?? '' 불필요 → non-null 단언 사용
                       final teacherName =
                           (s.teacherId != null &&
-                              (s.teacherId ?? '').trim().isNotEmpty)
+                              s.teacherId!.trim().isNotEmpty)
                           ? (_teacherNameById[s.teacherId!] ?? '미배정')
                           : '미배정';
                       final last4 = s.phoneLast4?.trim() ?? '';

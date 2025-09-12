@@ -1,12 +1,10 @@
 // lib/screens/summary/lesson_summary_screen.dart
-// v1.31.0 | 역할 가드 + 안정성/UX 보강
+// v1.31.1 | 역할 가드 switch 정리 + 불필요 캐스트 제거
 //
-// 변경 요약:
-// - 역할 가드 추가: 학생이면 접근 차단 후 역할별 홈으로 복귀
-// - arguments 안전 파싱(Map<String,dynamic>) + mounted 가드 강화
-// - 언제든 Pull-to-Refresh 동작(RefreshIndicator 래핑)
-// - AppBar에 '학생 변경' 액션 추가(선택된 학생 초기화)
-// - 나머지: 무한스크롤, 검색 디바운스, 선택툴바/요약생성 로직 유지
+// 변경 요약 (v1.31.1):
+// - 🧩 unreachable_switch_case 제거: 역할 가드 분기에서 teacher/admin이 불가능한 경로에 있었던 switch → if 분기 단순화
+// - 🧹 unnecessary_cast 제거: args 파싱 시 raw as Map 캐스트 제거
+// - 나머지: 기존 UX/로직(무한스크롤/검색/선택툴바/요약생성/Refresh) 동일 유지
 
 import 'dart:async' show Timer, unawaited;
 import 'package:flutter/material.dart';
@@ -81,17 +79,16 @@ class _LessonSummaryScreenState extends State<LessonSummaryScreen> {
         _isTeacherOrAdmin = ok;
         _roleChecked = true;
       });
+
       if (!ok) {
         // 학생 등은 역할별 홈으로 복귀
-        final route = switch (role) {
-          UserRole.student => AppRoutes.studentHome,
-          UserRole.teacher => AppRoutes.teacherHome,
-          UserRole.admin => AppRoutes.adminHome,
-          _ => AppRoutes.login,
-        };
+        final route = (role == UserRole.student)
+            ? AppRoutes.studentHome
+            : AppRoutes.login;
         Navigator.of(context).pushNamedAndRemoveUntil(route, (_) => false);
         return;
       }
+
       // 통과 시 args 파싱 및 초기 로드
       _parseArgsAndLoad();
     } catch (_) {
@@ -108,8 +105,9 @@ class _LessonSummaryScreenState extends State<LessonSummaryScreen> {
   void _parseArgsAndLoad() {
     final raw = ModalRoute.of(context)?.settings.arguments;
     final args = (raw is Map)
-        ? Map<String, dynamic>.from(raw as Map)
+        ? Map<String, dynamic>.from(raw)
         : <String, dynamic>{};
+
     _studentId = (args['studentId'] as String?)?.trim();
     _teacherId = (args['teacherId'] as String?)?.trim();
     // teacherId 미전달 시 auth user로 보강
@@ -368,7 +366,7 @@ class _LessonSummaryScreenState extends State<LessonSummaryScreen> {
           // ===== 학생 선택 섹션 =====
           if (_studentId == null) _buildStudentPicker(),
 
-          // ===== 조건 석션 =====
+          // ===== 조건 섹션 =====
           Row(
             children: [
               const Text('유형: '),

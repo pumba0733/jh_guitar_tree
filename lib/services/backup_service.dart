@@ -1,7 +1,9 @@
 // lib/services/backup_service.dart
-// v1.21.0 | 백업 JSON 생성/파싱/복원 (학생 단위)
-// - ExportScreen/ImportScreen에서 사용하는 공개 API 제공
-// - Supabase 스키마(v1.20) 기준
+// v1.21.1 | 불필요 타입체크 제거 + 안전 캐스팅/정규화
+// - 불필요한 `is List` / `is Map` 형태의 타입 체크 제거(항상 true 경고 해소)
+// - parseBackupJson: 직접 Map<String,dynamic> 캐스팅 + TypeError 래핑
+// - restoreFromJson: List 필드 정규화는 try/catch로 처리(비-List면 그대로 둠)
+
 import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -20,44 +22,55 @@ class BackupService {
       throw ArgumentError('studentId가 비어있습니다.');
     }
 
-    final student = await _supabase
+    final studentRaw = await _supabase
         .from('students')
         .select()
         .eq('id', studentId)
         .maybeSingle();
 
+    final Map<String, dynamic>? student = (studentRaw == null)
+        ? null
+        : Map<String, dynamic>.from(studentRaw);
+
     if (student == null) {
       throw StateError('학생을 찾을 수 없습니다.');
     }
 
-    final lessons = await _supabase
+    final lessonsRaw = await _supabase
         .from('lessons')
         .select()
         .eq('student_id', studentId)
         .order('date', ascending: true);
 
-    final summaries = await _supabase
+    final summariesRaw = await _supabase
         .from('summaries')
         .select()
         .eq('student_id', studentId)
         .order('created_at', ascending: true);
 
-    // 필요 시 추가: keywords, teachers 등
-    final keywords = await _supabase.from('feedback_keywords').select();
+    final keywordsRaw = await _supabase
+        .from('feedback_keywords')
+        .select(); // 필요시 포함
+
+    final lessons = (lessonsRaw as List)
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+
+    final summaries = (summariesRaw as List)
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+
+    final keywords = (keywordsRaw as List)
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
 
     return {
       'version': 'v1.21',
       'student_id': studentId,
-      'student': Map<String, dynamic>.from(student as Map),
-      'lessons': (lessons as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList(),
-      'summaries': (summaries as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList(),
-      'keywords': (keywords as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList(),
+      'student': student,
+      'lessons': lessons,
+      'summaries': summaries,
+      'keywords': keywords,
     };
   }
 
@@ -65,10 +78,10 @@ class BackupService {
   Map<String, dynamic> parseBackupJson(String raw) {
     try {
       final decoded = json.decode(raw);
-      if (decoded is! Map) {
-        throw const FormatException('루트가 객체(JSON Object)가 아닙니다.');
-      }
+      // 직접 캐스팅 + TypeError를 FormatException으로 변환
       return Map<String, dynamic>.from(decoded as Map);
+    } on TypeError {
+      throw const FormatException('루트가 객체(JSON Object)가 아닙니다.');
     } on FormatException catch (e) {
       throw FormatException('JSON 형식 오류: ${e.message}');
     } catch (e) {
@@ -89,8 +102,7 @@ class BackupService {
     int nLessons = 0;
     for (final item in rawLessons) {
       final row = Map<String, dynamic>.from(item as Map);
-      // student_id 보정
-      row['student_id'] = studentId;
+      row['student_id'] = studentId; // 보정
       await _supabase.from('lessons').upsert(row);
       nLessons++;
     }
@@ -102,13 +114,22 @@ class BackupService {
       final row = Map<String, dynamic>.from(item as Map);
       row['student_id'] = studentId;
 
-      // selected_lesson_ids, keywords가 List<String>일 수도, jsonb일 수도 있으니 안전 변환
-      if (row['selected_lesson_ids'] is List) {
-        row['selected_lesson_ids'] = (row['selected_lesson_ids'] as List)
-            .toList();
+      // List 필드 정규화: 타입 체크 대신 시도-실패 무시
+      final sids = row['selected_lesson_ids'];
+      if (sids != null) {
+        try {
+          row['selected_lesson_ids'] = List<dynamic>.from(sids as List);
+        } catch (_) {
+          // List가 아니면 원값 유지
+        }
       }
-      if (row['keywords'] is List) {
-        row['keywords'] = (row['keywords'] as List).toList();
+      final kws = row['keywords'];
+      if (kws != null) {
+        try {
+          row['keywords'] = List<dynamic>.from(kws as List);
+        } catch (_) {
+          // List가 아니면 원값 유지
+        }
       }
 
       await _supabase.from('summaries').upsert(row);

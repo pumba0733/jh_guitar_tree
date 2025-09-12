@@ -1,5 +1,5 @@
 // lib/screens/settings/import_screen.dart
-// v1.21 | 백업 JSON 복원
+// v1.21.1 | control_flow_in_finally 경고 해소
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../services/backup_service.dart';
@@ -33,8 +33,10 @@ class _ImportScreenState extends State<ImportScreen> {
       if (!mounted) return;
       setState(() => _error = e.toString());
     } finally {
-      if (!mounted) return;
-      setState(() => _loading = false);
+      // ⚠️ return 금지 → 조건부 setState만 수행
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 

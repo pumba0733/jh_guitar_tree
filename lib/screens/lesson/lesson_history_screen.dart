@@ -1,9 +1,9 @@
 // lib/screens/lesson/lesson_history_screen.dart
-// v1.31.0 | 인자 가드/안정성 보강 (기능 동일)
-// - studentId 누락 시 throw → 스낵바 안내 후 안전 복귀
-// - arguments 타입 안전 파싱(Map<String,dynamic>)
-// - mounted 가드 소폭 강화
-// - 나머지 P0/P1/P2 기능(삭제/CSV/Paging dedupe/Refresh/로그) 그대로 유지
+// v1.31.1 | unnecessary_cast & prefer_spread_collections 린트 해소
+//
+// - arguments 타입 안전 파싱에서 불필요 캐스트 제거
+// - CSV 바이트 생성 시 addAll → 스프레드(...)로 변경
+// - 나머지 기능/UX 동일
 
 import 'dart:async';
 import 'dart:convert';
@@ -69,10 +69,10 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    // 안전한 arguments 파싱
+    // 안전한 arguments 파싱 (불필요 캐스트 제거)
     final raw = ModalRoute.of(context)?.settings.arguments;
     final args = (raw is Map)
-        ? Map<String, dynamic>.from(raw as Map)
+        ? Map<String, dynamic>.from(raw)
         : <String, dynamic>{};
 
     _studentId =
@@ -258,8 +258,8 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
       buf.writeln([d, s, memo, next, kw].map(_csvEscape).join(','));
     }
 
-    // UTF-8 BOM 추가 (Excel/Numbers 호환)
-    final bytes = <int>[0xEF, 0xBB, 0xBF]..addAll(utf8.encode(buf.toString()));
+    // UTF-8 BOM 추가 (Excel/Numbers 호환) - addAll 대신 스프레드 사용
+    final bytes = <int>[0xEF, 0xBB, 0xBF, ...utf8.encode(buf.toString())];
     final filename =
         'lesson_history_${_studentId}_${DateTime.now().millisecondsSinceEpoch}.csv';
 

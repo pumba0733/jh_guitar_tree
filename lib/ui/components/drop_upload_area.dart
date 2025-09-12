@@ -1,7 +1,6 @@
 // lib/ui/components/drop_upload_area.dart
-// v1.28.3 | 드래그&드롭: 동시 업로드 제한(3) + 진행 n/N
-// - desktop_drop 0.4.4 호환(List<XFile>)
-// - 업로드 중 재드롭 방지, 호버 UI 유지
+// v1.28.4 | control_flow_in_finally 경고 해소
+// - finally 블록에서 return 제거 → if (mounted) setState(...)만 수행
 
 import 'dart:io';
 import 'package:desktop_drop/desktop_drop.dart';
@@ -89,13 +88,15 @@ class _DropUploadAreaState extends State<DropUploadArea> {
         context,
       ).showSnackBar(SnackBar(content: Text('드래그 업로드 실패: $e')));
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _hover = false;
-        _uploading = false;
-        _done = 0;
-        _total = 0;
-      });
+      // ❌ return 금지 → ✅ mounted일 때만 상태 정리
+      if (mounted) {
+        setState(() {
+          _hover = false;
+          _uploading = false;
+          _done = 0;
+          _total = 0;
+        });
+      }
     }
   }
 

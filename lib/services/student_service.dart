@@ -1,7 +1,6 @@
 // lib/services/student_service.dart
-// v1.36.0 | 학생 CRUD + 검색 + find_student RPC
-// - create/update에 설계 필드(gender, isAdult, schoolName, grade, startDate, instrument, memo, isActive) 추가
-// - 빈문자→NULL 정규화, 날짜는 'YYYY-MM-DD' 전송
+// v1.36.1 | prefer_null_aware_operators 경고 해소
+// - _dateOnly: (d?.toIso8601String())?.substring(0, 10) 사용
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../supabase/supabase_tables.dart';
 import '../models/student.dart';
@@ -23,7 +22,7 @@ class StudentService {
   }
 
   String? _dateOnly(DateTime? d) =>
-      d == null ? null : d.toIso8601String().split('T').first;
+      (d?.toIso8601String())?.substring(0, 10); // ← null-aware로 교체
 
   // ---------- 단건 조회 (RPC 우선) ----------
   Future<Student?> findByNameAndLast4({

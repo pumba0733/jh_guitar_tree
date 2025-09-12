@@ -1,4 +1,5 @@
-// v1.24 | feedback_keywords 연동 고도화 + 캐시TTL + 안전파싱 + 검색 지원
+// lib/services/keyword_service.dart
+// v1.38.0 | feedback_keywords 연동 고도화 + 캐시TTL + 안전파싱 + 검색 지원
 // - fetchCategories({force})
 // - fetchItemsByCategory(category, {force})
 // - fetchAllItems({force})
@@ -12,6 +13,8 @@
 // final rhythm = await KeywordService().fetchItemsByCategory('리듬');
 // final hits = await KeywordService().searchItems('코드');
 // KeywordService().invalidateCache(); // 관리자 편집 후 캐시 비우기
+
+import 'dart:convert' show jsonDecode;
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../supabase/supabase_tables.dart';
@@ -29,7 +32,7 @@ class KeywordItem {
       return KeywordItem(t, t);
     }
     if (raw is Map) {
-      final m = Map<String, dynamic>.from(raw as Map);
+      final m = Map<String, dynamic>.from(raw);
       final text = (m['text'] ?? m['value'] ?? '').toString().trim();
       final value = (m['value'] ?? m['text'] ?? '').toString().trim();
       final normText = text.isEmpty ? value : text;
@@ -42,9 +45,6 @@ class KeywordItem {
 
   Map<String, dynamic> toJson() => {'text': text, 'value': value};
 
-  @override
-  String toString() => 'KeywordItem(text: $text, value: $value)';
-
   // 소문자/공백정리 비교 키
   String get _lcText => text.toLowerCase().trim();
   String get _lcValue => value.toLowerCase().trim();
@@ -53,6 +53,17 @@ class KeywordItem {
     final term = q.toLowerCase().trim();
     return _lcText.contains(term) || _lcValue.contains(term);
   }
+
+  @override
+  String toString() => 'KeywordItem(text: $text, value: $value)';
+
+  // 중복 제거 정확도 향상을 위한 동등성 정의
+  @override
+  bool operator ==(Object other) =>
+      other is KeywordItem && other.text == text && other.value == value;
+
+  @override
+  int get hashCode => Object.hash(text, value);
 }
 
 class KeywordService {
@@ -82,20 +93,31 @@ class KeywordService {
   // 내부: JSON-any → List<KeywordItem>
   List<KeywordItem> _parseItems(dynamic items) {
     final out = <KeywordItem>[];
-    if (items is List) {
-      for (final raw in items) {
+
+    dynamic source = items;
+
+    // 1) 문자열 JSON으로 오는 엣지 케이스 방어
+    if (source is String) {
+      try {
+        final decoded = jsonDecode(source);
+        source = decoded;
+      } catch (_) {
+        // 파싱 실패 시 빈 리스트 처리 (운영에선 jsonb 일관 유지 권장)
+        source = const [];
+      }
+    }
+
+    // 2) 정상 케이스: jsonb[] → List<dynamic>
+    if (source is List) {
+      for (final raw in source) {
         final it = KeywordItem.fromDynamic(raw);
         if (it.text.isNotEmpty) out.add(it);
       }
     }
-    // 중복 제거(text/value 모두 기준)
-    final seen = <String>{};
-    final dedup = <KeywordItem>[];
-    for (final it in out) {
-      final key = '${it.text}§${it.value}';
-      if (seen.add(key)) dedup.add(it);
-    }
-    return dedup;
+
+    // 3) 중복 제거(text/value 모두 기준; ==/hashCode 활용)
+    final dedup = <KeywordItem>{}..addAll(out);
+    return dedup.toList(growable: false);
   }
 
   /// 캐시 무효화 (관리자 수정 후 버튼에 연결)
@@ -131,11 +153,7 @@ class KeywordService {
     }
 
     // DB 비어있으면 폴백
-    if (set.isEmpty) {
-      _categories = <String>['기본'];
-    } else {
-      _categories = set.toList();
-    }
+    _categories = set.isEmpty ? <String>['기본'] : set.toList(growable: false);
     _touchCache();
     return _categories!;
   }
@@ -164,20 +182,7 @@ class KeywordService {
 
     if (res != null) {
       final map = Map<String, dynamic>.from(res as Map);
-      dynamic items = map['items'];
-
-      // 만약 문자열 JSON으로 저장된 경우를 대비
-      if (items is String) {
-        try {
-          items = Supabase
-              .instance
-              .client
-              .auth
-              .currentSession; // dummy to silence lints
-        } catch (_) {}
-        // Supabase 클라이언트에 JSON 파서 제공 없으므로, 서버는 보통 jsonb → List로 온다.
-        // 혹시 문자열로 오는 엣지 케이스는 무시(운영에서는 jsonb 일관 유지).
-      }
+      final dynamic items = map['items'];
       list = _parseItems(items);
     }
 
@@ -207,14 +212,9 @@ class KeywordService {
       final items = await fetchItemsByCategory(c, force: force);
       out.addAll(items);
     }
-    // 중복 제거
-    final seen = <String>{};
-    final dedup = <KeywordItem>[];
-    for (final it in out) {
-      final key = '${it.text}§${it.value}';
-      if (seen.add(key)) dedup.add(it);
-    }
-    return dedup;
+    // 중복 제거 (==/hashCode 활용)
+    final dedup = <KeywordItem>{}..addAll(out);
+    return dedup.toList(growable: false);
   }
 
   /// 검색(클라이언트 측 필터)

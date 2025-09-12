@@ -1,7 +1,9 @@
 // lib/screens/home/teacher_home_screen.dart
-// v1.32.0 | 강사 홈: '내 학생 관리' 버튼 추가(설계서 정합)
-// - 하단 액션 영역에 '내 학생 관리' 추가 → AppRoutes.manageStudents로 이동
-// - 노출 조건: 교사/관리자(UserRole.teacher || UserRole.admin)
+// v1.32.2 | use_build_context_synchronously & control_flow_in_finally 정밀 해소
+// - setState 가드: mounted 사용
+// - Navigator/ScaffoldMessenger 등 context 의존 호출: context.mounted 가드
+// - finally 블록: return 제거(조건부 setState만 수행) → control_flow_in_finally 해소
+// - 나머지 동작/라우팅/버튼 구성은 v1.32.0과 동일
 
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
@@ -39,11 +41,14 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
   Future<void> _guardAndLoad() async {
     try {
       final role = await AuthService().getRole();
+
+      // await 이후 state 변경 → State.mounted로 가드
       if (!mounted) return;
       setState(() => _role = role);
 
       if (!(role == UserRole.teacher || role == UserRole.admin)) {
         // 학생이면 학생 홈으로
+        if (!context.mounted) return;
         Navigator.of(
           context,
         ).pushNamedAndRemoveUntil(AppRoutes.studentHome, (_) => false);
@@ -56,6 +61,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
   }
 
   Future<void> _load() async {
+    // setState는 동기이므로 바로 호출 (State.mounted 필요 없음: 현재 동기 컨텍스트)
     setState(() {
       _loading = true;
       _error = null;
@@ -64,6 +70,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     try {
       final user = AuthService().currentAuthUser;
       if (user == null) {
+        if (!mounted) return;
         setState(() {
           _today = const [];
           _studentNames = const {};
@@ -82,14 +89,19 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
           .toList();
       final nameMap = await _studentSvc.fetchNamesByIds(ids);
 
+      if (!mounted) return;
       setState(() {
         _today = data;
         _studentNames = nameMap;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.toString());
     } finally {
-      if (mounted) setState(() => _loading = false);
+      // ⚠️ return 사용 금지: control_flow_in_finally 경고 해소
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -105,7 +117,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
         .toList();
 
     if (ids.isEmpty) {
-      if (!mounted) return null;
+      if (!context.mounted) return null;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('오늘 수업 목록에서 학생을 찾을 수 없습니다.')),
       );
@@ -113,6 +125,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     }
     if (ids.length == 1) return ids.first;
 
+    if (!context.mounted) return null;
     final selected = await showModalBottomSheet<String>(
       context: context,
       builder: (sheetCtx) {
@@ -143,6 +156,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
   }
 
   Future<void> _goLessonSummary() async {
+    // Navigator를 먼저 캡처 → await 이후 context 직접 접근 회피
     final nav = Navigator.of(context);
     final teacherId = AuthService().currentAuthUser?.id;
     final studentId = await _pickStudentId();
@@ -184,7 +198,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
           IconButton(
             onPressed: () async {
               await AuthService().signOutAll();
-              if (!mounted) return;
+              if (!context.mounted) return; // await 이후 가드
               Navigator.of(
                 context,
               ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);

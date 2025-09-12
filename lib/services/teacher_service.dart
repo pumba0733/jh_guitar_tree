@@ -1,8 +1,8 @@
 // lib/services/teacher_service.dart
-// v1.37.1-hotfix | App-Auth 전용 등록 / 삭제 안전성
-// - registerTeacher(): Supabase Auth signUp 제거 (4자리 비번 허용)
-// - deleteTeacher(): 실제 삭제 여부 확인 (0건이면 예외)
-// - 기타 로직/시그니처는 기존과 호환
+// v1.37.2 | 타입체크 경고 제거 + maybeSingle() 사용
+// - 불필요한 `res is List` / `res is! List` 제거
+// - 단일 행 조회는 .maybeSingle()로 단순화
+// - 목록 조회는 List<dynamic> 명시 캐스팅 후 사용
 
 import 'dart:convert';
 import 'package:crypto/crypto.dart' as crypto;
@@ -21,12 +21,13 @@ class TeacherService {
     final e = _normEmail(email);
     if (e.isEmpty) return false;
     try {
-      final res = await _client
+      final row = await _client
           .from(SupabaseTables.teachers)
           .select('id')
           .eq('email', e)
-          .limit(1);
-      return res is List && res.isNotEmpty;
+          .limit(1)
+          .maybeSingle();
+      return row != null;
     } catch (_) {
       return false;
     }
@@ -35,15 +36,14 @@ class TeacherService {
   Future<Teacher?> getByEmail(String email) async {
     final e = _normEmail(email);
     if (e.isEmpty) return null;
-    final res = await _client
+    final row = await _client
         .from(SupabaseTables.teachers)
         .select('id, name, email, is_admin, auth_user_id, last_login')
         .eq('email', e)
-        .limit(1);
-    if (res is List && res.isNotEmpty) {
-      return Teacher.fromMap(Map<String, dynamic>.from(res.first));
-    }
-    return null;
+        .limit(1)
+        .maybeSingle();
+    if (row == null) return null;
+    return Teacher.fromMap(Map<String, dynamic>.from(row));
   }
 
   Future<List<Teacher>> listBasic({int limit = 500}) async {
@@ -52,10 +52,11 @@ class TeacherService {
         .select('id, name, email, is_admin, auth_user_id, last_login')
         .order('name', ascending: true)
         .limit(limit);
-    if (res is! List) return const [];
-    return res
-        .map((e) => Teacher.fromMap(Map<String, dynamic>.from(e)))
-        .toList();
+
+    final list = (res as List).cast<dynamic>();
+    return list
+        .map((e) => Teacher.fromMap(Map<String, dynamic>.from(e as Map)))
+        .toList(growable: false);
   }
 
   Future<Map<String, String>> namesByIds(Iterable<String> ids) async {
@@ -65,11 +66,14 @@ class TeacherService {
         .from(SupabaseTables.teachers)
         .select('id, name')
         .inFilter('id', list);
-    if (res is! List) return {};
+
+    final rows = (res as List).cast<dynamic>();
     final map = <String, String>{};
-    for (final row in res) {
-      final m = Map<String, dynamic>.from(row);
-      map[m['id'] as String] = m['name'] as String;
+    for (final row in rows) {
+      final m = Map<String, dynamic>.from(row as Map);
+      final id = (m['id'] ?? '').toString();
+      final name = (m['name'] ?? '').toString();
+      if (id.isNotEmpty) map[id] = name;
     }
     return map;
   }
@@ -116,8 +120,6 @@ class TeacherService {
     await updatePasswordSha256ByEmail(email: e, newPassword: password);
 
     // (선택) Supabase Auth 계정은 만들지 않음
-    // 필요 시 별도 강한 임시비번으로 signUp -> sync 로직을 분리해서 운영에만 사용할 것.
-
     return true;
   }
 
@@ -146,8 +148,9 @@ class TeacherService {
         .from(SupabaseTables.teachers)
         .delete()
         .eq('id', id)
-        .select('id'); // <- 삭제된 행 반환
-    if (res is! List || res.isEmpty) {
+        .select('id'); // 삭제된 행 목록 반환
+    final rows = (res as List).cast<dynamic>();
+    if (rows.isEmpty) {
       throw Exception('delete_failed_or_denied');
     }
   }
@@ -170,14 +173,15 @@ class TeacherService {
 
   Future<bool> verifyLocalPassword(String email, String password) async {
     final e = _normEmail(email);
-    final rows = await _client
+    final row = await _client
         .from(SupabaseTables.teachers)
         .select('password_hash')
         .eq('email', e)
-        .limit(1);
-    if (rows is! List || rows.isEmpty) return false;
-    final m = Map<String, dynamic>.from(rows.first);
-    final stored = (m['password_hash'] as String?)?.trim() ?? '';
+        .limit(1)
+        .maybeSingle();
+
+    if (row == null) return false;
+    final stored = (row['password_hash'] as String?)?.trim() ?? '';
     if (stored.isEmpty) return false;
     return stored == _sha256(password);
   }

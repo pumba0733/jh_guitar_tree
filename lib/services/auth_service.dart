@@ -1,9 +1,8 @@
 // lib/services/auth_service.dart
-// v1.36.6 | App-Auth 전환: teachers.password_hash / is_admin 기반 로그인
-// - 학생 간편로그인은 그대로 유지
-// - 강사/관리자 로그인: Supabase Auth 사용 안 함
-// - 역할 판별: 메모리의 _currentTeacher.isAdmin 으로 결정
-// - 참고: 비밀번호 해시는 SHA-256(소문자 hex)
+// v1.44.0 | App-Auth 보강 (RPC 우선 → 기존 쿼리 폴백) + Supabase 세션/매핑
+// - RLS로 막히는 초기 SELECT 회피를 위해 app_login_teacher RPC 우선 시도
+// - RPC 미존재시 기존 SELECT 방식 폴백
+// - 성공 시 Supabase Auth 로그인 → sync_auth_user_id_by_email 실행
 
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
@@ -24,7 +23,7 @@ class AuthService {
   final SupabaseClient _client = Supabase.instance.client;
 
   Student? _currentStudent;
-  Teacher? _currentTeacher; // ← App-Auth용
+  Teacher? _currentTeacher;
 
   Student? get currentStudent => _currentStudent;
   Teacher? get currentTeacher => _currentTeacher;
@@ -32,14 +31,10 @@ class AuthService {
   bool get isLoggedInAsStudent => _currentStudent != null;
   bool get isLoggedInAsTeacher => _currentTeacher != null;
 
-  /// (이전) Supabase Auth 유저 → 이제는 사용하지 않지만, 남아있는 코드 호환용
   User? get currentAuthUser => _client.auth.currentUser;
-
-  /// 학생이 아니고 App-Auth 강사가 있으면 교사/관리자처럼 보임
   bool get isTeacherLike => _currentTeacher != null && !isLoggedInAsStudent;
 
   // ---------------- 학생 로그인 ----------------
-
   Future<bool> signInStudent({
     required String name,
     required String last4,
@@ -50,74 +45,114 @@ class AuthService {
     );
     if (found == null) return false;
     _currentStudent = found;
-    _currentTeacher = null; // 역할 전환 안전
+    _currentTeacher = null;
     return true;
   }
 
-  // ---------------- 강사/관리자 App-Auth 로그인 ----------------
-
+  // ---------------- 강사/관리자 로그인 ----------------
   String _normEmail(String v) => v.trim().toLowerCase();
+  String _sha256Hex(String v) => sha256.convert(utf8.encode(v)).toString();
 
-  String _sha256Hex(String v) =>
-      sha256.convert(utf8.encode(v)).toString(); // 소문자 hex
+  Future<Map<String, dynamic>?> _rpcAppLoginTeacher({
+    required String email,
+    required String pwdHash,
+  }) async {
+    try {
+      final res = await _client.rpc(
+        'app_login_teacher',
+        params: {'p_email': email, 'p_password_hash': pwdHash},
+      );
+      if (res == null) return null;
+      // res 는 단일 row(Map) 또는 null
+      if (res is List && res.isNotEmpty) {
+        return Map<String, dynamic>.from(res.first as Map);
+      } else if (res is Map) {
+        return Map<String, dynamic>.from(res);
+      }
+      return null;
+    } catch (_) {
+      // 함수 없음/권한/기타 → 폴백 허용
+      return null;
+    }
+  }
 
-  /// teachers(email) → password_hash 비교 후 메모리에 담아 로그인
   Future<bool> signInTeacherAdmin({
     required String email,
     required String password,
   }) async {
     final e = _normEmail(email);
     if (e.isEmpty) return false;
+    final h = _sha256Hex(password);
 
-    // 필요한 필드만 조회
-    final rows = await _client
-        .from('teachers')
-        .select(
-          'id, name, email, is_admin, password_hash, auth_user_id, last_login',
-        )
-        .eq('email', e)
-        .limit(1);
+    Map<String, dynamic>? row;
 
-    if (rows is! List || rows.isEmpty) return false;
+    // 1) RPC 우선
+    row = await _rpcAppLoginTeacher(email: e, pwdHash: h);
 
-    final m = Map<String, dynamic>.from(rows.first);
-    final stored = (m['password_hash'] as String?)?.trim() ?? '';
-    if (stored.isEmpty) return false; // 비번 미설정 계정 보호
+    // 2) 폴백: 기존 SELECT (RLS에 막힐 수 있음)
+    if (row == null) {
+      try {
+        final rows = await _client
+            .from('teachers')
+            .select(
+              'id, name, email, is_admin, password_hash, auth_user_id, last_login',
+            )
+            .eq('email', e)
+            .limit(1);
+        if (rows.isEmpty) return false;
 
-    final inputHex = _sha256Hex(password);
-    if (stored != inputHex) return false;
+        final m = Map<String, dynamic>.from(rows.first);
+        final stored = (m['password_hash'] as String?)?.trim() ?? '';
+        if (stored.isEmpty || stored != h) return false;
 
-    // 로그인 성공 → 메모리에 적재
-    _currentStudent = null; // 역할 전환 안전
-    _currentTeacher = Teacher.fromMap(m);
+        row = m;
+      } catch (_) {
+        return false; // RLS 등으로 실패
+      }
+    }
 
-    // 접속 흔적만 남김(선택)
+    // 여기까지 오면 App-Auth OK
+    _currentStudent = null;
+    _currentTeacher = Teacher.fromMap(row!);
+
+    // (선택) 접속 흔적: Supabase 세션 이후 시도
+    // 3) Supabase Auth 세션 만들기 (있으면 통과, 없으면 무음 실패)
+    try {
+      await _client.auth.signInWithPassword(email: e, password: password);
+    } catch (_) {}
+
+    // 4) auth.uid ↔ teachers.auth_user_id 동기화
+    try {
+      final authedEmail = _client.auth.currentUser?.email;
+      if (authedEmail != null && authedEmail.isNotEmpty) {
+        await _client.rpc(
+          'sync_auth_user_id_by_email',
+          params: {'p_email': authedEmail},
+        );
+      }
+    } catch (_) {}
+
+    // 5) 마지막 로그인 시간 업데이트(세션 있으면 성공 확률↑)
     try {
       await _client
           .from('teachers')
           .update({'last_login': DateTime.now().toUtc().toIso8601String()})
           .eq('id', _currentTeacher!.id);
-    } catch (_) {
-      // 로그 기록 실패는 무시
-    }
+    } catch (_) {}
 
     return true;
   }
 
   // ---------------- 로그아웃 ----------------
-
   Future<void> signOutAll() async {
     _currentStudent = null;
     _currentTeacher = null;
-    // Supabase Auth를 쓰지 않아도, 혹시 남아있던 세션은 정리
     try {
       await _client.auth.signOut();
     } catch (_) {}
   }
 
   // ---------------- 역할 판별 ----------------
-
-  /// App-Auth 기준: teacher.isAdmin → admin / teacher
   Future<UserRole> getRole() async {
     if (isLoggedInAsStudent) return UserRole.student;
     final t = _currentTeacher;
@@ -127,11 +162,15 @@ class AuthService {
     return t.isAdmin ? UserRole.admin : UserRole.teacher;
   }
 
-  // ---------------- (구) 링크 동기화 더미 ----------------
-
-  /// 기존 화면 호환용: 더 이상 필수 아님. 호출해도 무해.
+  // ---------------- 세션-링크 보강 ----------------
   Future<void> ensureTeacherLink() async {
-    // App-Auth 체계에서는 필수 동작이 없음.
-    // 과거 RPC(sync_auth_user_id_by_email)를 쓰지 않습니다.
+    final email = _client.auth.currentUser?.email;
+    if (email == null || email.isEmpty) return;
+    try {
+      await _client.rpc(
+        'sync_auth_user_id_by_email',
+        params: {'p_email': email},
+      );
+    } catch (_) {}
   }
 }

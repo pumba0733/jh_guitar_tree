@@ -1,8 +1,8 @@
 // lib/screens/home/student_home_screen.dart
-// v1.29.1 | 작성일: 2025-08-27 | 작성자: GPT
+// v1.44.0 | 작성일: 2025-09-08 | 작성자: GPT
 // 변경점:
-// - 설계서 기준 버튼 구성 3종 복원: 오늘 수업 / 지난 수업 복습 / 수업 요약
-// - 라우팅 시 arguments로 studentId 전달(정책 일관)
+// - "나의 커리큘럼" 진입 버튼 추가 (StudentCurriculumScreen로 이동)
+// - 라우팅 시 arguments로 studentId 전달 (정책 일관)
 
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
@@ -23,7 +23,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
     super.initState();
     _auth = AuthService();
 
-    // 로그인 가드: 프레임 이후 검사해서 세션 없으면 로그인으로
+    // 로그인 가드: 첫 프레임 이후 검사
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final stu = _auth.currentStudent;
@@ -48,7 +48,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
             icon: const Icon(Icons.logout),
             onPressed: () async {
               await _auth.signOutAll();
-              if (!mounted) return;
+              if (!context.mounted) return;
               Navigator.of(
                 context,
               ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
@@ -69,42 +69,70 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
                     runSpacing: 12,
                     children: [
                       // 📝 오늘 수업
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.today),
-                        label: const Text('오늘 수업'),
-                        onPressed: () {
-                          Navigator.pushNamed(
-                            context,
-                            AppRoutes.todayLesson,
-                            arguments: {'studentId': stu.id},
-                          );
-                        },
+                      Tooltip(
+                        message: '오늘 수업으로 바로 이동',
+                        child: FilledButton.icon(
+                          icon: const Icon(Icons.today),
+                          label: const Text('오늘 수업'),
+                          onPressed: () {
+                            Navigator.pushNamed(
+                              context,
+                              AppRoutes.todayLesson,
+                              arguments: {'studentId': stu.id},
+                            );
+                          },
+                        ),
                       ),
 
                       // 📚 지난 수업 복습
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.history),
-                        label: const Text('지난 수업 복습'),
-                        onPressed: () {
-                          Navigator.pushNamed(
-                            context,
-                            AppRoutes.lessonHistory,
-                            arguments: {'studentId': stu.id},
-                          );
-                        },
+                      Tooltip(
+                        message: '지난 수업 기록 보기',
+                        child: FilledButton.tonalIcon(
+                          icon: const Icon(Icons.history),
+                          label: const Text('지난 수업 복습'),
+                          onPressed: () {
+                            Navigator.pushNamed(
+                              context,
+                              AppRoutes.lessonHistory,
+                              arguments: {'studentId': stu.id},
+                            );
+                          },
+                        ),
                       ),
 
                       // 🧾 수업 요약 (학생용 조회 전용)
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.summarize),
-                        label: const Text('수업 요약'),
-                        onPressed: () {
-                          Navigator.pushNamed(
-                            context,
-                            AppRoutes.summaryResult, // ← 조회 화면
-                            arguments: {'studentId': stu.id, 'asStudent': true},
-                          );
-                        },
+                      Tooltip(
+                        message: '최근 수업 요약 보기',
+                        child: FilledButton.tonalIcon(
+                          icon: const Icon(Icons.summarize),
+                          label: const Text('수업 요약'),
+                          onPressed: () {
+                            Navigator.pushNamed(
+                              context,
+                              AppRoutes.summaryResult,
+                              arguments: {
+                                'studentId': stu.id,
+                                'asStudent': true,
+                              },
+                            );
+                          },
+                        ),
+                      ),
+
+                      // 📖 나의 커리큘럼
+                      Tooltip(
+                        message: '배정된 커리큘럼 보기',
+                        child: FilledButton.tonalIcon(
+                          icon: const Icon(Icons.menu_book),
+                          label: const Text('나의 커리큘럼'),
+                          onPressed: () {
+                            Navigator.pushNamed(
+                              context,
+                              AppRoutes.studentCurriculum,
+                              arguments: {'studentId': stu.id},
+                            );
+                          },
+                        ),
                       ),
                     ],
                   ),

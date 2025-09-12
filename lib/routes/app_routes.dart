@@ -1,5 +1,5 @@
 // lib/routes/app_routes.dart
-// v1.31.0 | 라우트 상수 + 안전 Args + push 헬퍼 + onGenerateRoute 보강(선택적)
+// v1.39.5 | 커리큘럼 Studio/Browser/StudentCurriculum 라우트 추가 + BadArgsScreen 키 파라미터 제거
 // 작성자: GPT
 
 import 'package:flutter/material.dart';
@@ -28,6 +28,12 @@ import '../screens/settings/logs_screen.dart';
 import '../screens/settings/export_screen.dart';
 import '../screens/settings/import_screen.dart';
 import '../screens/settings/change_password_screen.dart';
+
+// 커리큘럼
+import '../screens/curriculum/curriculum_overview_screen.dart';
+import '../screens/curriculum/curriculum_studio_screen.dart';
+import '../screens/curriculum/curriculum_browser_screen.dart';
+import '../screens/curriculum/student_curriculum_screen.dart';
 
 class AppRoutes {
   // ===== 경로 상수 =====
@@ -58,37 +64,15 @@ class AppRoutes {
   static const String importData = '/import';
   static const String changePassword = '/change_password';
 
-  // ===== 타입 안전 Args (선택 사용) =====
-  // TodayLesson: studentId 필수, teacherId/lessonId 옵션
-  static Map<String, dynamic> todayLessonArgs({
-    required String studentId,
-    String? teacherId,
-    String? lessonId,
-  }) {
-    return {
-      'studentId': studentId,
-      if (teacherId != null) 'teacherId': teacherId,
-      if (lessonId != null) 'lessonId': lessonId,
-    };
-  }
+  // 커리큘럼
+  static const String curriculumOverview =
+      '/curriculum_overview'; // 열람/검색(간단 배정)
+  static const String curriculumStudio = '/curriculum_studio'; // 관리자 편집/CRUD
+  static const String curriculumBrowser = '/curriculum_browser'; // 강사용 열람/배정
+  static const String studentCurriculum =
+      '/student_curriculum'; // 학생별 진행(인자 필요)
 
-  // LessonHistory: studentId 필수
-  static Map<String, dynamic> lessonHistoryArgs({required String studentId}) {
-    return {'studentId': studentId};
-  }
-
-  // LessonSummary: studentId 필수, teacherId 옵션
-  static Map<String, dynamic> lessonSummaryArgs({
-    required String studentId,
-    String? teacherId,
-  }) {
-    return {
-      'studentId': studentId,
-      if (teacherId != null) 'teacherId': teacherId,
-    };
-  }
-
-  // ===== 정적 라우트 맵 (기본) =====
+  // ===== 정적 라우트 맵 =====
   static Map<String, WidgetBuilder> get routes => {
     // 기본/인증
     login: (_) => const LoginScreen(),
@@ -116,18 +100,42 @@ class AppRoutes {
     export: (_) => const ExportScreen(),
     importData: (_) => const ImportScreen(),
     changePassword: (_) => const ChangePasswordScreen(),
+
+    // 커리큘럼
+    curriculumOverview: (_) => const CurriculumOverviewScreen(),
+    curriculumStudio: (_) => const CurriculumStudioScreen(),
+    curriculumBrowser: (_) => const CurriculumBrowserScreen(),
+    // studentCurriculum 은 인자 필요 → onGenerateRoute 처리
   };
 
-  // ===== 선택: 보강형 onGenerateRoute =====
-  // - 알려진 라우트이나 arguments가 잘못 온 경우 친절한 에러 화면 표시
-  // - routes 맵에 없는 경우에만 호출됨(Flutter 동작 규칙)
+  // ===== onGenerateRoute (인자 필요한 라우트 처리) =====
   static Route<dynamic>? onGenerateRoute(RouteSettings settings) {
-    // 현재는 routes 맵이 모든 라우트를 커버하므로 특별 처리 불필요.
-    // 추후 동적 라우팅/깊은링크가 필요하면 여기서 분기.
-    return null;
+    switch (settings.name) {
+      case studentCurriculum:
+        final args = settings.arguments;
+        String? studentId;
+        if (args is Map) {
+          final v = args['studentId'];
+          if (v is String) studentId = v;
+        }
+        if (studentId == null || studentId.trim().isEmpty) {
+          return MaterialPageRoute(
+            builder: (_) => const _BadArgsScreen(
+              title: '학생 커리큘럼',
+              message: 'studentId 가 필요합니다.',
+            ),
+            settings: settings,
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => StudentCurriculumScreen(studentId: studentId!),
+          settings: settings,
+        );
+    }
+    return null; // 나머지는 routes 맵에서 처리
   }
 
-  // ===== 편의 push 헬퍼 (선택) =====
+  // ===== 편의 push 헬퍼 =====
   static Future<T?> pushTodayLesson<T>(
     BuildContext context, {
     required String studentId,
@@ -154,8 +162,6 @@ class AppRoutes {
       lessonHistory,
       arguments: lessonHistoryArgs(studentId: studentId),
     );
-    // LessonHistoryScreen에서 ModalRoute로 Map 읽거나,
-    // 추후 Args 클래스로 캐스팅하도록 리팩터링 가능.
   }
 
   static Future<T?> pushLessonSummary<T>(
@@ -167,6 +173,72 @@ class AppRoutes {
       context,
       lessonSummary,
       arguments: lessonSummaryArgs(studentId: studentId, teacherId: teacherId),
+    );
+  }
+
+  static Future<T?> pushCurriculumOverview<T>(BuildContext context) {
+    return Navigator.pushNamed<T>(context, curriculumOverview);
+  }
+
+  static Future<T?> pushCurriculumStudio<T>(BuildContext context) {
+    return Navigator.pushNamed<T>(context, curriculumStudio);
+  }
+
+  static Future<T?> pushCurriculumBrowser<T>(BuildContext context) {
+    return Navigator.pushNamed<T>(context, curriculumBrowser);
+  }
+
+  static Future<T?> pushStudentCurriculum<T>(
+    BuildContext context, {
+    required String studentId,
+  }) {
+    return Navigator.pushNamed<T>(
+      context,
+      studentCurriculum,
+      arguments: {'studentId': studentId},
+    );
+  }
+
+  // ===== 타입 안전 Args =====
+  static Map<String, dynamic> todayLessonArgs({
+    required String studentId,
+    String? teacherId,
+    String? lessonId,
+  }) {
+    return {
+      'studentId': studentId,
+      if (teacherId != null) 'teacherId': teacherId,
+      if (lessonId != null) 'lessonId': lessonId,
+    };
+  }
+
+  static Map<String, dynamic> lessonHistoryArgs({required String studentId}) {
+    return {'studentId': studentId};
+  }
+
+  static Map<String, dynamic> lessonSummaryArgs({
+    required String studentId,
+    String? teacherId,
+  }) {
+    return {
+      'studentId': studentId,
+      if (teacherId != null) 'teacherId': teacherId,
+    };
+  }
+}
+
+// 잘못된 arguments 안내용 간단 화면 (key 파라미터 제거로 린트 회피)
+class _BadArgsScreen extends StatelessWidget {
+  final String title;
+  final String message;
+
+  const _BadArgsScreen({required this.title, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: Center(child: Text(message)),
     );
   }
 }

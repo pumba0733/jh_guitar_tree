@@ -1,5 +1,5 @@
 // lib/screens/settings/export_screen.dart
-// v1.21: 백업 JSON 파일 저장 + 클립보드 복사
+// v1.21.2: use_build_context_synchronously 경고 해소(사전 캡처) + finally 가드 유지
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
@@ -21,6 +21,9 @@ class _ExportScreenState extends State<ExportScreen> {
   final _idController = TextEditingController();
 
   Future<void> _buildJson() async {
+    // ⬇️ 사전 캡처: await 이후 context 직접 접근 회피
+    final messenger = ScaffoldMessenger.of(context);
+
     setState(() {
       _loading = true;
       _json = null;
@@ -35,30 +38,34 @@ class _ExportScreenState extends State<ExportScreen> {
         _json = const JsonEncoder.withIndent('  ').convert(data);
       });
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('오류: $e')));
+      // await 이후지만 context 미사용(사전 캡처 사용)
+      messenger.showSnackBar(SnackBar(content: Text('오류: $e')));
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
     }
   }
 
   Future<void> _copy() async {
     if (_json == null) return;
+
+    // ⬇️ 사전 캡처
+    final messenger = ScaffoldMessenger.of(context);
+
     await Clipboard.setData(ClipboardData(text: _json!));
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('클립보드로 복사되었습니다.')));
-    }
+    // await 이후에도 context 직접 사용 금지 → messenger 사용
+    messenger.showSnackBar(const SnackBar(content: Text('클립보드로 복사되었습니다.')));
   }
 
   Future<void> _saveFile() async {
     if (_json == null) return;
+
+    // ⬇️ 사전 캡처
+    final messenger = ScaffoldMessenger.of(context);
+
     final filename =
         'backup_${DateTime.now().toIso8601String().split("T").first}_$_studentId.json';
     final f = await FileService.saveTextFile(
@@ -69,9 +76,8 @@ class _ExportScreenState extends State<ExportScreen> {
     setState(() {
       _savedPath = f.path;
     });
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('저장됨: ${f.path}')));
+    // await 이후에도 context 직접 사용 금지 → messenger 사용
+    messenger.showSnackBar(SnackBar(content: Text('저장됨: ${f.path}')));
   }
 
   @override

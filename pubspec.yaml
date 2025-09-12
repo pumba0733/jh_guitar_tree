@@ -16,22 +16,21 @@ dependencies:
   provider: ^6.1.5
 
   # Supabase & Auth
-  supabase_flutter: ^2.6.0
+  supabase_flutter: ^2.6.0   # (2.6.0 사용 OK)
 
-  # 🔽 추가
+  # 🔽 추가/유지
   crypto: ^3.0.3
-  shared_preferences: ^2.3.2   # ← login_screen.dart에서 import 중이면 필요
-  # (shared_preferences를 실제로 안 쓰면 import 지우고 이 줄도 빼도 됩니다)
+  shared_preferences: ^2.3.2  # 실제 미사용이면 제거 가능
 
   # Local Storage
   hive: ^2.2.3
   hive_flutter: ^1.1.0
 
-  # File / Open (v1.24 파일서비스 기준)
-  file_picker: ^8.0.2
+  # File / Open
+  file_picker: ^8.1.2        # ⬅️ 업로드/스트림 옵션 호환 위해 마이너 업
   open_filex: ^4.3.2
-  desktop_drop: ^0.4.4        # ⬅️ 드래그&드롭
-  cross_file: ^0.3.4+2        # ⬅️ DropTarget 전달 타입(XFile)
+  desktop_drop: ^0.4.4
+  cross_file: ^0.3.4+2
 
   # Utils
   intl: ^0.19.0
@@ -39,6 +38,7 @@ dependencies:
   path: ^1.9.0
   http: ^1.2.2
   url_launcher: ^6.3.0
+  mime: ^1.0.5               # ⬅️ 리소스 업로드 시 MIME 판별용 (신규 추가)
 
 dev_dependencies:
   flutter_test:

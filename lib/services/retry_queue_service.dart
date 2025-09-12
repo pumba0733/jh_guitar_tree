@@ -1,5 +1,6 @@
 // lib/services/retry_queue_service.dart
 import 'dart:async';
+import 'dart:developer' as dev; // ✅ 로깅 프레임워크 사용
 import 'package:hive/hive.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -131,8 +132,14 @@ class RetryQueueService {
         default:
           return false;
       }
-    } catch (e) {
-      print('RetryQueue error: $e');
+    } catch (e, st) {
+      // ✅ print 대체
+      dev.log(
+        'RetryQueue error',
+        name: 'RetryQueueService',
+        error: e,
+        stackTrace: st,
+      );
       return false;
     }
   }
@@ -142,8 +149,14 @@ class RetryQueueService {
     _timer = Timer.periodic(interval, (_) async {
       try {
         await flushAll();
-      } catch (e) {
-        print('RetryQueue flush error: $e');
+      } catch (e, st) {
+        // ✅ print 대체
+        dev.log(
+          'RetryQueue flush error',
+          name: 'RetryQueueService',
+          error: e,
+          stackTrace: st,
+        );
       }
     });
   }

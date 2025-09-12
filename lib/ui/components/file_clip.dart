@@ -1,10 +1,9 @@
 // lib/ui/components/file_clip.dart
-// v1.28.1 | 첨부 클립 (열기 경로 일원화)
-// - onTap/메뉴 '열기'를 FileService.openAttachment(...) 경유로 통일
-// - 컨텍스트 메뉴: 열기/다운로드/Finder에서 보기/삭제
-// - 확장자 기반 아이콘 표시
+// v1.28.3 | use_build_context_synchronously 경고 해소(메신저 인자 주입)
+// - _open/_download/_reveal: BuildContext 대신 ScaffoldMessengerState 사용
+// - showMenu 콜백 및 onPressed에서 messenger 사전 캡처 후 전달
+// - 나머지 로직 동일
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../../services/file_service.dart';
@@ -20,7 +19,9 @@ class FileClip extends StatelessWidget {
 
   IconData _iconFor(String filename) {
     final ext = p.extension(filename).toLowerCase();
-    if (ext == '.pdf') return Icons.picture_as_pdf;
+    if (ext == '.pdf') {
+      return Icons.picture_as_pdf;
+    }
     if ([
       '.jpg',
       '.jpeg',
@@ -29,8 +30,9 @@ class FileClip extends StatelessWidget {
       '.bmp',
       '.webp',
       '.heic',
-    ].contains(ext))
+    ].contains(ext)) {
       return Icons.image;
+    }
     if (['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.aiff'].contains(ext)) {
       return Icons.audiotrack;
     }
@@ -40,9 +42,15 @@ class FileClip extends StatelessWidget {
     if (['.zip', '.rar', '.7z', '.tar', '.gz'].contains(ext)) {
       return Icons.archive;
     }
-    if (['.doc', '.docx', '.rtf'].contains(ext)) return Icons.description;
-    if (['.xls', '.xlsx', '.csv'].contains(ext)) return Icons.table_chart;
-    if (['.ppt', '.pptx'].contains(ext)) return Icons.slideshow;
+    if (['.doc', '.docx', '.rtf'].contains(ext)) {
+      return Icons.description;
+    }
+    if (['.xls', '.xlsx', '.csv'].contains(ext)) {
+      return Icons.table_chart;
+    }
+    if (['.ppt', '.pptx'].contains(ext)) {
+      return Icons.slideshow;
+    }
     if (['.txt', '.md', '.json', '.xml', '.yaml', '.yml'].contains(ext)) {
       return Icons.notes;
     }
@@ -57,38 +65,27 @@ class FileClip extends StatelessWidget {
     };
   }
 
-  Future<void> _open(BuildContext context) async {
+  // ▼ BuildContext를 넘기지 않도록 시그니처 변경
+  Future<void> _open(ScaffoldMessengerState messenger) async {
     try {
       await FileService().openAttachment(_toAttachmentMap());
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('열기 실패: $e')));
-      }
+      messenger.showSnackBar(SnackBar(content: Text('열기 실패: $e')));
     }
   }
 
-  Future<void> _download(BuildContext context) async {
+  Future<void> _download(ScaffoldMessengerState messenger) async {
     try {
       final saved = await FileService().saveAttachmentToDownloads(
         _toAttachmentMap(),
       );
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('다운로드 완료: $saved')));
-      }
+      messenger.showSnackBar(SnackBar(content: Text('다운로드 완료: $saved')));
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('다운로드 실패: $e')));
-      }
+      messenger.showSnackBar(SnackBar(content: Text('다운로드 실패: $e')));
     }
   }
 
-  Future<void> _reveal(BuildContext context) async {
+  Future<void> _reveal(ScaffoldMessengerState messenger) async {
     try {
       // Finder 표시만 필요하므로 저장 경로 확보 → 표시
       final saved = await FileService().saveAttachmentToDownloads(
@@ -96,16 +93,15 @@ class FileClip extends StatelessWidget {
       );
       await FileService().revealInFinder(saved);
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('표시 실패: $e')));
-      }
+      messenger.showSnackBar(SnackBar(content: Text('표시 실패: $e')));
     }
   }
 
   void _showMenu(BuildContext context, Offset pos) {
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    // 사전 캡처
+    final messenger = ScaffoldMessenger.of(context);
+
     showMenu<String>(
       context: context,
       position: RelativeRect.fromRect(
@@ -135,15 +131,16 @@ class FileClip extends StatelessWidget {
           ),
       ],
     ).then((v) async {
+      // 여기서부터는 messenger만 사용 (context 비사용)
       switch (v) {
         case 'open':
-          await _open(context);
+          await _open(messenger);
           break;
         case 'download':
-          await _download(context);
+          await _download(messenger);
           break;
         case 'reveal':
-          await _reveal(context);
+          await _reveal(messenger);
           break;
         case 'delete':
           onDelete?.call();
@@ -162,7 +159,11 @@ class FileClip extends StatelessWidget {
       child: InputChip(
         avatar: Icon(_iconFor(name)),
         label: Text(name),
-        onPressed: () => _open(context),
+        onPressed: () {
+          // onPressed에서도 사전 캡처 후 전달
+          final messenger = ScaffoldMessenger.of(context);
+          _open(messenger);
+        },
         onDeleted: onDelete,
         deleteIcon: onDelete == null ? null : const Icon(Icons.close),
       ),
