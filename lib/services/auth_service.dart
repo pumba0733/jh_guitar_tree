@@ -1,8 +1,7 @@
 // lib/services/auth_service.dart
-// v1.44.0 | App-Auth 보강 (RPC 우선 → 기존 쿼리 폴백) + Supabase 세션/매핑
-// - RLS로 막히는 초기 SELECT 회피를 위해 app_login_teacher RPC 우선 시도
-// - RPC 미존재시 기존 SELECT 방식 폴백
-// - 성공 시 Supabase Auth 로그인 → sync_auth_user_id_by_email 실행
+// v1.44.5 | App-Auth 보강 + nullable 흐름 제거(경고 해소)
+// - row를 non-null 변수 rowMap으로 통일 (RPC/SELECT 어느 경로든 성공 시 값 보장)
+// - 불필요한 non-null assertion(!) 제거
 
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
@@ -63,7 +62,6 @@ class AuthService {
         params: {'p_email': email, 'p_password_hash': pwdHash},
       );
       if (res == null) return null;
-      // res 는 단일 row(Map) 또는 null
       if (res is List && res.isNotEmpty) {
         return Map<String, dynamic>.from(res.first as Map);
       } else if (res is Map) {
@@ -71,8 +69,7 @@ class AuthService {
       }
       return null;
     } catch (_) {
-      // 함수 없음/권한/기타 → 폴백 허용
-      return null;
+      return null; // 함수 없음/권한/기타 → 폴백 허용
     }
   }
 
@@ -82,15 +79,19 @@ class AuthService {
   }) async {
     final e = _normEmail(email);
     if (e.isEmpty) return false;
+
     final h = _sha256Hex(password);
 
-    Map<String, dynamic>? row;
+    // row를 non-null 변수로 수렴
+    Map<String, dynamic>? rpcRow = await _rpcAppLoginTeacher(
+      email: e,
+      pwdHash: h,
+    );
+    Map<String, dynamic> rowMap;
 
-    // 1) RPC 우선
-    row = await _rpcAppLoginTeacher(email: e, pwdHash: h);
-
-    // 2) 폴백: 기존 SELECT (RLS에 막힐 수 있음)
-    if (row == null) {
+    if (rpcRow != null) {
+      rowMap = rpcRow;
+    } else {
       try {
         final rows = await _client
             .from('teachers')
@@ -99,21 +100,23 @@ class AuthService {
             )
             .eq('email', e)
             .limit(1);
+
         if (rows.isEmpty) return false;
 
         final m = Map<String, dynamic>.from(rows.first);
         final stored = (m['password_hash'] as String?)?.trim() ?? '';
         if (stored.isEmpty || stored != h) return false;
 
-        row = m;
+        rowMap = m;
       } catch (_) {
         return false; // RLS 등으로 실패
       }
     }
 
-    // 여기까지 오면 App-Auth OK
+    // 여기까지 오면 App-Auth OK (rowMap은 non-null 보장)
+    final teacher = Teacher.fromMap(rowMap);
     _currentStudent = null;
-    _currentTeacher = Teacher.fromMap(row!);
+    _currentTeacher = teacher;
 
     // (선택) 접속 흔적: Supabase 세션 이후 시도
     // 3) Supabase Auth 세션 만들기 (있으면 통과, 없으면 무음 실패)
@@ -123,7 +126,7 @@ class AuthService {
 
     // 4) auth.uid ↔ teachers.auth_user_id 동기화
     try {
-      final authedEmail = _client.auth.currentUser?.email;
+      final authedEmail = _client.auth.currentUser?.email; // nullable
       if (authedEmail != null && authedEmail.isNotEmpty) {
         await _client.rpc(
           'sync_auth_user_id_by_email',
@@ -134,10 +137,11 @@ class AuthService {
 
     // 5) 마지막 로그인 시간 업데이트(세션 있으면 성공 확률↑)
     try {
+      final teacherId = teacher.id;
       await _client
           .from('teachers')
           .update({'last_login': DateTime.now().toUtc().toIso8601String()})
-          .eq('id', _currentTeacher!.id);
+          .eq('id', teacherId);
     } catch (_) {}
 
     return true;
@@ -164,7 +168,7 @@ class AuthService {
 
   // ---------------- 세션-링크 보강 ----------------
   Future<void> ensureTeacherLink() async {
-    final email = _client.auth.currentUser?.email;
+    final email = _client.auth.currentUser?.email; // nullable
     if (email == null || email.isEmpty) return;
     try {
       await _client.rpc(

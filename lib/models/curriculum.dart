@@ -1,5 +1,7 @@
 // lib/models/curriculum.dart
-// v1.39.0 | 커리큘럼 모델: Node / Assignment / Progress DTO
+// v1.44.0 | 커리큘럼 모델 정합 보강
+// - order 캐스팅 안전화(num→int)
+// - NodeProgress: done/is_done 호환(읽기), 기록 시 'done'으로 통일
 
 class CurriculumNode {
   final String id;
@@ -29,7 +31,7 @@ class CurriculumNode {
       type: (m['type'] ?? 'category').toString(),
       title: (m['title'] ?? '').toString(),
       fileUrl: m['file_url']?.toString(),
-      order: (m['order'] ?? 0) as int,
+      order: (m['order'] is num) ? (m['order'] as num).toInt() : 0,
       createdAt: m['created_at'] != null
           ? DateTime.tryParse(m['created_at'].toString())
           : null,
@@ -115,7 +117,7 @@ class CurriculumAssignment {
   };
 }
 
-/// 학생 진도 Progress DTO (별도 테이블 기반; 없으면 fallback)
+/// 학생 진도 Progress DTO (done/is_done 호환)
 class NodeProgress {
   final String studentId;
   final String nodeId;
@@ -132,7 +134,8 @@ class NodeProgress {
   factory NodeProgress.fromMap(Map<String, dynamic> m) => NodeProgress(
     studentId: '${m['student_id']}',
     nodeId: '${m['curriculum_node_id']}',
-    isDone: (m['is_done'] ?? false) == true,
+    // done 또는 is_done 둘 다 허용
+    isDone: (m['done'] ?? m['is_done'] ?? false) == true,
     updatedAt: m['updated_at'] != null
         ? DateTime.tryParse(m['updated_at'].toString())
         : null,
@@ -141,6 +144,7 @@ class NodeProgress {
   Map<String, dynamic> toMap() => {
     'student_id': studentId,
     'curriculum_node_id': nodeId,
-    'is_done': isDone,
+    // 기록은 표준 키인 'done'으로 통일
+    'done': isDone,
   };
 }

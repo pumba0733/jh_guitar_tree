@@ -1,8 +1,8 @@
-// lib/screens/curriculum/curriculum_studio_screen.dart
-// v1.43.2 | 타입 정합성 패치(Uint8List)
-// - _Picked.bytes: List<int>? -> Uint8List? 로 수정
-// - file_picker의 PlatformFile.bytes(Uint8List?)와 정합
-// - 나머지 기능(v1.43.1: 형제 정렬 + D&D 업로드) 동일
+// v1.44.2 | 안전성/린트 보강 + 소소 UX 정리
+// - URL 열기 실패 시 사용자 피드백 유지
+// - SnackBar/다이얼로그 직전 context.mounted 가드 통일
+// - FutureBuilder/refresh 패턴 확인 및 미세 정리
+// - 루트 파일/카테고리 동시 허용(현행 유지). 정책 변경 시 UI 버튼 토글만 바꾸면 됨.
 
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -50,16 +50,21 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
       context,
       '새 ${type == 'file' ? '파일' : '카테고리'} 제목',
     );
-    if (title == null || title.trim().isEmpty) return;
+    if (title == null) return;
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) return;
 
-    await _svc.createNode(parentId: parentId, type: type, title: title.trim());
+    await _svc.createNode(parentId: parentId, type: type, title: trimmed);
     await _refresh();
   }
 
   Future<void> _editNode(CurriculumNode n) async {
     final title = await _promptText(context, '제목 수정', initial: n.title);
-    if (title == null || title.trim().isEmpty) return;
-    await _svc.updateNode(id: n.id, title: title.trim());
+    if (title == null) return;
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) return;
+
+    await _svc.updateNode(id: n.id, title: trimmed);
     await _refresh();
   }
 
@@ -72,10 +77,8 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     );
     if (url == null) return;
 
-    await _svc.updateNode(
-      id: n.id,
-      fileUrl: url.trim().isEmpty ? null : url.trim(),
-    );
+    final trimmed = url.trim();
+    await _svc.updateNode(id: n.id, fileUrl: trimmed.isEmpty ? null : trimmed);
     await _refresh();
   }
 
@@ -93,20 +96,31 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
   }
 
   Future<void> _moveOrder(CurriculumNode n, int delta) async {
-    final newOrder = (n.order) + delta;
+    final newOrder = n.order + delta;
     await _svc.updateNode(id: n.id, order: newOrder);
     await _refresh();
   }
 
   Future<void> _openUrl(String url) async {
     final uri = Uri.tryParse(url);
-    if (uri != null) {
-      await launchUrl(uri, mode: LaunchMode.platformDefault);
+    if (uri == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('잘못된 URL 형식입니다.')));
+      return;
+    }
+    final ok = await launchUrl(uri, mode: LaunchMode.platformDefault);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('URL을 열 수 없습니다: $url')));
     }
   }
 
   // ===== 리소스 관리자 =====
   Future<void> _openResourceManager(CurriculumNode n) async {
+    if (!mounted) return;
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -119,6 +133,7 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     required String? parentId,
     required List<CurriculumNode> siblings,
   }) async {
+    if (!mounted) return;
     final result = await showDialog<List<CurriculumNode>>(
       context: context,
       builder: (_) => _SiblingReorderDialog(siblings: siblings),
@@ -160,7 +175,7 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
             byParent.putIfAbsent(n.parentId, () => []).add(n);
           }
           for (final list in byParent.values) {
-            list.sort((a, b) => (a.order).compareTo(b.order));
+            list.sort((a, b) => a.order.compareTo(b.order));
           }
 
           List<Widget> buildTreeChildren(String? parentId, int depth) {
@@ -461,9 +476,9 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
         );
         okCount++;
       } catch (e, st) {
-        if (!mounted) return;
         // ignore: avoid_print
         print('Upload error: $e\n$st');
+        if (!mounted) return;
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('업로드 실패: $name\n$e')));
@@ -549,14 +564,12 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
                         ),
                       ),
                       child: Row(
-                        children: [
-                          const Icon(Icons.cloud_upload),
-                          const SizedBox(width: 8),
+                        children: const [
+                          Icon(Icons.cloud_upload),
+                          SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              _dragging
-                                  ? '여기에 놓으면 업로드됩니다…'
-                                  : '파일을 여기로 드래그하여 업로드하거나, 우측 하단 버튼을 눌러 선택 업로드하세요.',
+                              '파일을 여기로 드래그하여 업로드하거나, 우측 하단 버튼을 눌러 선택 업로드하세요.',
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -596,7 +609,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
                             return ListTile(
                               leading: const Icon(Icons.description),
                               title: Text(
-                                r.title?.isNotEmpty == true
+                                (r.title?.isNotEmpty ?? false)
                                     ? r.title!
                                     : r.filename,
                               ),
@@ -647,7 +660,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
 
 class _Picked {
   final String name;
-  final Uint8List? bytes; // ✅ Uint8List 로 수정
+  final Uint8List? bytes; // ✅ Uint8List 유지
   final String? path;
   final int size;
   _Picked({required this.name, this.bytes, this.path, required this.size});

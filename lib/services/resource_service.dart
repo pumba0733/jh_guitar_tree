@@ -1,15 +1,14 @@
 // lib/services/resource_service.dart
-// v1.43.1 | 안전 업로드(+정규화) · 재시도 · 서명URL · 스키마 정합
-// - Storage object key 안전 정규화(InvalidKey 400 방지)
-// - 업로드/삭제/서명URL에 지수적 재시도 + 타임아웃
-// - DB에는 "표시용" 원래 이름 저장, Storage에는 정규화된 key 사용
-// - SQL 정합: bucket='curriculum'(private 권장), table=public.resources
-// - 테이블 미구성 시 업로드 차단(명확 에러), 조회는 빈 리스트 반환
+// v1.45.0 | 버킷 기본값을 서버 정책과 일치('curriculum')로 통일 + 안정 재시도 유지
+// - bucket: 'curriculum' (SQL: storage.buckets id='curriculum', private)
+// - 업로드/DB 기록/서명 URL 로직은 동일
+// - _tableExists: 42P01 등 처리로 안전
 
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -18,6 +17,7 @@ import '../models/resource.dart';
 class ResourceService {
   final SupabaseClient _c = Supabase.instance.client;
 
+  /// 서버 SQL(v1.44/v1.45)과 맞춘 기본 버킷
   static const String bucket = 'curriculum';
   static const String _tResources = 'resources';
 
@@ -37,14 +37,13 @@ class ResourceService {
         return await task().timeout(timeout);
       } on TimeoutException catch (e) {
         lastError = e;
-        // fallthrough
       } catch (e) {
         lastError = e;
         final retry = shouldRetry?.call(e) ?? _defaultShouldRetry(e);
         if (!retry || attempt >= maxAttempts) rethrow;
       }
       if (attempt < maxAttempts) {
-        final wait = baseDelay * (1 << (attempt - 1)); // 250, 500, 1000...
+        final wait = baseDelay * (1 << (attempt - 1));
         await Future.delayed(wait);
       }
     }
@@ -69,7 +68,6 @@ class ResourceService {
     final ext = p.extension(raw);
     var base = p.basenameWithoutExtension(raw);
 
-    // 경로/제어문자 제거 → 허용 외 전부 '_'
     base = base.replaceAll(RegExp(r'[\/\\\x00-\x1F]'), '_');
     base = base.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
     base = base.replaceAll(RegExp(r'_+'), '_').trim();
@@ -104,21 +102,17 @@ class ResourceService {
 
   Future<bool> _tableExists() async {
     try {
-      // 존재하면 정상 응답, 없으면 42P01(Relation does not exist)류 에러
       await _c.from(_tResources).select('id').limit(1);
       return true;
     } catch (e) {
       final s = e.toString();
-      // relation not found / undefined table 시 false
       if (s.contains('42P01') ||
-          s.contains('relation') && s.contains('does not exist')) {
+          (s.contains('relation') && s.contains('does not exist'))) {
         return false;
       }
-      // 기타 에러(일시 네트워크/권한)는 테이블은 있다고 보고 true
-      return true;
+      return true; // 권한/기타 오류는 존재로 간주
     }
   }
-
 
   // ===== Queries =====
   Future<List<ResourceFile>> listByNode(String nodeId) async {
@@ -140,7 +134,7 @@ class ResourceService {
     String? title,
     String? mimeType,
     int? sizeBytes,
-    String storageBucket = bucket,
+    String storageBucket = bucket, // 기본 'curriculum'
   }) async {
     final payload = <String, dynamic>{
       'curriculum_node_id': nodeId,
@@ -158,9 +152,6 @@ class ResourceService {
   }
 
   // ===== Upload =====
-  /// bytes가 있으면 uploadBinary, 없으면 파일 경로로 업로드
-  /// - Storage key: _keySafeName()
-  /// - DB에는 표시용 파일명(_displaySafeName) 저장
   Future<ResourceFile> uploadForNode({
     required String nodeId,
     required String filename, // 원본 파일명
@@ -168,7 +159,7 @@ class ResourceService {
     String? filePath,
     String? mimeType,
     int? sizeBytes,
-    String storageBucket = bucket,
+    String storageBucket = bucket, // 기본 'curriculum'
   }) async {
     if ((bytes == null || bytes.isEmpty) &&
         (filePath == null || filePath.isEmpty)) {
@@ -189,10 +180,13 @@ class ResourceService {
     final nodeSeg = nodeId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
     final storagePath = '$y-$m/$nodeSeg/$safeKeyName';
 
+    final resolvedMime =
+        mimeType ?? lookupMimeType(baseOriginal) ?? 'application/octet-stream';
+
     final store = _c.storage.from(storageBucket);
     final opts = FileOptions(
       upsert: true,
-      contentType: mimeType ?? 'application/octet-stream',
+      contentType: resolvedMime,
       cacheControl: '3600',
     );
 
@@ -210,7 +204,7 @@ class ResourceService {
       nodeId: nodeId,
       filename: displayName, // ← UI 노출(한글 유지)
       storagePath: storagePath,
-      mimeType: mimeType,
+      mimeType: resolvedMime,
       sizeBytes: sizeBytes,
       storageBucket: storageBucket,
     );
@@ -229,12 +223,15 @@ class ResourceService {
     ResourceFile r, {
     Duration ttl = const Duration(hours: 24),
   }) async {
-    final url = await _retry(
-      () => _c.storage
-          .from(r.storageBucket)
-          .createSignedUrl(r.storagePath, ttl.inSeconds),
-    );
-    return url;
-    // private 버킷도 접근 가능한 일시적 URL을 반환
+    try {
+      final url = await _retry(
+        () => _c.storage
+            .from(r.storageBucket)
+            .createSignedUrl(r.storagePath, ttl.inSeconds),
+      );
+      return url;
+    } catch (e) {
+      throw StateError('서명 URL 생성 실패: ${r.storageBucket}/${r.storagePath}\n$e');
+    }
   }
 }

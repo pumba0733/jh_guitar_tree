@@ -1,4 +1,5 @@
-// v1.0.0 | Resource DTO (정식 리소스 엔티티)
+// lib/models/resource.dart
+// v1.0.1 | Resource DTO: id null-safe, map 정합성
 
 class ResourceFile {
   final String id;
@@ -25,8 +26,8 @@ class ResourceFile {
 
   factory ResourceFile.fromMap(Map<String, dynamic> m) {
     return ResourceFile(
-      id: '${m['id']}',
-      nodeId: '${m['curriculum_node_id']}',
+      id: (m['id'] ?? '').toString(), // ← null → '' 로 통일
+      nodeId: (m['curriculum_node_id'] ?? '').toString(),
       title: m['title']?.toString(),
       filename: (m['filename'] ?? '').toString(),
       mimeType: m['mime_type']?.toString(),

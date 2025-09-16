@@ -1,7 +1,9 @@
 // lib/services/file_service.dart
-// v1.28.3 | 네트워크 안정화(P2): 지수적 재시도 + 타임아웃 / 동작은 기존과 동일
-// - 업로드/다운로드/삭제 경로에 _retry(...) 적용
-// - (유지) 스마트 오픈, Finder 표시, 텍스트/바이너리 저장, 업로드 API 변경 없음
+// v1.28.4 | 네트워크 안정화(P2) + URL 키추출 보강(public/sign/auth) + contentType 전달
+// - 재시도/타임아웃 유지
+// - _extractStorageKeyFromUrl: /object/public/, /object/sign/, /object/auth/ 지원
+// - uploadBinary 시 FileOptions.contentType 전달(가능할 때)
+// - 스마트오픈/다운로드 흐름 기존과 동일
 
 import 'dart:async';
 import 'dart:io';
@@ -11,6 +13,7 @@ import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart'
     show kIsWeb, consolidateHttpClientResponseBytes;
+import 'package:mime/mime.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -45,33 +48,30 @@ class FileService {
         return await task().timeout(timeout);
       } on TimeoutException catch (e) {
         lastError = e;
-        // 계속 진행하여 backoff
       } catch (e) {
         lastError = e;
         final retry = shouldRetry?.call(e) ?? _defaultShouldRetry(e);
         if (!retry || attempt >= maxAttempts) rethrow;
       }
       if (attempt < maxAttempts) {
-        final wait =
-            baseDelay * (1 << (attempt - 1)); // 250ms, 500ms, 1000ms...
+        final wait = baseDelay * (1 << (attempt - 1));
         await Future.delayed(wait);
       }
     }
-    // maxAttempts을 모두 소진
     throw lastError ?? StateError('알 수 없는 네트워크 오류');
   }
 
   bool _defaultShouldRetry(Object e) {
-    // Socket/HTTP/스토리지 일시 오류에 대해 재시도
+    final s = e.toString();
     return e is SocketException ||
         e is HttpException ||
         e is TimeoutException ||
-        e.toString().contains('ENETUNREACH') ||
-        e.toString().contains('Connection closed') ||
-        e.toString().contains('temporarily unavailable') ||
-        e.toString().contains('503') ||
-        e.toString().contains('502') ||
-        e.toString().contains('429');
+        s.contains('ENETUNREACH') ||
+        s.contains('Connection closed') ||
+        s.contains('temporarily unavailable') ||
+        s.contains('503') ||
+        s.contains('502') ||
+        s.contains('429');
   }
 
   String _displaySafeName(String raw) {
@@ -197,13 +197,16 @@ class FileService {
     final objectKey = '$studentId/$dateStr/$keyName';
     final bytes = await file.readAsBytes();
 
+    final resolvedMime =
+        lookupMimeType(displayName) ?? 'application/octet-stream';
+
     await _retry(
       () => _sb.storage
           .from(_bucketName)
           .uploadBinary(
             objectKey,
             bytes,
-            fileOptions: const FileOptions(upsert: true),
+            fileOptions: FileOptions(upsert: true, contentType: resolvedMime),
           ),
     );
 
@@ -213,6 +216,7 @@ class FileService {
       'url': publicUrl,
       'name': displayName,
       'size': bytes.length,
+      'mime': resolvedMime,
     };
   }
 
@@ -304,14 +308,27 @@ class FileService {
     await openLocal(local);
   }
 
+  // public/signed/auth URL 모두에서 스토리지 키 추출 시도
   String? _extractStorageKeyFromUrl(String url) {
-    final idx = url.indexOf('/object/public/');
-    if (idx < 0) return null;
-    final sub = url.substring(idx + '/object/public/'.length);
-    final parts = sub.split('/');
-    if (parts.isEmpty) return null;
-    if (parts.first == _bucketName) {
-      return parts.skip(1).join('/');
+    // 형태 예시:
+    // /storage/v1/object/public/<bucket>/<key...>
+    // /storage/v1/object/sign/<bucket>/<key...>?token=...
+    // /storage/v1/object/auth/<bucket>/<key...>
+    final patterns = <String>[
+      '/object/public/',
+      '/object/sign/',
+      '/object/auth/',
+    ];
+    for (final prefix in patterns) {
+      final idx = url.indexOf(prefix);
+      if (idx >= 0) {
+        final sub = url.substring(idx + prefix.length);
+        final parts = sub.split('?').first.split('/');
+        if (parts.isEmpty) return null;
+        if (parts.first == _bucketName) {
+          return parts.skip(1).join('/');
+        }
+      }
     }
     return null;
   }

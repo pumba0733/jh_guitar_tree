@@ -1,9 +1,8 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.45.1 | 오늘 레슨 링크 UX 강화 + 컴파일 오류/린트 수정
-// - Supabase import 추가
-// - _toggleKeyword / _handleUploadAttachments / _handleRemoveAttachment 복구
-// - 미사용 _promptText 제거
-// - async 이후 context 사용 가드 확인
+// v1.45.4 | 소규모 안정화 패치
+// - supabase_flutter 불필요 임포트 제거(린트 경고 방지)
+// - 일부 비동기 후 mounted 재가드 보강
+// - 기능 동일
 
 import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
@@ -11,7 +10,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+// import 'package:supabase_flutter/supabase_flutter.dart'; // ❌ not used here
 
 import '../../ui/components/file_clip.dart';
 import '../../services/lesson_service.dart';
@@ -44,7 +43,8 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   final LessonLinksService _links = LessonLinksService();
   final CurriculumService _curr = CurriculumService();
   final ResourceService _res = ResourceService();
-  static const String _defaultResourceBucket = 'curriculum';
+  // v1.45.3: 하드코딩 제거 → 서비스 상수 사용
+  String get _defaultResourceBucket => ResourceService.bucket;
 
   final _subjectCtl = TextEditingController();
   final _memoCtl = TextEditingController();
@@ -168,7 +168,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         const Duration(milliseconds: 200),
         () => _applyKeywordSearch(),
       );
-      setState(() {});
+      if (mounted) setState(() {});
     });
   }
 
@@ -282,7 +282,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   }
 
   Future<void> _loadKeywordData() async {
-    setState(() => _loadingKeywords = true);
+    if (mounted) setState(() => _loadingKeywords = true);
     try {
       final categories = await _keyword.fetchCategories();
       var selectedCat = (categories.isNotEmpty) ? categories.first : null;
@@ -427,7 +427,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
   // ===== 오늘 레슨 링크 로딩/조작 =====
   Future<void> _reloadLessonLinks({bool ensure = false}) async {
-    setState(() => _loadingLinks = true);
+    if (mounted) setState(() => _loadingLinks = true);
     try {
       final list = await _links.listTodayByStudent(_studentId, ensure: ensure);
       if (!mounted) return;
@@ -442,7 +442,8 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
   Future<void> _removeLessonLink(String id) async {
     try {
-      await Supabase.instance.client.from('lesson_links').delete().eq('id', id);
+      final ok = await _links.deleteById(id);
+      if (!ok) throw StateError('권한 또는 네트워크 오류');
       await _reloadLessonLinks();
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -458,7 +459,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     if (kind == 'resource') {
       try {
         final rf = ResourceFile.fromMap({
-          'id': link['id'],
+          'id': link['id'], // lesson_links id여도 무관(표시용)
           'curriculum_node_id': link['curriculum_node_id'],
           'title': link['resource_title'],
           'filename': link['resource_filename'],
@@ -492,79 +493,84 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   // ===== 노드/리소스 선택 다이얼로그 =====
   Future<String?> _pickNodeDialog() async {
     final all = await _curr.listNodes(); // 전체 → 클라 필터
+    if (!mounted) return null;
     return showDialog<String>(
       context: context,
       builder: (ctx) {
         final ctl = TextEditingController();
         List<Map<String, dynamic>> filtered = all;
-        void apply() {
-          final q = ctl.text.trim().toLowerCase();
-          filtered = q.isEmpty
-              ? all
-              : all.where((m) {
-                  final title = (m['title'] ?? '').toString().toLowerCase();
-                  final id = (m['id'] ?? '').toString().toLowerCase();
-                  return title.contains(q) || id.contains(q);
-                }).toList();
-          // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
-          (ctx as Element).markNeedsBuild();
-        }
 
         return StatefulBuilder(
-          builder: (ctx, setSt) => AlertDialog(
-            title: const Text('노드 선택'),
-            content: SizedBox(
-              width: 520,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: ctl,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      hintText: '제목/ID 검색…',
-                      prefixIcon: Icon(Icons.search),
-                      border: OutlineInputBorder(),
+          builder: (ctx, setSt) {
+            void apply() {
+              final q = ctl.text.trim().toLowerCase();
+              filtered = q.isEmpty
+                  ? all
+                  : all.where((m) {
+                      final title = (m['title'] ?? '').toString().toLowerCase();
+                      final id = (m['id'] ?? '').toString().toLowerCase();
+                      return title.contains(q) || id.contains(q);
+                    }).toList();
+              setSt(() {}); // ← 안전한 리빌드
+            }
+
+            return AlertDialog(
+              title: const Text('노드 선택'),
+              content: SizedBox(
+                width: 520,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: ctl,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        hintText: '제목/ID 검색…',
+                        prefixIcon: Icon(Icons.search),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => apply(),
                     ),
-                    onChanged: (_) => apply(),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 320,
-                    child: Scrollbar(
-                      child: ListView.builder(
-                        itemCount: filtered.length,
-                        itemBuilder: (_, i) {
-                          final m = filtered[i];
-                          final isFile = (m['type'] ?? '') == 'file';
-                          return ListTile(
-                            dense: true,
-                            leading: Icon(
-                              isFile ? Icons.insert_drive_file : Icons.folder,
-                            ),
-                            title: Text((m['title'] ?? '').toString()),
-                            subtitle: Text(
-                              (m['id'] ?? '').toString(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            onTap: () =>
-                                Navigator.pop(ctx, (m['id'] ?? '').toString()),
-                          );
-                        },
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 320,
+                      child: Scrollbar(
+                        child: ListView.builder(
+                          itemCount: filtered.length,
+                          itemBuilder: (_, i) {
+                            final m = filtered[i];
+                            final isFile = (m['type'] ?? '') == 'file';
+                            return ListTile(
+                              dense: true,
+                              leading: Icon(
+                                isFile ? Icons.insert_drive_file : Icons.folder,
+                              ),
+                              title: Text((m['title'] ?? '').toString()),
+                              subtitle: Text(
+                                (m['id'] ?? '').toString(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onTap: () => Navigator.pop(
+                                ctx,
+                                (m['id'] ?? '').toString(),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('닫기'),
-              ),
-            ],
-          ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('닫기'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -572,6 +578,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
   Future<Map<String, dynamic>?> _pickResourceDialog(String nodeId) async {
     final files = await _res.listByNode(nodeId);
+    if (!mounted) return null;
     if (files.isEmpty) {
       _showError('이 노드에 등록된 리소스가 없습니다.');
       return null;
@@ -640,7 +647,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     if (picked == null) return;
 
     final rf = ResourceFile.fromMap({
-      'id': null,
+      'id': '', // 임시 객체이므로 빈 문자열 권장
       'curriculum_node_id': nodeId,
       'title': picked['title'],
       'filename': picked['filename'],
@@ -671,7 +678,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     } else {
       _selectedKeywords.add(value);
     }
-    setState(() {});
+    if (mounted) setState(() {});
     _scheduleSave();
   }
 
@@ -1016,12 +1023,17 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                 onChanged: (v) async {
                   if (v == null) return;
                   setState(() => _selectedCategory = v);
-                  final items = await _keyword.fetchItemsByCategory(v);
-                  if (!mounted) return;
-                  setState(() {
-                    _items = items;
-                  });
-                  await _applyKeywordSearch();
+                  try {
+                    final items = await _keyword.fetchItemsByCategory(v);
+                    if (!mounted) return;
+                    setState(() {
+                      _items = items;
+                    });
+                    await _applyKeywordSearch();
+                  } catch (e) {
+                    if (!mounted) return;
+                    _showError('키워드 불러오기 실패: $e');
+                  }
                 },
               ),
             ),

@@ -1,13 +1,12 @@
 // lib/screens/curriculum/curriculum_browser_screen.dart
-// v1.44.2 | 강사용 브라우저 - 학생 선택 다이얼로그 정합(서비스/모델 기준)
-// - StudentService.list(query) 사용 (listAll 제거)
-// - Student.phoneLast4 사용 (phone 제거)
-// - non-null 필드 dead_null_aware 경고 제거
-// - 문자열 보간 불필요한 {} 제거
+// v1.45.0 | 강사용 브라우저 - '오늘 레슨에 링크' 액션 추가 + v1.45 가시 트리 호환
+// - CurriculumService.listNodes()가 서버 RPC(list_visible_curriculum_tree) 우선 사용 (서비스에서 처리)
+// - 노드/리소스 선택 후 '학생 선택' → 오늘 레슨에 node/resource 링크 삽입
+// - 기존 '학생에게 배정' 기능 유지
 //
 // 의존:
 // - models: curriculum.dart, resource.dart, student.dart
-// - services: curriculum_service.dart, resource_service.dart, file_service.dart, student_service.dart
+// - services: curriculum_service.dart, resource_service.dart, file_service.dart, student_service.dart, lesson_links_service.dart
 // - packages: url_launcher
 
 import 'package:flutter/foundation.dart';
@@ -21,6 +20,7 @@ import '../../services/curriculum_service.dart';
 import '../../services/resource_service.dart';
 import '../../services/file_service.dart';
 import '../../services/student_service.dart';
+import '../../services/lesson_links_service.dart';
 
 class CurriculumBrowserScreen extends StatefulWidget {
   const CurriculumBrowserScreen({super.key});
@@ -33,6 +33,7 @@ class CurriculumBrowserScreen extends StatefulWidget {
 class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
   final _svc = CurriculumService();
   final _resSvc = ResourceService();
+  final _links = LessonLinksService();
   late Future<List<Map<String, dynamic>>> _load;
 
   CurriculumNode? _selected;
@@ -58,11 +59,15 @@ class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
     });
   }
 
-  Future<void> _assignToStudents(CurriculumNode node) async {
-    final picked = await showDialog<_StudentPickResult>(
+  Future<_StudentPickResult?> _pickStudentsDialog() {
+    return showDialog<_StudentPickResult>(
       context: context,
       builder: (_) => const _StudentPickerDialog(),
     );
+  }
+
+  Future<void> _assignToStudents(CurriculumNode node) async {
+    final picked = await _pickStudentsDialog();
     if (picked == null || picked.selected.isEmpty) return;
 
     int ok = 0, fail = 0;
@@ -76,6 +81,49 @@ class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
     }
     if (!mounted) return;
     final msg = fail == 0 ? '배정 완료 ($ok명)' : '일부 실패: 성공 $ok / 실패 $fail';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  // === NEW: 오늘 레슨 링크 액션 ===
+  Future<void> _linkNodeToTodayLesson(CurriculumNode node) async {
+    final picked = await _pickStudentsDialog();
+    if (picked == null || picked.selected.isEmpty) return;
+
+    int ok = 0, fail = 0;
+    for (final stu in picked.selected) {
+      final success = await _links.sendNodeToTodayLesson(
+        studentId: stu.id,
+        nodeId: node.id,
+      );
+      if (success) {
+        ok++;
+      } else {
+        fail++;
+      }
+    }
+    if (!mounted) return;
+    final msg = fail == 0 ? '오늘 레슨 링크 완료 ($ok명)' : '일부 실패: 성공 $ok / 실패 $fail';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _linkResourceToTodayLesson(ResourceFile r) async {
+    final picked = await _pickStudentsDialog();
+    if (picked == null || picked.selected.isEmpty) return;
+
+    int ok = 0, fail = 0;
+    for (final stu in picked.selected) {
+      final success = await _links.sendResourceToTodayLesson(
+        studentId: stu.id,
+        resource: r,
+      );
+      if (success) {
+        ok++;
+      } else {
+        fail++;
+      }
+    }
+    if (!mounted) return;
+    final msg = fail == 0 ? '리소스 링크 완료 ($ok명)' : '일부 실패: 성공 $ok / 실패 $fail';
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
@@ -172,6 +220,24 @@ class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
                           label: Text(kIsWeb ? '링크 열기 (웹)' : '링크/파일 열기'),
                         ),
 
+                      const SizedBox(height: 12),
+                      // === NEW: 오늘 레슨에 노드 링크 ===
+                      Row(
+                        children: [
+                          FilledButton.icon(
+                            onPressed: () => _assignToStudents(n),
+                            icon: const Icon(Icons.assignment_ind),
+                            label: const Text('학생에게 배정'),
+                          ),
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            onPressed: () => _linkNodeToTodayLesson(n),
+                            icon: const Icon(Icons.link),
+                            label: const Text('오늘 레슨에 노드 링크'),
+                          ),
+                        ],
+                      ),
+
                       const SizedBox(height: 16),
                       Text(
                         '리소스',
@@ -223,27 +289,31 @@ class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                         onTap: () => _openResource(r),
-                                        trailing: IconButton(
-                                          tooltip: '열기',
-                                          onPressed: () => _openResource(r),
-                                          icon: const Icon(Icons.open_in_new),
+                                        trailing: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              tooltip: '열기',
+                                              onPressed: () => _openResource(r),
+                                              icon: const Icon(
+                                                Icons.open_in_new,
+                                              ),
+                                            ),
+                                            IconButton(
+                                              tooltip: '오늘 레슨에 링크',
+                                              onPressed: () =>
+                                                  _linkResourceToTodayLesson(r),
+                                              icon: const Icon(
+                                                Icons.link_outlined,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       );
                                     },
                                   );
                                 },
                               ),
-                      ),
-
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          FilledButton.icon(
-                            onPressed: () => _assignToStudents(n),
-                            icon: const Icon(Icons.assignment_ind),
-                            label: const Text('학생에게 배정'),
-                          ),
-                        ],
                       ),
                     ],
                   ),
@@ -257,7 +327,7 @@ class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
               children: [
                 Expanded(child: leftTree()),
                 const Divider(height: 1),
-                SizedBox(height: 320, child: rightPane()),
+                SizedBox(height: 340, child: rightPane()),
               ],
             );
           }
@@ -353,7 +423,7 @@ class _StudentPickerDialogState extends State<_StudentPickerDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('학생에게 배정'),
+      title: const Text('학생 선택'),
       content: SizedBox(
         width: 520,
         height: 520,
@@ -431,7 +501,7 @@ class _StudentPickerDialogState extends State<_StudentPickerDialog> {
               _StudentPickResult(_selected.values.toList()),
             );
           },
-          child: const Text('배정'),
+          child: const Text('확인'),
         ),
       ],
     );

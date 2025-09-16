@@ -1,5 +1,4 @@
-// lib/screens/home/admin_home_screen.dart
-// v1.44.1 | 관리자 홈: Material 3 전환 + 아이콘/const 오류 수정 + 브라우저 바로가기
+// v1.44.2 | 관리자 홈: context.mounted 가드 보강 + 사소 정리
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../routes/app_routes.dart';
@@ -25,15 +24,16 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Future<void> _guard() async {
     try {
       final role = await AuthService().getRole();
-      if (!mounted) {
-        return; // 블록화
-      }
+      if (!mounted) return;
+
       final isAdmin = role == UserRole.admin;
       setState(() {
         _isAdmin = isAdmin;
         _guarding = false;
       });
+
       if (!isAdmin) {
+        if (!context.mounted) return; // ✅ 보강
         final route = switch (role) {
           UserRole.teacher => AppRoutes.teacherHome,
           UserRole.student => AppRoutes.studentHome,
@@ -42,9 +42,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         Navigator.of(context).pushNamedAndRemoveUntil(route, (_) => false);
       }
     } catch (_) {
-      if (!mounted) {
-        return; // 블록화
-      }
+      if (!mounted) return;
       setState(() => _guarding = false);
     }
   }
@@ -101,9 +99,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           IconButton(
             onPressed: () async {
               await AuthService().signOutAll();
-              if (!context.mounted) {
-                return; // 블록화
-              }
+              if (!context.mounted) return;
               Navigator.of(
                 context,
               ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
@@ -173,9 +169,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                                 message: '현재 데이터를 내보냅니다. 진행할까요?',
                                 confirmText: '백업',
                               );
-                              if (!ok || !context.mounted) {
-                                return; // 블록화
-                              }
+                              if (!ok || !context.mounted) return;
                               Navigator.pushNamed(context, AppRoutes.export);
                             },
                       icon: const Icon(Icons.download),
@@ -192,9 +186,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                                 confirmText: '복원 진행',
                                 danger: true,
                               );
-                              if (!ok || !context.mounted) {
-                                return; // 블록화
-                              }
+                              if (!ok || !context.mounted) return;
                               Navigator.pushNamed(
                                 context,
                                 AppRoutes.importData,

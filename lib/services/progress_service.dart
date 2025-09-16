@@ -1,9 +1,8 @@
 // lib/services/progress_service.dart
-// v1.43.1 | 학생 진도 토글/집계 (curriculum_progress 스키마 반영)
-// - 테이블명: curriculum_progress
-// - 컬럼명: done(boolean), updated_at
-// - information_schema로 존재 여부 확인 → 없으면 안전 no-op
-// - length 기반 집계(별도 count 의존 X)
+// v1.44.0 | 학생 진도 토글/집계 – 테이블 존재 감지(42P01) 방식으로 통일
+// - information_schema 의존 제거(환경차 이슈 회피)
+// - select().limit(1) 테스트 + 42P01 캐치
+// - 나머지 API 동일
 
 import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -14,14 +13,17 @@ class ProgressService {
 
   Future<bool> _tableExists() async {
     try {
-      final List rows = await _c
-          .from('information_schema.tables')
-          .select('table_name')
-          .eq('table_schema', 'public')
-          .eq('table_name', _table);
-      return rows.isNotEmpty;
-    } catch (_) {
-      return false;
+      await _c.from(_table).select('student_id').limit(1);
+      return true;
+    } catch (e) {
+      final s = e.toString();
+      // 42P01: undefined_table
+      if (s.contains('42P01') ||
+          (s.contains('relation') && s.contains('does not exist'))) {
+        return false;
+      }
+      // 기타 오류는 일시 오류로 간주하여 존재한다고 보고 동작(상위에서 재시도/메시지 처리)
+      return true;
     }
   }
 

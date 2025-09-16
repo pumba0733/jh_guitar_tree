@@ -1,22 +1,61 @@
 // lib/services/lesson_links_service.dart
-// v1.44.0 | 오늘 레슨 링크 서비스 (RPC + 조회 유틸 보강)
-// - sendNodeToTodayLesson / sendResourceToTodayLesson : 기존 bool 유지
-// - *Id() 버전 추가: 생성된 link UUID 반환
-// - listByLesson(), listTodayByStudent() 유틸 추가
-// - ensure=false 기본(생성 없이 조회), 필요 시 ensure=true로 오늘레슨 보장
+// v1.45.1 | 링크 서비스 - unnecessary_type_check 경고 제거 (Supabase select()의 List 반환에 대한 명시 캐스팅)
+// - RPC: ensure_today_lesson / link_node_to_today_lesson / link_resource_to_today_lesson
+// - 삭제: lesson_links RLS delete 정책으로 안전하게 동작
+
+import 'dart:async';
+import 'dart:io';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/resource.dart';
+import '../supabase/supabase_tables.dart';
 
 class LessonLinksService {
   final SupabaseClient _c = Supabase.instance.client;
 
-  // ---------- 내부 헬퍼 ----------
+  Future<T> _retry<T>(
+    Future<T> Function() task, {
+    int maxAttempts = 3,
+    Duration baseDelay = const Duration(milliseconds: 250),
+    Duration timeout = const Duration(seconds: 15),
+    bool Function(Object e)? shouldRetry,
+  }) async {
+    int attempt = 0;
+    Object? lastError;
+    while (attempt < maxAttempts) {
+      attempt++;
+      try {
+        return await task().timeout(timeout);
+      } on TimeoutException catch (e) {
+        lastError = e;
+      } catch (e) {
+        lastError = e;
+        final s = e.toString();
+        final retry =
+            (shouldRetry?.call(e) ?? false) ||
+            e is SocketException ||
+            e is HttpException ||
+            e is TimeoutException ||
+            s.contains('ENETUNREACH') ||
+            s.contains('Connection closed') ||
+            s.contains('temporarily unavailable') ||
+            s.contains('503') ||
+            s.contains('502') ||
+            s.contains('429');
+        if (!retry || attempt >= maxAttempts) rethrow;
+      }
+      if (attempt < maxAttempts) {
+        final wait = baseDelay * (1 << (attempt - 1));
+        await Future.delayed(wait);
+      }
+    }
+    throw lastError ?? StateError('네트워크 오류');
+  }
+
   Future<String?> _rpcString(String fn, Map<String, dynamic> params) async {
     try {
-      final res = await _c.rpc(fn, params: params);
+      final res = await _retry(() => _c.rpc(fn, params: params));
       if (res == null) return null;
-      // Supabase rpc가 UUID 텍스트를 바로 반환하면 dynamic -> String 으로 캐스팅
       return res.toString();
     } catch (_) {
       return null;
@@ -25,35 +64,56 @@ class LessonLinksService {
 
   Future<String?> _findTodayLessonId(String studentId) async {
     try {
-      // 생성 없이 '오늘' 레슨 찾기
       final today = DateTime.now();
       final yyyy = today.year.toString().padLeft(4, '0');
       final mm = today.month.toString().padLeft(2, '0');
       final dd = today.day.toString().padLeft(2, '0');
       final d = '$yyyy-$mm-$dd';
 
-      final rows = await _c
-          .from('lessons')
-          .select('id')
-          .eq('student_id', studentId)
-          .eq('date', d)
-          .limit(1);
+      final rows = await _retry(
+        () => _c
+            .from(SupabaseTables.lessons)
+            .select('id')
+            .eq('student_id', studentId)
+            .eq('date', d)
+            .limit(1),
+      );
 
-      if (rows.isEmpty) return null;
-      return (rows.first['id'] ?? '').toString();
+      // ⬇️ unnecessary_type_check 제거: select()는 항상 List 반환 → 명시 캐스팅
+      final list = (rows as List);
+      if (list.isEmpty) return null;
+      return (list.first['id'] ?? '').toString();
     } catch (_) {
       return null;
     }
   }
 
   Future<String?> _ensureTodayLessonId(String studentId) async {
-    // 서버에서 생성까지 보장
     return _rpcString('ensure_today_lesson', {'p_student_id': studentId});
-    // (권한/RLS로 거부될 수 있음 → null)
   }
 
-  // ---------- 보냄: 노드 ----------
-  /// 커리큘럼 노드를 '오늘 레슨'에 링크로 추가 (ID 반환)
+  Future<String?> getTodayLessonId(
+    String studentId, {
+    bool ensure = false,
+  }) async {
+    String? id = await _findTodayLessonId(studentId);
+    if (id == null && ensure) {
+      id = await _ensureTodayLessonId(studentId);
+    }
+    return id;
+  }
+
+  Future<bool> deleteById(String id) async {
+    try {
+      await _retry(
+        () => _c.from(SupabaseTables.lessonLinks).delete().eq('id', id),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<String?> sendNodeToTodayLessonId({
     required String studentId,
     required String nodeId,
@@ -64,7 +124,6 @@ class LessonLinksService {
     });
   }
 
-  /// 커리큘럼 노드를 '오늘 레슨'에 링크로 추가 (성공 여부)
   Future<bool> sendNodeToTodayLesson({
     required String studentId,
     required String nodeId,
@@ -76,8 +135,6 @@ class LessonLinksService {
     return id != null;
   }
 
-  // ---------- 보냄: 리소스 ----------
-  /// 리소스를 '오늘 레슨'에 링크로 추가 (ID 반환)
   Future<String?> sendResourceToTodayLessonId({
     required String studentId,
     required ResourceFile resource,
@@ -89,9 +146,9 @@ class LessonLinksService {
       'p_filename': resource.filename,
       'p_title': resource.title,
     });
+    // 서버 함수 시그니처: (uuid, text, text, text, text) → uuid
   }
 
-  /// 리소스를 '오늘 레슨'에 링크로 추가 (성공 여부)
   Future<bool> sendResourceToTodayLesson({
     required String studentId,
     required ResourceFile resource,
@@ -103,26 +160,27 @@ class LessonLinksService {
     return id != null;
   }
 
-  // ---------- 조회 ----------
-  /// 특정 레슨의 링크 목록(최신순)
   Future<List<Map<String, dynamic>>> listByLesson(String lessonId) async {
     try {
-      final rows = await _c
-          .from('lesson_links')
-          .select()
-          .eq('lesson_id', lessonId)
-          .order('created_at', ascending: false);
-      final list = (rows as List<dynamic>? ?? const []);
-      return list
+      final rows = await _retry(
+        () => _c
+            .from(SupabaseTables.lessonLinks)
+            .select()
+            .eq('lesson_id', lessonId)
+            .order('created_at', ascending: false),
+      );
+
+      // ⬇️ unnecessary_type_check 제거 + 안전 매핑
+      final list = (rows as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList(growable: false);
+
+      return list;
     } catch (_) {
       return const [];
     }
   }
 
-  /// '오늘 레슨'의 링크 목록
-  /// - ensure=true: 없으면 서버에서 오늘 레슨을 생성한 뒤 조회
   Future<List<Map<String, dynamic>>> listTodayByStudent(
     String studentId, {
     bool ensure = false,
