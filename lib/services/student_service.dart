@@ -192,4 +192,16 @@ class StudentService {
     }
     return map;
   }
+
+  // ---------- 단건 조회 by ID ----------
+  Future<Student?> fetchById(String id) async {
+    final res = await _client
+        .from(SupabaseTables.students)
+        .select()
+        .eq('id', id)
+        .maybeSingle(); // 단일 row 또는 null
+
+    if (res == null) return null;
+    return Student.fromMap(Map<String, dynamic>.from(res));
+  }
 }

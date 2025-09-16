@@ -1,11 +1,8 @@
 // lib/screens/manage/manage_students_screen.dart
-// v1.36.2 | 학생 관리(관리자 전용) – 설계 필드 전면 지원
+// v1.36.3 | 학생 관리(관리자 전용) – '학생 화면' 진입 버튼 추가
 // 변경점 요약
-// 1) 다이얼로그 필드 확장: gender, isAdult, schoolName, grade, startDate, instrument, memo, isActive
-// 2) create/update에 확장 필드 전달 (StudentService v1.36.0 정합)
-// 3) 빈문자 -> NULL 정규화 유지(서비스/모델에 위임) + last4 유효성 가드
-// 4) 목록 subtitle에 핵심 요약(담당강사/연령/악기/학교/시작일/활성) 표시
-// 5) 기존 진단도구/권한 링크 동기화/재시도 흐름 유지
+// 1) 각 학생 항목 trailing에 '학생 화면' 버튼 추가(수정 앞)
+// 2) pushNamed('/student/home', { studentId, studentName, adminDrive })로 이동
 //
 // 의존:
 // - services: AuthService, StudentService, TeacherService
@@ -23,6 +20,7 @@ import '../../services/teacher_service.dart';
 import '../../models/student.dart';
 import '../../models/teacher.dart';
 import '../../supabase/supabase_tables.dart';
+import '../../routes/app_routes.dart';
 
 String _asStr(Object? v) => v is String ? v : (v?.toString() ?? '');
 
@@ -135,7 +133,6 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
       if (isPerm) {
         return '권한이 없습니다. 관리자 계정과 RLS 정책을 확인하세요.';
       }
-      // 여기 수정
       return '작업 중 오류가 발생했습니다.\n${e.message}';
     }
     final s = e.toString().toLowerCase();
@@ -176,6 +173,18 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
     }
   }
 
+  // ---- 학생 화면 진입 ----
+  Future<void> _openAsStudent(Student s) async {
+    // ⚠️ 라우터에 '/student/home' 가 등록되어 있어야 함.
+    // arguments: studentId, studentName, adminDrive(true)
+    await AppRoutes.pushStudentHome(
+      context,
+      studentId: s.id,
+      studentName: s.name,
+      adminDrive: true,
+    );
+  }
+
   // ---- CRUD ----
   Future<void> _onAdd() async {
     final r = await showDialog<_EditResult>(
@@ -199,7 +208,6 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
           memo: r.memo,
           isActive: r.isActive,
         );
-        // 🔒 async 이후 UI 접근 가드
         if (!mounted) return;
         ScaffoldMessenger.of(
           context,
@@ -212,9 +220,9 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
             await _svc.create(
               name: r.name,
               phoneLast4: r.last4,
-              teacherId: r.teacherId?.trim().isEmpty == true
-                  ? null
-                  : r.teacherId,
+              teacherId: r.teacherId?.trim().isNotEmpty == true
+                  ? r.teacherId
+                  : null,
               gender: r.gender,
               isAdult: r.isAdult,
               schoolName: r.schoolName,
@@ -224,18 +232,18 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
               memo: r.memo,
               isActive: r.isActive,
             );
-            if (!mounted) return; // 🔒
+            if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('학생이 등록되었습니다. (링크 보정 후)')),
             );
             await _load();
             return;
           } catch (e2) {
-            if (!mounted) return; // 🔒
+            if (!mounted) return;
             _showError(_friendlyError(e2));
           }
         } else {
-          if (!mounted) return; // 🔒
+          if (!mounted) return;
           _showError(_friendlyError(e));
         }
       }
@@ -278,7 +286,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
           memo: r.memo,
           isActive: r.isActive,
         );
-        if (!mounted) return; // 🔒
+        if (!mounted) return;
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('학생 정보가 저장되었습니다.')));
@@ -291,9 +299,9 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
               id: s.id,
               name: r.name,
               phoneLast4: r.last4,
-              teacherId: r.teacherId?.trim().isEmpty == true
-                  ? null
-                  : r.teacherId,
+              teacherId: r.teacherId?.trim().isNotEmpty == true
+                  ? r.teacherId
+                  : null,
               gender: r.gender,
               isAdult: r.isAdult,
               schoolName: r.schoolName,
@@ -303,18 +311,18 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
               memo: r.memo,
               isActive: r.isActive,
             );
-            if (!mounted) return; // 🔒
+            if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('학생 정보가 저장되었습니다. (링크 보정 후)')),
             );
             await _load();
             return;
           } catch (e2) {
-            if (!mounted) return; // 🔒
+            if (!mounted) return;
             _showError(_friendlyError(e2));
           }
         } else {
-          if (!mounted) return; // 🔒
+          if (!mounted) return;
           _showError(_friendlyError(e));
         }
       }
@@ -344,7 +352,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
     await _withBusy(() async {
       try {
         await _svc.remove(s.id);
-        if (!mounted) return; // 🔒
+        if (!mounted) return;
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('학생이 삭제되었습니다.')));
@@ -354,18 +362,18 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
           await _auth.ensureTeacherLink();
           try {
             await _svc.remove(s.id);
-            if (!mounted) return; // 🔒
+            if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('학생이 삭제되었습니다. (링크 보정 후)')),
             );
             await _load();
             return;
           } catch (e2) {
-            if (!mounted) return; // 🔒
+            if (!mounted) return;
             _showError(_friendlyError(e2));
           }
         } else {
-          if (!mounted) return; // 🔒
+          if (!mounted) return;
           _showError(_friendlyError(e));
         }
       }
@@ -586,8 +594,6 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                     separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final s = _list[i];
-                      // 🔧 dead_null_aware_expression 제거:
-                      // 앞에서 null 체크했으므로 ?? '' 불필요 → non-null 단언 사용
                       final teacherName =
                           (s.teacherId != null &&
                               s.teacherId!.trim().isNotEmpty)
@@ -619,6 +625,14 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                         trailing: Wrap(
                           spacing: 4,
                           children: [
+                            // ✅ 새로 추가된 버튼: 학생 화면 열기
+                            IconButton(
+                              tooltip: '학생 화면',
+                              icon: const Icon(Icons.switch_account),
+                              onPressed: _loading
+                                  ? null
+                                  : () => _openAsStudent(s),
+                            ),
                             IconButton(
                               tooltip: '수정',
                               icon: const Icon(Icons.edit),

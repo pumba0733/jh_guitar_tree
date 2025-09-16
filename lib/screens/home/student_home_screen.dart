@@ -1,12 +1,11 @@
 // lib/screens/home/student_home_screen.dart
-// v1.44.0 | 작성일: 2025-09-08 | 작성자: GPT
-// 변경점:
-// - "나의 커리큘럼" 진입 버튼 추가 (StudentCurriculumScreen로 이동)
-// - 라우팅 시 arguments로 studentId 전달 (정책 일관)
+// v1.44.2 | 관리자 진입시 studentId 기반으로 학생 로드
 
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
+import '../../services/student_service.dart';
 import '../../routes/app_routes.dart';
+import '../../models/student.dart';
 
 class StudentHomeScreen extends StatefulWidget {
   const StudentHomeScreen({super.key});
@@ -17,48 +16,85 @@ class StudentHomeScreen extends StatefulWidget {
 
 class _StudentHomeScreenState extends State<StudentHomeScreen> {
   late final AuthService _auth;
+  final _studentSvc = StudentService();
+
+  String? _argStudentId;
+  bool _adminDrive = false;
+
+  Student? _student;
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
     _auth = AuthService();
 
-    // 로그인 가드: 첫 프레임 이후 검사
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      final stu = _auth.currentStudent;
-      if (stu == null) {
-        Navigator.of(
-          context,
-        ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
+
+      // arguments 확인
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map) {
+        _argStudentId = args['studentId'] as String?;
+        _adminDrive = args['adminDrive'] == true;
+      }
+
+      if (_adminDrive && _argStudentId != null) {
+        // 관리자 모드: Supabase에서 해당 학생 정보 직접 로드
+        try {
+          final s = await _studentSvc.fetchById(_argStudentId!);
+          if (mounted) setState(() => _student = s);
+        } catch (_) {
+          // 에러 무시, 화면에 메시지 표시
+        } finally {
+          if (mounted) setState(() => _loading = false);
+        }
+      } else {
+        // 학생 로그인 모드
+        final stu = _auth.currentStudent;
+        if (stu == null) {
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
+        } else {
+          setState(() {
+            _student = stu;
+            _loading = false;
+          });
+        }
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final stu = _auth.currentStudent;
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('학생 홈${stu?.name != null ? ' - ${stu!.name}' : ''}'),
+        title: Text(
+          '학생 홈${_student?.name != null ? ' - ${_student!.name}' : ''}',
+        ),
         actions: [
-          IconButton(
-            tooltip: '로그아웃',
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await _auth.signOutAll();
-              if (!context.mounted) return;
-              Navigator.of(
-                context,
-              ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
-            },
-          ),
+          if (!_adminDrive)
+            IconButton(
+              tooltip: '로그아웃',
+              icon: const Icon(Icons.logout),
+              onPressed: () async {
+                await _auth.signOutAll();
+                if (!context.mounted) return;
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
+              },
+            ),
         ],
       ),
       body: Center(
-        child: stu == null
-            ? const Text('학생 세션이 없습니다. 다시 로그인 해주세요.')
+        child: _student == null
+            ? const Text('학생 정보를 찾을 수 없습니다.')
             : ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
                 child: Padding(
@@ -69,70 +105,48 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
                     runSpacing: 12,
                     children: [
                       // 📝 오늘 수업
-                      Tooltip(
-                        message: '오늘 수업으로 바로 이동',
-                        child: FilledButton.icon(
-                          icon: const Icon(Icons.today),
-                          label: const Text('오늘 수업'),
-                          onPressed: () {
-                            Navigator.pushNamed(
-                              context,
-                              AppRoutes.todayLesson,
-                              arguments: {'studentId': stu.id},
-                            );
-                          },
-                        ),
+                      FilledButton.icon(
+                        icon: const Icon(Icons.today),
+                        label: const Text('오늘 수업'),
+                        onPressed: () {
+                          AppRoutes.pushTodayLesson(
+                            context,
+                            studentId: _student!.id,
+                          );
+                        },
                       ),
-
                       // 📚 지난 수업 복습
-                      Tooltip(
-                        message: '지난 수업 기록 보기',
-                        child: FilledButton.tonalIcon(
-                          icon: const Icon(Icons.history),
-                          label: const Text('지난 수업 복습'),
-                          onPressed: () {
-                            Navigator.pushNamed(
-                              context,
-                              AppRoutes.lessonHistory,
-                              arguments: {'studentId': stu.id},
-                            );
-                          },
-                        ),
+                      FilledButton.tonalIcon(
+                        icon: const Icon(Icons.history),
+                        label: const Text('지난 수업 복습'),
+                        onPressed: () {
+                          AppRoutes.pushLessonHistory(
+                            context,
+                            studentId: _student!.id,
+                          );
+                        },
                       ),
-
-                      // 🧾 수업 요약 (학생용 조회 전용)
-                      Tooltip(
-                        message: '최근 수업 요약 보기',
-                        child: FilledButton.tonalIcon(
-                          icon: const Icon(Icons.summarize),
-                          label: const Text('수업 요약'),
-                          onPressed: () {
-                            Navigator.pushNamed(
-                              context,
-                              AppRoutes.summaryResult,
-                              arguments: {
-                                'studentId': stu.id,
-                                'asStudent': true,
-                              },
-                            );
-                          },
-                        ),
+                      // 🧾 수업 요약
+                      FilledButton.tonalIcon(
+                        icon: const Icon(Icons.summarize),
+                        label: const Text('수업 요약'),
+                        onPressed: () {
+                          AppRoutes.pushLessonSummary(
+                            context,
+                            studentId: _student!.id,
+                          );
+                        },
                       ),
-
                       // 📖 나의 커리큘럼
-                      Tooltip(
-                        message: '배정된 커리큘럼 보기',
-                        child: FilledButton.tonalIcon(
-                          icon: const Icon(Icons.menu_book),
-                          label: const Text('나의 커리큘럼'),
-                          onPressed: () {
-                            Navigator.pushNamed(
-                              context,
-                              AppRoutes.studentCurriculum,
-                              arguments: {'studentId': stu.id},
-                            );
-                          },
-                        ),
+                      FilledButton.tonalIcon(
+                        icon: const Icon(Icons.menu_book),
+                        label: const Text('나의 커리큘럼'),
+                        onPressed: () {
+                          AppRoutes.pushStudentCurriculum(
+                            context,
+                            studentId: _student!.id,
+                          );
+                        },
                       ),
                     ],
                   ),

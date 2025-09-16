@@ -1,6 +1,12 @@
 // lib/routes/app_routes.dart
-// v1.39.5 | 커리큘럼 Studio/Browser/StudentCurriculum 라우트 추가 + BadArgsScreen 키 파라미터 제거
-// 작성자: GPT
+// v1.39.6 | 학생 홈 진입 헬퍼/인자 처리 추가 + 정합 점검
+// - AppRoutes.pushStudentHome(context, studentId, studentName, adminDrive) 추가
+// - onGenerateRoute에 studentHome 인자 처리 케이스 추가
+// - 기존 상수/정적 routes 맵은 유지
+//
+// NOTE: StudentHomeScreen 내부에서 ModalRoute.of(context)?.settings.arguments
+//       로 다음 키를 사용할 수 있음:
+//       { 'studentId': String, 'studentName': String, 'adminDrive': bool }
 
 import 'package:flutter/material.dart';
 
@@ -65,12 +71,10 @@ class AppRoutes {
   static const String changePassword = '/change_password';
 
   // 커리큘럼
-  static const String curriculumOverview =
-      '/curriculum_overview'; // 열람/검색(간단 배정)
-  static const String curriculumStudio = '/curriculum_studio'; // 관리자 편집/CRUD
+  static const String curriculumOverview = '/curriculum_overview'; // 열람/검색
+  static const String curriculumStudio = '/curriculum_studio'; // 관리자 편집
   static const String curriculumBrowser = '/curriculum_browser'; // 강사용 열람/배정
-  static const String studentCurriculum =
-      '/student_curriculum'; // 학생별 진행(인자 필요)
+  static const String studentCurriculum = '/student_curriculum'; // 학생별 진행(인자)
 
   // ===== 정적 라우트 맵 =====
   static Map<String, WidgetBuilder> get routes => {
@@ -111,31 +115,67 @@ class AppRoutes {
   // ===== onGenerateRoute (인자 필요한 라우트 처리) =====
   static Route<dynamic>? onGenerateRoute(RouteSettings settings) {
     switch (settings.name) {
-      case studentCurriculum:
-        final args = settings.arguments;
-        String? studentId;
-        if (args is Map) {
-          final v = args['studentId'];
-          if (v is String) studentId = v;
-        }
-        if (studentId == null || studentId.trim().isEmpty) {
+      // ✅ 학생 홈: 관리/강사에서 특정 학생으로 진입할 때 인자 전달
+      case studentHome:
+        {
+          // 인자는 선택사항: 화면 쪽에서 ModalRoute로 꺼내 쓰기
+          final args = (settings.arguments is Map)
+              ? Map<String, dynamic>.from(settings.arguments as Map)
+              : const <String, dynamic>{};
+
+          // 최소한 studentId 없이 들어오더라도 화면이 자체 처리 가능하도록
+          // 별도 검증 없이 그대로 전달.
           return MaterialPageRoute(
-            builder: (_) => const _BadArgsScreen(
-              title: '학생 커리큘럼',
-              message: 'studentId 가 필요합니다.',
-            ),
+            builder: (_) => const StudentHomeScreen(),
+            settings: RouteSettings(name: settings.name, arguments: args),
+          );
+        }
+
+      // ✅ 학생 커리큘럼: studentId 필수
+      case studentCurriculum:
+        {
+          final args = settings.arguments;
+          String? studentId;
+          if (args is Map) {
+            final v = args['studentId'];
+            if (v is String) studentId = v;
+          }
+          if (studentId == null || studentId.trim().isEmpty) {
+            return MaterialPageRoute(
+              builder: (_) => const _BadArgsScreen(
+                title: '학생 커리큘럼',
+                message: 'studentId 가 필요합니다.',
+              ),
+              settings: settings,
+            );
+          }
+          return MaterialPageRoute(
+            builder: (_) => StudentCurriculumScreen(studentId: studentId!),
             settings: settings,
           );
         }
-        return MaterialPageRoute(
-          builder: (_) => StudentCurriculumScreen(studentId: studentId!),
-          settings: settings,
-        );
     }
     return null; // 나머지는 routes 맵에서 처리
   }
 
   // ===== 편의 push 헬퍼 =====
+  static Future<T?> pushStudentHome<T>(
+    BuildContext context, {
+    required String studentId,
+    String? studentName,
+    bool adminDrive = false,
+  }) {
+    return Navigator.pushNamed<T>(
+      context,
+      studentHome,
+      arguments: <String, dynamic>{
+        'studentId': studentId,
+        if (studentName != null) 'studentName': studentName,
+        'adminDrive': adminDrive,
+      },
+    );
+  }
+
   static Future<T?> pushTodayLesson<T>(
     BuildContext context, {
     required String studentId,
@@ -227,7 +267,7 @@ class AppRoutes {
   }
 }
 
-// 잘못된 arguments 안내용 간단 화면 (key 파라미터 제거로 린트 회피)
+// 잘못된 arguments 안내용 간단 화면
 class _BadArgsScreen extends StatelessWidget {
   final String title;
   final String message;
