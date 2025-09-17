@@ -1,6 +1,6 @@
 // lib/services/student_service.dart
-// v1.36.1 | prefer_null_aware_operators 경고 해소
-// - _dateOnly: (d?.toIso8601String())?.substring(0, 10) 사용
+// v1.36.2 | phoneLast4 정규화: 숫자만 추출 후 마지막 4자리 강제 + 기존 흐름 유지
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../supabase/supabase_tables.dart';
 import '../models/student.dart';
@@ -17,12 +17,13 @@ class StudentService {
 
   String? _normPhoneLast4(String? v) {
     if (v == null) return null;
-    final s = v.trim();
-    return s.isEmpty ? null : s;
+    final digits = v.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return null;
+    // 마지막 4자리만 저장(4자리 미만이면 그대로)
+    return digits.length <= 4 ? digits : digits.substring(digits.length - 4);
   }
 
-  String? _dateOnly(DateTime? d) =>
-      (d?.toIso8601String())?.substring(0, 10); // ← null-aware로 교체
+  String? _dateOnly(DateTime? d) => (d?.toIso8601String())?.substring(0, 10);
 
   // ---------- 단건 조회 (RPC 우선) ----------
   Future<Student?> findByNameAndLast4({
@@ -30,7 +31,7 @@ class StudentService {
     required String last4,
   }) async {
     final n = name.trim();
-    final l4 = last4.trim();
+    final l4 = _normPhoneLast4(last4) ?? '';
     if (n.isEmpty || l4.length != 4) return null;
 
     // Prefer RPC
@@ -199,7 +200,7 @@ class StudentService {
         .from(SupabaseTables.students)
         .select()
         .eq('id', id)
-        .maybeSingle(); // 단일 row 또는 null
+        .maybeSingle();
 
     if (res == null) return null;
     return Student.fromMap(Map<String, dynamic>.from(res));

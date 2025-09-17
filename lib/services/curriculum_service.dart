@@ -1,13 +1,13 @@
 // lib/services/curriculum_service.dart
-// v1.45.0 | 커리큘럼 서비스 - v1.45 가시 트리 RPC 우선 사용 + 루트파일 금지 가드 유지
-// - listNodes(): rpc.list_visible_curriculum_tree()가 있으면 이를 사용(권한/가시성 반영)
-//   * RPC 미존재/오류 시 자동 폴백하여 테이블 직접 조회(정렬 동일)
-// - createNode/updateNode: 루트(parent_id==null)에서 file 금지 가드 유지
-// - 기타 API 시그니처/동작은 v1.44와 호환
+// v1.46.2 | 커리큘럼 서비스
+// - NEW: buildBrowserUrl(nodeId), openInBrowser(nodeId)
+// - listNodes(): RPC 우선 + 폴백 유지
+// - 루트파일 금지 가드 유지
 
 import 'dart:async' show TimeoutException;
 import 'dart:io' show SocketException, HttpException;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart'; // ⬅️ 외부/앱 스킴 열기
 
 class CurriculumService {
   final SupabaseClient _c = Supabase.instance.client;
@@ -16,6 +16,11 @@ class CurriculumService {
   static const _tNodes = 'curriculum_nodes';
   static const _tAssign = 'curriculum_assignments';
   static const _rpcVisibleTree = 'list_visible_curriculum_tree';
+
+  // 🔗 딥링크 베이스(필요 시 .env/상수로 이동 가능)
+  static const String _appDeepLinkBase = 'guitartree://curriculum';
+  static const String _webDeepLinkBase =
+      'https://app.guitartree.local/curriculum';
 
   bool? _hasVisibleTreeRpc; // lazy capability cache
 
@@ -30,7 +35,7 @@ class CurriculumService {
   Map<String, dynamic> _mapOne(dynamic row) =>
       Map<String, dynamic>.from(row as Map);
 
-  // 재시도 유틸(네트워크/일시 오류 흡수)
+  // 재시도 유틸
   Future<T> _retry<T>(
     Future<T> Function() task, {
     int maxAttempts = 3,
@@ -78,11 +83,34 @@ class CurriculumService {
     }
   }
 
+  // ========== NEW: Browser Deep Link ==========
+  /// 커리큘럼 브라우저에서 특정 노드를 열기 위한 URL을 만든다.
+  /// - preferAppScheme=true 이면 앱 스킴(guitartree://) 우선
+  /// - 아니면 웹 URL(https://...) 반환
+  String buildBrowserUrl(String nodeId, {bool preferAppScheme = true}) {
+    final id = nodeId.trim();
+    if (id.isEmpty) {
+      throw ArgumentError('buildBrowserUrl: nodeId가 비어있습니다.');
+    }
+    final base = preferAppScheme ? _appDeepLinkBase : _webDeepLinkBase;
+    return '$base?node=$id';
+  }
+
+  /// 위 URL을 외부 앱/브라우저로 연다.
+  Future<void> openInBrowser(
+    String nodeId, {
+    bool preferAppScheme = true,
+  }) async {
+    final url = buildBrowserUrl(nodeId, preferAppScheme: preferAppScheme);
+    final uri = Uri.parse(url);
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok) {
+      throw StateError('브라우저/앱으로 열기 실패: $url');
+    }
+  }
+
   // ========== Reads ==========
-  /// v1.45: 교사/관리자 가시성 반영된 전체 노드 목록
-  /// - 가능하면 RPC 사용, 아니면 테이블 폴백
   Future<List<Map<String, dynamic>>> listNodes() async {
-    // 먼저 RPC를 한번 시도해보고, 성공하면 캐시 플래그 세팅
     if (_hasVisibleTreeRpc != false) {
       try {
         final data = await _retry(() => _c.rpc(_rpcVisibleTree));
@@ -90,17 +118,14 @@ class CurriculumService {
         _hasVisibleTreeRpc = true;
         return list;
       } catch (e) {
-        // 함수 미존재/권한/기타 오류 시 폴백 후 다음번까지 캐시
         final msg = e.toString().toLowerCase();
         if (msg.contains('does not exist') ||
             msg.contains('not exist') ||
             msg.contains('42883')) {
           _hasVisibleTreeRpc = false;
         }
-        // 폴백 계속 진행
       }
     }
-    // 폴백: 테이블 직접 조회 (parent/order/created_at)
     final data = await _retry(
       () => _c
           .from(_tNodes)
@@ -112,7 +137,6 @@ class CurriculumService {
     return _mapList(data);
   }
 
-  /// 부모 기준 자식 목록(폴백용/세부 조회용). 가시성은 서버 RLS에 의존.
   Future<List<Map<String, dynamic>>> listNodesByParent(String? parentId) async {
     final base = _c.from(_tNodes).select();
     final filtered = parentId == null
@@ -126,7 +150,6 @@ class CurriculumService {
     return _mapList(data);
   }
 
-  /// 단일 노드
   Future<Map<String, dynamic>?> getNode(String id) async {
     final data = await _retry(
       () => _c.from(_tNodes).select().eq('id', id).maybeSingle(),
@@ -157,8 +180,8 @@ class CurriculumService {
   Future<Map<String, dynamic>?> assignNodeToStudent({
     required String studentId,
     required String nodeId,
-    List<String>? path, // jsonb 배열
-    String? filePath, // 텍스트 경로
+    List<String>? path,
+    String? filePath,
   }) async {
     if (studentId.trim().isEmpty || nodeId.trim().isEmpty) {
       throw ArgumentError('assignNodeToStudent: studentId/nodeId 누락');
@@ -176,7 +199,7 @@ class CurriculumService {
           .upsert(payload, onConflict: 'student_id,curriculum_node_id')
           .select()
           .maybeSingle(),
-    ); // RLS 차단 시 null
+    );
     return upserted == null ? null : _mapOne(upserted);
   }
 
@@ -224,7 +247,6 @@ class CurriculumService {
     if (title.trim().isEmpty) {
       throw ArgumentError('createNode: title이 필요합니다.');
     }
-    // ✅ 루트파일 금지
     _ensureNotRootFile(parentId: parentId, type: type);
 
     final payload = <String, dynamic>{
@@ -254,15 +276,12 @@ class CurriculumService {
       throw ArgumentError('updateNode: id 누락');
     }
 
-    // 현재 상태 조회 후 변경될 상태로 가드
     final before = await getNode(id);
     if (before == null) {
       throw StateError('updateNode: 대상 노드를 찾을 수 없습니다. id=$id');
     }
     final newParentId = parentId ?? before['parent_id'];
     final newType = (type ?? before['type'] ?? '').toString();
-
-    // ✅ 루트파일 금지
     _ensureNotRootFile(parentId: newParentId, type: newType);
 
     final payload = <String, dynamic>{
@@ -280,7 +299,6 @@ class CurriculumService {
     return _mapOne(updated);
   }
 
-  /// 노드 이동(부모/정렬 변경) — updateNode 경유
   Future<Map<String, dynamic>> moveNode({
     required String id,
     String? newParentId,
@@ -289,13 +307,11 @@ class CurriculumService {
     return updateNode(id: id, parentId: newParentId, order: newOrder);
   }
 
-  /// 노드 삭제
   Future<void> deleteNode(String id, {bool recursive = false}) async {
     if (!recursive) {
       await _retry(() => _c.from(_tNodes).delete().eq('id', id));
       return;
     }
-    // 안전 DFS: 자식 → 부모
     final children = await listNodesByParent(id);
     for (final ch in children) {
       final cid = (ch['id'] ?? '').toString();

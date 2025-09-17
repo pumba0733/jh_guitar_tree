@@ -1,11 +1,8 @@
 // lib/services/lesson_links_service.dart
-// v1.45.1 | 링크 서비스 - unnecessary_type_check 경고 제거 (Supabase select()의 List 반환에 대한 명시 캐스팅)
-// - RPC: ensure_today_lesson / link_node_to_today_lesson / link_resource_to_today_lesson
-// - 삭제: lesson_links RLS delete 정책으로 안전하게 동작
+// v1.45.2 | 링크 서비스: 삭제 쿼리 RLS 친화 강화(id+owner 매칭) + 기존 동작 유지
 
 import 'dart:async';
 import 'dart:io';
-
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/resource.dart';
 import '../supabase/supabase_tables.dart';
@@ -79,7 +76,6 @@ class LessonLinksService {
             .limit(1),
       );
 
-      // ⬇️ unnecessary_type_check 제거: select()는 항상 List 반환 → 명시 캐스팅
       final list = (rows as List);
       if (list.isEmpty) return null;
       return (list.first['id'] ?? '').toString();
@@ -103,11 +99,20 @@ class LessonLinksService {
     return id;
   }
 
-  Future<bool> deleteById(String id) async {
+  /// 🔥 RLS 친화 삭제: id 외에 student_id 또는 teacher_id를 함께 매칭
+  Future<bool> deleteById(
+    String id, {
+    String? studentId,
+    String? teacherId,
+  }) async {
     try {
-      await _retry(
-        () => _c.from(SupabaseTables.lessonLinks).delete().eq('id', id),
-      );
+      final q = _c.from(SupabaseTables.lessonLinks).delete().eq('id', id);
+      if (studentId != null && studentId.trim().isNotEmpty) {
+        q.eq('student_id', studentId.trim());
+      } else if (teacherId != null && teacherId.trim().isNotEmpty) {
+        q.eq('teacher_id', teacherId.trim());
+      }
+      await _retry(() => q);
       return true;
     } catch (_) {
       return false;
@@ -146,7 +151,6 @@ class LessonLinksService {
       'p_filename': resource.filename,
       'p_title': resource.title,
     });
-    // 서버 함수 시그니처: (uuid, text, text, text, text) → uuid
   }
 
   Future<bool> sendResourceToTodayLesson({
@@ -169,12 +173,9 @@ class LessonLinksService {
             .eq('lesson_id', lessonId)
             .order('created_at', ascending: false),
       );
-
-      // ⬇️ unnecessary_type_check 제거 + 안전 매핑
       final list = (rows as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList(growable: false);
-
       return list;
     } catch (_) {
       return const [];

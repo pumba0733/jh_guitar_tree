@@ -1,4 +1,6 @@
 // lib/models/lesson.dart
+// v1.46.0 | next_plan 완전 제거
+
 class Lesson {
   final String id;
   final String studentId;
@@ -7,7 +9,6 @@ class Lesson {
   final String? subject;
   final List<String> keywords;
   final String? memo;
-  final String? nextPlan;
   final String? youtubeUrl;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -20,7 +21,6 @@ class Lesson {
     this.subject,
     this.keywords = const [],
     this.memo,
-    this.nextPlan,
     this.youtubeUrl,
     this.createdAt,
     this.updatedAt,
@@ -30,7 +30,6 @@ class Lesson {
     String? subject,
     List<String>? keywords,
     String? memo,
-    String? nextPlan,
     String? youtubeUrl,
   }) => Lesson(
     id: id,
@@ -40,7 +39,6 @@ class Lesson {
     subject: subject ?? this.subject,
     keywords: keywords ?? this.keywords,
     memo: memo ?? this.memo,
-    nextPlan: nextPlan ?? this.nextPlan,
     youtubeUrl: youtubeUrl ?? this.youtubeUrl,
     createdAt: createdAt,
     updatedAt: updatedAt,
@@ -53,12 +51,8 @@ class Lesson {
       teacherId: m['teacher_id'] as String?,
       date: DateTime.parse('${m['date']}'),
       subject: m['subject'] as String?,
-      keywords: (m['keywords'] as List?)
-              ?.map((e) => '$e')
-              .toList() ??
-          const [],
+      keywords: (m['keywords'] as List?)?.map((e) => '$e').toList() ?? const [],
       memo: m['memo'] as String?,
-      nextPlan: m['next_plan'] as String?,
       youtubeUrl: m['youtube_url'] as String?,
       createdAt: m['created_at'] != null
           ? DateTime.tryParse('${m['created_at']}')
@@ -77,7 +71,6 @@ class Lesson {
     'subject': subject,
     'keywords': keywords,
     'memo': memo,
-    'next_plan': nextPlan,
     'youtube_url': youtubeUrl,
     'created_at': createdAt?.toIso8601String(),
     'updated_at': updatedAt?.toIso8601String(),

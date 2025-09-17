@@ -1,8 +1,8 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.45.4 | 소규모 안정화 패치
-// - supabase_flutter 불필요 임포트 제거(린트 경고 방지)
-// - 일부 비동기 후 mounted 재가드 보강
-// - 기능 동일
+// v1.46.0 | "다음 계획" 전면 제거 (UI/상태/저장 로직)
+// - next_plan 컨트롤러/상태/초기화/프리필/저장 필드 제거
+// - 관련 보조 로딩(_loadRecentNextPlans) 및 UI 섹션 삭제
+// - 링크/키워드/메모/첨부/유튜브 기능은 그대로 유지
 
 import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
@@ -10,7 +10,6 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-// import 'package:supabase_flutter/supabase_flutter.dart'; // ❌ not used here
 
 import '../../ui/components/file_clip.dart';
 import '../../services/lesson_service.dart';
@@ -25,7 +24,7 @@ import '../../services/curriculum_service.dart';
 import '../../services/resource_service.dart';
 import '../../models/resource.dart';
 
-enum _LocalSection { memo, nextPlan, link, attach, lessonLinks }
+enum _LocalSection { memo, link, attach, lessonLinks }
 
 class TodayLessonScreen extends StatefulWidget {
   const TodayLessonScreen({super.key});
@@ -43,12 +42,10 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   final LessonLinksService _links = LessonLinksService();
   final CurriculumService _curr = CurriculumService();
   final ResourceService _res = ResourceService();
-  // v1.45.3: 하드코딩 제거 → 서비스 상수 사용
   String get _defaultResourceBucket => ResourceService.bucket;
 
   final _subjectCtl = TextEditingController();
   final _memoCtl = TextEditingController();
-  final _nextCtl = TextEditingController();
   final _youtubeCtl = TextEditingController();
   final _keywordSearchCtl = TextEditingController();
 
@@ -74,9 +71,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   List<KeywordItem> _items = const [];
   List<KeywordItem> _filteredItems = const [];
   final Set<String> _selectedKeywords = {};
-
-  // 최근 다음 계획 후보
-  List<String> _recentNextPlans = const [];
 
   // 첨부
   final List<Map<String, dynamic>> _attachments = [];
@@ -150,7 +144,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
 
     await _loadKeywordData();
-    await _loadRecentNextPlans();
 
     // 오늘 레슨 링크 로드
     unawaited(_reloadLessonLinks());
@@ -159,7 +152,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   void _bindListeners() {
     _subjectCtl.addListener(_scheduleSave);
     _memoCtl.addListener(_scheduleSave);
-    _nextCtl.addListener(_scheduleSave);
     _youtubeCtl.addListener(_scheduleSave);
 
     _keywordSearchCtl.addListener(() {
@@ -203,7 +195,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           'date': _todayDateStr,
           'subject': '',
           'memo': '',
-          'next_plan': '',
+          // 'next_plan': ''  // 제거
           'keywords': <String>[],
           'attachments': <Map<String, dynamic>>[],
           'youtube_url': '',
@@ -221,7 +213,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
     _subjectCtl.text = (row['subject'] ?? '').toString();
     _memoCtl.text = (row['memo'] ?? '').toString();
-    _nextCtl.text = (row['next_plan'] ?? '').toString();
     _youtubeCtl.text = (row['youtube_url'] ?? '').toString();
 
     final kw = row['keywords'];
@@ -258,7 +249,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
       final subject = (row['subject'] ?? '').toString();
       final memo = (row['memo'] ?? '').toString();
-      final nextPlan = (row['next_plan'] ?? '').toString();
       final youtube = (row['youtube_url'] ?? '').toString();
       final kw = (row['keywords'] is List)
           ? (row['keywords'] as List)
@@ -266,7 +256,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
       _subjectCtl.text = subject;
       _memoCtl.text = memo;
-      _nextCtl.text = nextPlan;
       _youtubeCtl.text = youtube;
 
       _selectedKeywords
@@ -341,27 +330,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
   }
 
-  Future<void> _loadRecentNextPlans() async {
-    try {
-      final yesterday = DateTime.now().subtract(const Duration(days: 1));
-      final list = await _service.listByStudent(
-        _studentId,
-        to: yesterday,
-        limit: 20,
-      );
-      final seen = <String>{};
-      final candidates = <String>[];
-      for (final r in list) {
-        final np = (r['next_plan'] ?? '').toString().trim();
-        if (np.isEmpty) continue;
-        if (seen.add(np)) candidates.add(np);
-        if (candidates.length >= 3) break;
-      }
-      if (!mounted) return;
-      setState(() => _recentNextPlans = candidates);
-    } catch (_) {}
-  }
-
   Future<void> _applyKeywordSearch() async {
     final q = _keywordSearchCtl.text.trim();
     if (q.isEmpty) {
@@ -401,7 +369,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           'teacher_id': _teacherId,
         'subject': _subjectCtl.text.trim(),
         'memo': _memoCtl.text.trim(),
-        'next_plan': _nextCtl.text.trim(),
         'keywords': _selectedKeywords.toList(),
         'attachments': attachmentsForSave,
         'youtube_url': _youtubeCtl.text.trim(),
@@ -442,7 +409,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
   Future<void> _removeLessonLink(String id) async {
     try {
-      final ok = await _links.deleteById(id);
+      final ok = await _links.deleteById(id, studentId: _studentId);
       if (!ok) throw StateError('권한 또는 네트워크 오류');
       await _reloadLessonLinks();
       if (!mounted) return;
@@ -459,7 +426,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     if (kind == 'resource') {
       try {
         final rf = ResourceFile.fromMap({
-          'id': link['id'], // lesson_links id여도 무관(표시용)
+          'id': link['id'],
           'curriculum_node_id': link['curriculum_node_id'],
           'title': link['resource_title'],
           'filename': link['resource_filename'],
@@ -477,17 +444,24 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       return;
     }
 
-    // kind == 'node' → 우선 ID 복사
+    // kind == 'node' → 브라우저/스튜디오로 이동 시도, 실패 시 ID 복사로 폴백
     final nodeId = (link['curriculum_node_id'] ?? '').toString();
     if (nodeId.isEmpty) {
       _showError('노드 정보를 찾을 수 없습니다.');
       return;
     }
-    await Clipboard.setData(ClipboardData(text: nodeId));
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('노드 ID를 클립보드에 복사했습니다.')));
+    try {
+      // TODO: CurriculumService 쪽에 실제 구현 필요
+      // - macOS/Windows 데스크탑: 내부 라우트 또는 외부 브라우저 딥링크
+      // - 구현 없으면 아래 catch로 폴백
+      await _curr.openInBrowser(nodeId);
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: nodeId));
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('노드 ID를 클립보드에 복사했습니다.')));
+    }
   }
 
   // ===== 노드/리소스 선택 다이얼로그 =====
@@ -647,7 +621,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     if (picked == null) return;
 
     final rf = ResourceFile.fromMap({
-      'id': '', // 임시 객체이므로 빈 문자열 권장
+      'id': '',
       'curriculum_node_id': nodeId,
       'title': picked['title'],
       'filename': picked['filename'],
@@ -671,7 +645,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     if (ok) unawaited(_reloadLessonLinks());
   }
 
-  // ===== 복구된 메서드들 =====
+  // ===== 기타 =====
   void _toggleKeyword(String value) {
     if (_selectedKeywords.contains(value)) {
       _selectedKeywords.remove(value);
@@ -737,7 +711,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     _kwSearchDebounce?.cancel();
     _subjectCtl.dispose();
     _memoCtl.dispose();
-    _nextCtl.dispose();
     _youtubeCtl.dispose();
     _keywordSearchCtl.dispose();
     super.dispose();
@@ -835,49 +808,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
               maxLines: 6,
             ),
           ),
-          const SizedBox(height: 8),
-          _buildExpandable(
-            title: '🗓️ 다음 계획',
-            section: _LocalSection.nextPlan,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (_recentNextPlans.isNotEmpty) ...[
-                  Text(
-                    '최근 계획 가져오기',
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _recentNextPlans.map((t) {
-                      return ActionChip(
-                        label: Text(
-                          t,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        onPressed: () {
-                          _nextCtl.text = t;
-                          _scheduleSave();
-                        },
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                TextField(
-                  controller: _nextCtl,
-                  decoration: const InputDecoration(
-                    hintText: '다음 시간에 할 계획을 적어두세요',
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 4,
-                ),
-              ],
-            ),
-          ),
 
           const SizedBox(height: 8),
           _buildExpandable(
@@ -951,44 +881,65 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     if (_todayLinks.isEmpty) {
       return Text('아직 링크가 없습니다.', style: Theme.of(context).textTheme.bodySmall);
     }
+
+    String titleOf(Map m) {
+      final kind = (m['kind'] ?? '').toString();
+      if (kind == 'node') {
+        final t = (m['node_title'] ?? '').toString().trim();
+        return t.isEmpty ? '(제목 없음)' : t;
+      } else {
+        final t = (m['resource_title'] ?? '').toString().trim();
+        if (t.isNotEmpty) return t;
+        return (m['resource_filename'] ?? '리소스').toString();
+      }
+    }
+
     return Column(
       children: _todayLinks.map((m) {
         final kind = (m['kind'] ?? '').toString();
         final isNode = kind == 'node';
-        final title = isNode
-            ? '노드 링크'
-            : (m['resource_title']?.toString().trim().isNotEmpty ?? false)
-            ? m['resource_title'].toString()
-            : (m['resource_filename'] ?? '리소스');
-        final subtitle = isNode
-            ? (m['curriculum_node_id'] ?? '').toString()
-            : '${m['resource_bucket'] ?? _defaultResourceBucket}/${m['resource_path'] ?? ''}';
 
         return ListTile(
           dense: true,
-          leading: Icon(isNode ? Icons.folder : Icons.link),
-          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Text(
-            subtitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: Wrap(
-            spacing: 4,
+          leading: Icon(isNode ? Icons.folder : Icons.insert_drive_file),
+          title: Text(titleOf(m), maxLines: 1, overflow: TextOverflow.ellipsis),
+          // 서브텍스트 과감히 제거(필요시 … 메뉴에 '정보 복사')
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
-                tooltip: '열기/복사',
+                tooltip: isNode ? '브라우저에서 열기' : '파일 열기',
                 icon: const Icon(Icons.open_in_new),
                 onPressed: () => _openLessonLink(m),
               ),
-              IconButton(
-                tooltip: '삭제',
-                icon: const Icon(Icons.delete_outline),
-                onPressed: () {
+              PopupMenuButton<String>(
+                onSelected: (v) async {
                   final id = (m['id'] ?? '').toString();
-                  if (id.isEmpty) return;
-                  _removeLessonLink(id);
+                  switch (v) {
+                    case 'copy_id':
+                      final text = isNode
+                          ? (m['curriculum_node_id'] ?? '').toString()
+                          : '${m['resource_bucket'] ?? _defaultResourceBucket}/${m['resource_path'] ?? ''}';
+                      await Clipboard.setData(ClipboardData(text: text));
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(const SnackBar(content: Text('복사했습니다.')));
+                      break;
+                    case 'delete':
+                      if (id.isEmpty) return;
+                      _removeLessonLink(id);
+                      break;
+                  }
                 },
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: 'copy_id',
+                    child: Text(isNode ? '노드 ID 복사' : '경로 복사'),
+                  ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(value: 'delete', child: Text('삭제')),
+                ],
               ),
             ],
           ),

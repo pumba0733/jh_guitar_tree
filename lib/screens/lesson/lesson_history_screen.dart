@@ -1,8 +1,8 @@
 // lib/screens/lesson/lesson_history_screen.dart
-// v1.31.1 | unnecessary_cast & prefer_spread_collections 린트 해소
-//
-// - arguments 타입 안전 파싱에서 불필요 캐스트 제거
-// - CSV 바이트 생성 시 addAll → 스프레드(...)로 변경
+// v1.49.1 | 삭제 플로우 안정화(+중복탭 방지/로딩 표시)
+// - LessonService.deleteById()의 bool 반환에 맞춰 실제 삭제 여부 확인
+// - 삭제 중인 행은 버튼 비활성 + 진행표시
+// - 실패 시 리스트 롤백 없이 안내만 표시
 // - 나머지 기능/UX 동일
 
 import 'dart:async';
@@ -45,6 +45,9 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
   String _query = '';
   Timer? _debounce;
 
+  // 행 단위 삭제 진행상태
+  final Set<String> _deleting = {};
+
   final DateFormat _date = DateFormat('yyyy.MM.dd');
   final DateFormat _month = DateFormat('yyyy.MM');
 
@@ -84,7 +87,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
     _to = args['to'] is DateTime ? args['to'] as DateTime? : _to;
 
     if (_studentId.isEmpty) {
-      // 필수 인자 누락: 안내 후 뒤로가기(또는 홈)
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -105,6 +107,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
       _hasMore = true;
       _error = null;
       _loading = true;
+      _deleting.clear();
     });
     _load();
   }
@@ -258,7 +261,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
       buf.writeln([d, s, memo, next, kw].map(_csvEscape).join(','));
     }
 
-    // UTF-8 BOM 추가 (Excel/Numbers 호환) - addAll 대신 스프레드 사용
     final bytes = <int>[0xEF, 0xBB, 0xBF, ...utf8.encode(buf.toString())];
     final filename =
         'lesson_history_${_studentId}_${DateTime.now().millisecondsSinceEpoch}.csv';
@@ -276,7 +278,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
   Future<void> _navigateToTodayLesson(Map<String, dynamic> args) async {
     if (!mounted) return;
     try {
-      // 로그(진입)
       unawaited(
         LogService.insertLog(
           type: 'history_to_today',
@@ -286,7 +287,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
       await Navigator.of(
         context,
       ).pushNamed(AppRoutes.todayLesson, arguments: args);
-      // 로그(성공)
       unawaited(
         LogService.insertLog(
           type: 'history_to_today_ok',
@@ -295,7 +295,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      // 로그(실패)
       unawaited(
         LogService.insertLog(
           type: 'history_to_today_fail',
@@ -318,6 +317,8 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
       return;
     }
 
+    if (_deleting.contains(id)) return; // 중복탭 방지
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -338,6 +339,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
 
     if (ok != true || !mounted) return;
 
+    setState(() => _deleting.add(id));
     try {
       // 스토리지 정리 (비동기 best-effort)
       final attachments = (m['attachments'] is List)
@@ -353,12 +355,39 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
         }
       }
 
-      await _service.deleteById(id);
+      // ✅ 실제 삭제 시도 (bool 반환)
+      final deleted = await _service.deleteById(
+        id,
+        // 필요 시 스코프 강화:
+        // teacherId: AuthService().currentTeacher?.id,
+        // studentId: _studentId,
+      );
 
-      if (!mounted) return;
-      setState(() {
-        _rows.removeWhere((e) => (e['id'] ?? '').toString() == id);
-      });
+      if (!deleted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('삭제되지 않았어요. 권한/정책을 확인해주세요.')),
+          );
+        }
+        return;
+      }
+
+      // (선택) 2차 확인: 존재 여부 체크
+      final still = await _service.exists(id);
+      if (still) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('삭제 확인 실패: 항목이 여전히 존재합니다.')),
+          );
+        }
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _rows.removeWhere((e) => (e['id'] ?? '').toString() == id);
+        });
+      }
 
       unawaited(
         LogService.insertLog(
@@ -367,15 +396,24 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
         ),
       );
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('삭제 완료')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('삭제 완료')));
+      }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('삭제 실패: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('삭제 실패: $e')));
+      }
+    } finally {
+      // ❌ return 금지. mounted 가드만 두고 상태 복원
+      if (mounted) {
+        setState(() => _deleting.remove(id));
+      } else {
+        // mounted=false면 굳이 setState 안 함. 다음 빌드에서 초기화되므로 무시.
+      }
     }
   }
 
@@ -457,6 +495,9 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
   }
 
   Widget _buildRow(Map<String, dynamic> m) {
+    final idStr = (m['id'] ?? '').toString();
+    final isDeleting = _deleting.contains(idStr);
+
     final date = _parseDate(m['date']);
     final dateStr = date != null
         ? _date.format(date)
@@ -541,21 +582,30 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
             child: Row(
               children: [
                 OutlinedButton.icon(
-                  onPressed: () async => _confirmAndDelete(m),
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('삭제'),
+                  onPressed: isDeleting
+                      ? null
+                      : () async => _confirmAndDelete(m),
+                  icon: isDeleting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.delete_outline),
+                  label: Text(isDeleting ? '삭제 중…' : '삭제'),
                 ),
                 const Spacer(),
                 OutlinedButton.icon(
-                  onPressed: () async {
-                    final id = m['id']; // 이 행의 과거 레슨 id
-                    final args = {
-                      'studentId': _studentId, // ✅ 필수
-                      'fromHistoryId': id, // ✅ 프리필 트리거
-                      // 필요 시 'teacherId'도 같이 전달 가능
-                    };
-                    await _navigateToTodayLesson(args);
-                  },
+                  onPressed: isDeleting
+                      ? null
+                      : () async {
+                          final id = m['id']; // 이 행의 과거 레슨 id
+                          final args = {
+                            'studentId': _studentId, // ✅ 필수
+                            'fromHistoryId': id, // ✅ 프리필 트리거
+                          };
+                          await _navigateToTodayLesson(args);
+                        },
                   icon: const Icon(Icons.replay),
                   label: const Text('이 내용 복습하기'),
                 ),
@@ -608,7 +658,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
       );
       return _wrapRefresh(body);
     } else {
-      // 정상 리스트
       final grouped = _groupByMonth(_rows);
       final monthKeys = grouped.keys.toList();
 
@@ -636,7 +685,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
             preferredSize: const Size.fromHeight(108),
             child: Column(
               children: [
-                // 빠른 기간 칩 + 달력
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
                   child: Wrap(
@@ -672,7 +720,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                     ],
                   ),
                 ),
-                // 검색창
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
                   child: TextField(

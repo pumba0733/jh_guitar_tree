@@ -1,8 +1,6 @@
-// lib/screens/manage/manage_keywords_screen.dart
-// v1.38.10 | use_build_context_synchronously 경고 제거
-// - await 뒤의 BuildContext 사용을 모두 mounted 가드/헬퍼로 감쌈
-// - initState → post-frame 콜백 유지
-// - UX/로직 동일
+// v1.38.11 | PGRST116(406) 회피: maybeSingle() 제거 → 리스트 기반 체크
+// - insert/update/delete 뒤 .select('id') 결과를 List로 받고 빈 배열 여부로 성공 판정
+// - 나머지 UX/로직/가드(mounted, _busy) 동일
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -49,7 +47,6 @@ class _ManageKeywordsScreenState extends State<ManageKeywordsScreen> {
   @override
   void initState() {
     super.initState();
-    // InheritedWidget 접근을 프레임 이후로 미룸
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _ensureAdmin();
@@ -157,7 +154,6 @@ class _ManageKeywordsScreenState extends State<ManageKeywordsScreen> {
 
   Future<void> _loadItems(String category, {bool force = false}) async {
     if (!mounted) return;
-
     final list = await _keyword.fetchItemsByCategory(category, force: force);
     if (!mounted) return;
     setState(() {
@@ -221,13 +217,14 @@ class _ManageKeywordsScreenState extends State<ManageKeywordsScreen> {
     }
 
     await _runGuard(() async {
-      final row = await _client
-          .from(SupabaseTables.feedbackKeywords)
-          .insert({'category': n, 'items': []})
-          .select('id')
-          .maybeSingle();
+      final rows =
+          await _client
+                  .from(SupabaseTables.feedbackKeywords)
+                  .insert({'category': n, 'items': []})
+                  .select('id')
+              as List;
 
-      if (row == null) {
+      if (rows.isEmpty) {
         snack('카테고리 추가에 실패했습니다. 권한을 확인하세요.');
         return;
       }
@@ -320,14 +317,15 @@ class _ManageKeywordsScreenState extends State<ManageKeywordsScreen> {
     }
 
     await _runGuard(() async {
-      final res = await _client
-          .from(SupabaseTables.feedbackKeywords)
-          .update({'category': newName})
-          .eq('category', oldName)
-          .select('id')
-          .maybeSingle();
+      final rows =
+          await _client
+                  .from(SupabaseTables.feedbackKeywords)
+                  .update({'category': newName})
+                  .eq('category', oldName)
+                  .select('id')
+              as List;
 
-      if (res == null) {
+      if (rows.isEmpty) {
         snack('변경 실패: 권한 또는 대상 확인 필요');
         return;
       }
@@ -344,21 +342,22 @@ class _ManageKeywordsScreenState extends State<ManageKeywordsScreen> {
     if (_selectedCategory == null) return;
 
     await _runGuard(() async {
-      final res = await _client
-          .from(SupabaseTables.feedbackKeywords)
-          .update({'items': list.map((e) => e.toJson()).toList()})
-          .eq('category', _selectedCategory!)
-          .select('id')
-          .maybeSingle();
+      final rows =
+          await _client
+                  .from(SupabaseTables.feedbackKeywords)
+                  .update({'items': list.map((e) => e.toJson()).toList()})
+                  .eq('category', _selectedCategory!)
+                  .select('id')
+              as List;
 
-      if (res == null) {
+      if (rows.isEmpty) {
         snack('저장 실패: 권한 또는 대상 확인 필요');
         return;
       }
 
       _keyword.invalidateCache();
       await _loadItems(_selectedCategory!, force: true);
-      // 저장 성공 토스트는 과다하니 생략(원하면 여기에 snack 추가)
+      // 필요 시 여기서 성공 토스트
     });
   }
 

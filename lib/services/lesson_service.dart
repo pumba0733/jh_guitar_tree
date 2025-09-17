@@ -1,5 +1,5 @@
 // lib/services/lesson_service.dart
-// v1.28.2 | 삭제 API 정식 추가(P2) + 기존 기능 유지
+// v1.46.0 | next_plan 완전 제거 (검색/생성/업서트 모두 제외)
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/lesson.dart';
@@ -15,6 +15,12 @@ class LessonService {
   String _dateKey(DateTime d) => d.toIso8601String().split('T').first;
 
   // ========= 내부 유틸 =========
+
+  String _basename(String s) {
+    if (s.isEmpty) return 'file';
+    final parts = s.split('/');
+    return parts.isEmpty ? 'file' : (parts.last.isEmpty ? 'file' : parts.last);
+  }
 
   List<String>? _normalizeKeywords(dynamic v) {
     if (v == null) return null;
@@ -32,13 +38,17 @@ class LessonService {
   List<Map<String, dynamic>>? _normalizeAttachments(dynamic v) {
     if (v == null) return null;
     final out = <Map<String, dynamic>>[];
+
     if (v is List) {
       for (final e in v) {
         if (e is Map) {
           final m = Map<String, dynamic>.from(e);
           final path = (m['path'] ?? '').toString();
           final url = (m['url'] ?? '').toString();
-          final name = (m['name'] ?? (path.isNotEmpty ? path : url)).toString();
+          final nameSrc = (m['name'] ?? '').toString();
+          final name = nameSrc.isNotEmpty
+              ? nameSrc
+              : _basename(url.isNotEmpty ? url : path);
           final size = m['size'];
           out.add({
             'path': path,
@@ -48,22 +58,15 @@ class LessonService {
           });
         } else {
           final s = e.toString();
-          out.add({
-            'path': s,
-            'url': s,
-            'name': s.split('/').isNotEmpty ? s.split('/').last : 'file',
-          });
+          out.add({'path': s, 'url': s, 'name': _basename(s)});
         }
       }
       return out;
     }
+
     final s = v.toString();
     return [
-      {
-        'path': s,
-        'url': s,
-        'name': s.split('/').isNotEmpty ? s.split('/').last : 'file',
-      },
+      {'path': s, 'url': s, 'name': _basename(s)},
     ];
   }
 
@@ -108,7 +111,8 @@ class LessonService {
     if (query != null && query.trim().isNotEmpty) {
       final term = query.trim();
       q = q.or(
-        'subject.ilike.%$term%,memo.ilike.%$term%,next_plan.ilike.%$term%',
+        // next_plan 필터 제거
+        'subject.ilike.%$term%,memo.ilike.%$term%',
       );
     }
 
@@ -173,7 +177,8 @@ class LessonService {
     if (query != null && query.trim().isNotEmpty) {
       final term = query.trim();
       q = q.or(
-        'subject.ilike.%$term%,memo.ilike.%$term%,next_plan.ilike.%$term%',
+        // next_plan 필터 제거
+        'subject.ilike.%$term%,memo.ilike.%$term%',
       );
     }
 
@@ -191,6 +196,15 @@ class LessonService {
         .maybeSingle();
     if (res == null) return null;
     return Map<String, dynamic>.from(res as Map);
+  }
+
+  Future<bool> exists(String id) async {
+    final res = await _client
+        .from(SupabaseTables.lessons)
+        .select('id')
+        .eq('id', id)
+        .maybeSingle();
+    return res != null;
   }
 
   Future<Map<String, dynamic>?> _getRowByStudentAndDate(
@@ -214,7 +228,6 @@ class LessonService {
     DateTime? date,
     String? subject,
     String? memo,
-    String? nextPlan,
     String? youtubeUrl,
     List<String>? keywords,
   }) async {
@@ -228,7 +241,7 @@ class LessonService {
       'date': _dateKey(theDate),
       'subject': subject ?? '',
       'memo': memo ?? '',
-      'next_plan': nextPlan ?? '',
+      // next_plan 제거
       'keywords': _normalizeKeywords(keywords) ?? <String>[],
       'attachments': <Map<String, dynamic>>[],
       'youtube_url': youtubeUrl ?? '',
@@ -258,7 +271,7 @@ class LessonService {
       'date': _dateKey(today),
       'subject': '',
       'memo': '',
-      'next_plan': '',
+      // next_plan 제거
       'keywords': <String>[],
       'attachments': <Map<String, dynamic>>[],
       'youtube_url': '',
@@ -278,7 +291,6 @@ class LessonService {
     DateTime? date,
     String? subject,
     String? memo,
-    String? nextPlan,
     String? youtubeUrl,
     List<String>? keywords,
     List<Map<String, dynamic>>? attachments,
@@ -290,7 +302,6 @@ class LessonService {
       if (teacherId != null && teacherId.isNotEmpty) 'teacher_id': teacherId,
       if (subject != null) 'subject': subject,
       if (memo != null) 'memo': memo,
-      if (nextPlan != null) 'next_plan': nextPlan,
       if (youtubeUrl != null) 'youtube_url': youtubeUrl,
       if (keywords != null) 'keywords': _normalizeKeywords(keywords),
       if (attachments != null)
@@ -326,12 +337,16 @@ class LessonService {
   Future<Map<String, dynamic>> upsert(Map<String, dynamic> lesson) async {
     final payload = Map<String, dynamic>.from(lesson);
 
+    // keywords/attachments 정규화
     if (payload.containsKey('keywords')) {
       payload['keywords'] = _normalizeKeywords(payload['keywords']);
     }
     if (payload.containsKey('attachments')) {
       payload['attachments'] = _normalizeAttachments(payload['attachments']);
     }
+
+    // next_plan 키가 들어와도 무시되도록 제거 (후방 호환 안전장치)
+    payload.remove('next_plan');
 
     final id = payload.remove('id');
     if (id != null) {
@@ -411,9 +426,25 @@ class LessonService {
 
   // ========= 삭제 =========
 
-  /// 하드 삭제(테이블에 soft delete 컬럼이 없을 때)
-  Future<void> deleteById(String id) async {
-    await _client.from(SupabaseTables.lessons).delete().eq('id', id);
+  /// 하드 삭제: 리스트 기반 RETURNING으로 PGRST116 회피하며 성공/실패 bool 반환
+  Future<bool> deleteById(
+    String id, {
+    String? teacherId,
+    String? studentId,
+  }) async {
+    try {
+      var q = _client.from(SupabaseTables.lessons).delete().eq('id', id);
+      if (teacherId != null && teacherId.isNotEmpty) {
+        q = q.eq('teacher_id', teacherId);
+      }
+      if (studentId != null && studentId.isNotEmpty) {
+        q = q.eq('student_id', studentId);
+      }
+      final List rows = await q.select('id') as List; // PGRST116 회피
+      return rows.isNotEmpty;
+    } on PostgrestException catch (e) {
+      throw StateError('레슨 삭제 실패: ${e.message}');
+    }
   }
 
   /// (선택) soft-delete: lessons 테이블에 is_deleted, deleted_at 컬럼이 있을 때만 사용
