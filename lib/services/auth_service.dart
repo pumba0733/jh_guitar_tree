@@ -1,7 +1,7 @@
 // lib/services/auth_service.dart
-// v1.44.5 | App-Auth 보강 + nullable 흐름 제거(경고 해소)
-// - row를 non-null 변수 rowMap으로 통일 (RPC/SELECT 어느 경로든 성공 시 값 보장)
-// - 불필요한 non-null assertion(!) 제거
+// v1.57.0 | 로그인 보강
+// - 학생 로그인: RPC 시그니처(find_student(p_name, p_phone_last4)) 직접 호출 + 서비스 폴백
+// - 교사/관리자 로그인 기존 로직 유지
 
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
@@ -38,11 +38,37 @@ class AuthService {
     required String name,
     required String last4,
   }) async {
-    final found = await _studentService.findByNameAndLast4(
-      name: name,
-      last4: last4,
-    );
+    final n = name.trim();
+    final l4 = last4.trim();
+
+    // 1) 권장 경로: DB RPC (정확한 파라미터명/순서)
+    try {
+      final res = await _client.rpc(
+        'find_student',
+        params: {'p_name': n, 'p_phone_last4': l4},
+      );
+
+      Map<String, dynamic>? row;
+      if (res is List && res.isNotEmpty) {
+        final m = res.first;
+        if (m is Map) row = Map<String, dynamic>.from(m);
+      } else if (res is Map) {
+        row = Map<String, dynamic>.from(res);
+      }
+
+      if (row != null) {
+        _currentStudent = Student.fromMap(row);
+        _currentTeacher = null;
+        return true;
+      }
+    } catch (_) {
+      // RPC 미존재/권한/기타 오류 → 폴백으로 진행
+    }
+
+    // 2) 폴백: 기존 StudentService 경로 (내부 구현 시그니처가 잘못되어 있어도 일단 시도)
+    final found = await _studentService.findByNameAndLast4(name: n, last4: l4);
     if (found == null) return false;
+
     _currentStudent = found;
     _currentTeacher = null;
     return true;
@@ -119,12 +145,11 @@ class AuthService {
     _currentTeacher = teacher;
 
     // (선택) 접속 흔적: Supabase 세션 이후 시도
-    // 3) Supabase Auth 세션 만들기 (있으면 통과, 없으면 무음 실패)
     try {
       await _client.auth.signInWithPassword(email: e, password: password);
     } catch (_) {}
 
-    // 4) auth.uid ↔ teachers.auth_user_id 동기화
+    // auth.uid ↔ teachers.auth_user_id 동기화
     try {
       final authedEmail = _client.auth.currentUser?.email; // nullable
       if (authedEmail != null && authedEmail.isNotEmpty) {
@@ -135,7 +160,7 @@ class AuthService {
       }
     } catch (_) {}
 
-    // 5) 마지막 로그인 시간 업데이트(세션 있으면 성공 확률↑)
+    // 마지막 로그인 시간 업데이트
     try {
       final teacherId = teacher.id;
       await _client

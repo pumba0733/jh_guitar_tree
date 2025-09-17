@@ -1,8 +1,10 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.56.0 | 학생 배정 리소스 자동 시드 + 기존 로직 유지
-// - 초기 진입 시 오늘 레슨 링크가 비어 있으면 학생 배정 리소스를 자동으로 오늘 레슨에 링크
-// - 중복 방지(버킷/경로 키로 필터)
-// - 나머지 UI/저장/열기 로직은 원본(v1.55.1-fix) 유지
+// v1.57.0 | 노드 링크 제거 + 배정된 리소스만 링크/열기
+// - 액션바: "리소스 링크 추가" (학생에게 배정된 리소스 목록만 노출)
+// - 노드 열기 비활성(레거시 노드 링크는 삭제·ID복사만 허용)
+// - 리소스 열기 시 워크스페이스에 저장 후 기본앱 실행(FileService)
+// - 초기 진입 시 오늘 레슨 비어있으면 배정 리소스 자동 시드(유지)
+// - _showError/_setStatus 포함(이전 미정의 경고 해결)
 
 import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
@@ -200,7 +202,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           'date': _todayDateStr,
           'subject': '',
           'memo': '',
-          // 'next_plan': ''  // 제거
           'keywords': <String>[],
           'attachments': <Map<String, dynamic>>[],
           'youtube_url': '',
@@ -423,7 +424,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         if (p.isNotEmpty) existKeys.add('$b::$p');
       }
 
-      // 학생 배정 리소스 조회(서비스 패치에 포함됨)
+      // 학생 배정 리소스 조회
       final assignedRes = await _curr.fetchAssignedResourcesForStudent(
         _studentId,
       );
@@ -490,7 +491,84 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
   }
 
-  // _openLessonLink 교체본 (resource 분기만 변경)
+  /// 배정된 리소스 목록 다이얼로그
+  Future<Map<String, dynamic>?> _pickAssignedResourceDialog() async {
+    final assigned = await _curr.fetchAssignedResourcesForStudent(_studentId);
+    if (!mounted) return null;
+    if (assigned.isEmpty) {
+      _showError('배정된 리소스가 없습니다.');
+      return null;
+    }
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('배정 리소스 선택'),
+        content: SizedBox(
+          width: 520,
+          height: 360,
+          child: ListView.builder(
+            itemCount: assigned.length,
+            itemBuilder: (_, i) {
+              final r = assigned[i];
+              final title = (r['title'] ?? r['filename'] ?? '리소스').toString();
+              final bucket = (r['storage_bucket'] ?? _defaultResourceBucket)
+                  .toString();
+              final path = (r['storage_path'] ?? '').toString();
+              return ListTile(
+                dense: true,
+                leading: const Icon(Icons.insert_drive_file),
+                title: Text(title),
+                subtitle: Text('$bucket/$path'),
+                onTap: () => Navigator.pop(ctx, {
+                  'title': title,
+                  'filename': (r['filename'] ?? title).toString(),
+                  'bucket': bucket,
+                  'path': path,
+                  'node_id': r['curriculum_node_id'],
+                }),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('닫기'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 배정 리소스 링크 추가
+  Future<void> _linkCurriculumResourceAssigned() async {
+    final picked = await _pickAssignedResourceDialog();
+    if (picked == null) return;
+    final rf = ResourceFile.fromMap({
+      'id': '',
+      'curriculum_node_id': picked['node_id'],
+      'title': picked['title'],
+      'filename': picked['filename'],
+      'mime_type': null,
+      'size_bytes': null,
+      'storage_bucket': picked['bucket'] ?? _defaultResourceBucket,
+      'storage_path': picked['path'],
+      'created_at': DateTime.now().toIso8601String(),
+    });
+    final ok = await _links.sendResourceToTodayLesson(
+      studentId: _studentId,
+      resource: rf,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? '리소스를 오늘 레슨에 링크했어요.' : '링크 실패: 서버 RPC/권한 확인'),
+      ),
+    );
+    if (ok) unawaited(_reloadLessonLinks(ensure: true));
+  }
+
+  // ===== 링크 열기: resource만 실제 파일 열기 =====
   Future<void> _openLessonLink(Map<String, dynamic> link) async {
     final kind = (link['kind'] ?? '').toString();
 
@@ -508,11 +586,9 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           'created_at': link['created_at'],
         });
         final url = await _res.signedUrl(rf);
-        final filename = rf.filename; // 원본 표시명 유지
-        // 🔁 학생 워크스페이스에 저장 후 기본앱으로 실행
         await _file.saveUrlToWorkspaceAndOpen(
           studentId: _studentId,
-          filename: filename,
+          filename: rf.filename,
           url: url,
         );
       } catch (e) {
@@ -521,7 +597,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       return;
     }
 
-    // kind == 'node' → 브라우저/스튜디오로 이동 시도, 실패 시 ID 복사
+    // kind == 'node' → 브라우저/스튜디오 이동만 (열기 버튼 비활성 처리함)
     final nodeId = (link['curriculum_node_id'] ?? '').toString();
     if (nodeId.isEmpty) {
       _showError('노드 정보를 찾을 수 없습니다.');
@@ -538,10 +614,9 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
   }
 
-  // ===== xsc 최신본 열기(자리 마련: 서비스 패치 후 연결) =====
+  // ===== xsc 최신본 열기 =====
   Future<void> _openLatestXsc(Map<String, dynamic> link) async {
     try {
-      // kind/resource 가드 및 실제 프리/포스트 동기화 + 기본앱 실행
       await XscSyncService().openFromLessonLinkMap(
         link: link,
         studentId: _studentId,
@@ -549,250 +624,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     } catch (e) {
       _showError('xsc 열기 실패: $e');
     }
-  }
-
-  // ===== 노드/리소스 선택 다이얼로그 =====
-  Future<String?> _pickNodeDialog() async {
-    // 1) 전체 노드 + 학생 배정 목록 로드
-    final all = await _curr.listNodes(); // 전체 트리
-    final assigns = await _curr.listAssignmentsByStudent(_studentId);
-    if (!mounted) return null;
-
-    // 배정된 노드 id 집합(카테고리 기준)
-    final assignedNodeIds = assigns
-        .map((m) => (m['curriculum_node_id'] ?? '').toString())
-        .where((s) => s.isNotEmpty)
-        .toSet();
-
-    // parent 맵 구성
-    final byId = <String, Map<String, dynamic>>{};
-    final childrenOf = <String?, List<Map<String, dynamic>>>{};
-    for (final m in all) {
-      final id = (m['id'] ?? '').toString();
-      final pid = m['parent_id'];
-      byId[id] = m;
-      childrenOf.putIfAbsent(pid, () => []).add(m);
-    }
-
-    bool isDescendantOfAssigned(String id) {
-      var cur = byId[id];
-      while (cur != null) {
-        final curId = (cur['id'] ?? '').toString();
-        if (assignedNodeIds.contains(curId)) return true;
-        final pid = cur['parent_id'];
-        cur = (pid == null) ? null : byId[pid.toString()];
-      }
-      return false;
-    }
-
-    // 배정된 서브트리만
-    List<Map<String, dynamic>> assignedOnly = all.where((m) {
-      final id = (m['id'] ?? '').toString();
-      return isDescendantOfAssigned(id) || assignedNodeIds.contains(id);
-    }).toList();
-
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) {
-        final ctl = TextEditingController();
-        bool showAssignedOnly = assignedNodeIds.isNotEmpty; // 기본 ON (배정 존재 시)
-        List<Map<String, dynamic>> working = showAssignedOnly
-            ? assignedOnly
-            : all;
-
-        List<Map<String, dynamic>> applyFilter(String q, bool onlyAssigned) {
-          final src = (onlyAssigned ? assignedOnly : all);
-          if (q.isEmpty) return src;
-          final qq = q.toLowerCase();
-          return src.where((m) {
-            final title = (m['title'] ?? '').toString().toLowerCase();
-            final id = (m['id'] ?? '').toString().toLowerCase();
-            return title.contains(qq) || id.contains(qq);
-          }).toList();
-        }
-
-        void apply() {
-          working = applyFilter(ctl.text.trim(), showAssignedOnly);
-          (ctx as Element).markNeedsBuild();
-        }
-
-        return StatefulBuilder(
-          builder: (ctx, setSt) {
-            return AlertDialog(
-              title: const Text('노드 선택'),
-              content: SizedBox(
-                width: 560,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('배정된 카테고리만 보기'),
-                            value: showAssignedOnly,
-                            onChanged: (v) {
-                              showAssignedOnly = v;
-                              working = applyFilter(
-                                ctl.text.trim(),
-                                showAssignedOnly,
-                              );
-                              setSt(() {});
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: ctl,
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        hintText: '제목/ID 검색…',
-                        prefixIcon: Icon(Icons.search),
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (_) => setSt(apply),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: 360,
-                      child: Scrollbar(
-                        child: ListView.builder(
-                          itemCount: working.length,
-                          itemBuilder: (_, i) {
-                            final m = working[i];
-                            final isFile = (m['type'] ?? '') == 'file';
-                            return ListTile(
-                              dense: true,
-                              leading: Icon(
-                                isFile ? Icons.insert_drive_file : Icons.folder,
-                              ),
-                              title: Text((m['title'] ?? '').toString()),
-                              subtitle: Text(
-                                (m['id'] ?? '').toString(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              onTap: () => Navigator.pop(
-                                ctx,
-                                (m['id'] ?? '').toString(),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('닫기'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<Map<String, dynamic>?> _pickResourceDialog(String nodeId) async {
-    final files = await _res.listByNode(nodeId);
-    if (!mounted) return null;
-    if (files.isEmpty) {
-      _showError('이 노드에 등록된 리소스가 없습니다.');
-      return null;
-    }
-    return showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('리소스 선택'),
-        content: SizedBox(
-          width: 520,
-          height: 360,
-          child: Scrollbar(
-            child: ListView.builder(
-              itemCount: files.length,
-              itemBuilder: (_, i) {
-                final f = files[i];
-                return ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.link),
-                  title: Text(f.title ?? f.filename),
-                  subtitle: Text('${f.storageBucket}/${f.storagePath}'),
-                  onTap: () => Navigator.pop(ctx, {
-                    'title': f.title,
-                    'filename': f.filename,
-                    'bucket': f.storageBucket,
-                    'path': f.storagePath,
-                  }),
-                );
-              },
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('닫기'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ===== 링크 액션 =====
-  Future<void> _linkCurriculumNode() async {
-    final nodeId = await _pickNodeDialog();
-    if (nodeId == null || nodeId.trim().isEmpty) return;
-
-    final ok = await _links.sendNodeToTodayLesson(
-      studentId: _studentId,
-      nodeId: nodeId.trim(),
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(ok ? '노드를 오늘 레슨에 링크했어요.' : '링크 실패: 서버 RPC 미구성 또는 권한 오류'),
-      ),
-    );
-    if (ok) unawaited(_reloadLessonLinks(ensure: true));
-  }
-
-  Future<void> _linkCurriculumResource() async {
-    final nodeId = await _pickNodeDialog();
-    if (nodeId == null || nodeId.trim().isEmpty) return;
-
-    final picked = await _pickResourceDialog(nodeId);
-    if (picked == null) return;
-
-    final rf = ResourceFile.fromMap({
-      'id': '',
-      'curriculum_node_id': nodeId,
-      'title': picked['title'],
-      'filename': picked['filename'],
-      'mime_type': null,
-      'size_bytes': null,
-      'storage_bucket': picked['bucket'] ?? _defaultResourceBucket,
-      'storage_path': picked['path'],
-      'created_at': DateTime.now().toIso8601String(),
-    });
-
-    final ok = await _links.sendResourceToTodayLesson(
-      studentId: _studentId,
-      resource: rf,
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(ok ? '리소스를 오늘 레슨에 링크했어요.' : '링크 실패: 서버 RPC 미구성 또는 권한 오류'),
-      ),
-    );
-    if (ok) unawaited(_reloadLessonLinks(ensure: true));
   }
 
   // ===== 기타 =====
@@ -896,15 +727,10 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                 runSpacing: 8,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  FilledButton.icon(
-                    onPressed: _linkCurriculumNode,
-                    icon: const Icon(Icons.playlist_add),
-                    label: const Text('노드 선택해서 링크'),
-                  ),
                   FilledButton.tonalIcon(
-                    onPressed: _linkCurriculumResource,
+                    onPressed: _linkCurriculumResourceAssigned,
                     icon: const Icon(Icons.link),
-                    label: const Text('리소스 선택해서 링크'),
+                    label: const Text('리소스 링크 추가'),
                   ),
                   OutlinedButton.icon(
                     onPressed: () => _reloadLessonLinks(ensure: true),
@@ -912,7 +738,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                     label: const Text('링크 새로고침'),
                   ),
                   Text(
-                    '스튜디오/브라우저에서 만든 콘텐츠를 바로 연결하세요.',
+                    '학생에게 배정된 리소스만 링크할 수 있어요.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
@@ -1103,9 +929,9 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                   ),
                 ),
               IconButton(
-                tooltip: isNode ? '브라우저에서 열기' : '파일 열기',
+                tooltip: isNode ? '노드는 열기 제공 안함' : '파일 열기',
                 icon: const Icon(Icons.open_in_new),
-                onPressed: () => _openLessonLink(m),
+                onPressed: isNode ? null : () => _openLessonLink(m),
               ),
               PopupMenuButton<String>(
                 onSelected: (v) async {

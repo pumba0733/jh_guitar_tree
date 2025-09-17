@@ -1,5 +1,7 @@
 // lib/services/lesson_links_service.dart
-// v1.45.2 | 링크 서비스: 삭제 쿼리 RLS 친화 강화(id+owner 매칭) + 기존 동작 유지
+// v1.57.0 | 링크 삭제: 보안 RPC 우선 + DELETE 폴백
+// - delete_lesson_link(p_link_id uuid, p_student_id uuid) 호출 우선
+// - 실패 시 기존 DELETE(id [+ owner]) 폴백
 
 import 'dart:async';
 import 'dart:io';
@@ -99,12 +101,28 @@ class LessonLinksService {
     return id;
   }
 
-  /// 🔥 RLS 친화 삭제: id 외에 student_id 또는 teacher_id를 함께 매칭
+  /// 삭제: 보안 RPC 우선, 실패 시 DELETE 폴백
   Future<bool> deleteById(
     String id, {
     String? studentId,
     String? teacherId,
   }) async {
+    // 1) RPC 우선
+    try {
+      if ((studentId ?? '').isNotEmpty) {
+        final res = await _retry(
+          () => _c.rpc(
+            'delete_lesson_link',
+            params: {'p_link_id': id, 'p_student_id': studentId},
+          ),
+        );
+        if (res == true || res == 'true') return true;
+      }
+    } catch (_) {
+      // RPC 실패 → 폴백 시도
+    }
+
+    // 2) 폴백: 직접 DELETE (RLS 허용 범위에서만 성공)
     try {
       final q = _c.from(SupabaseTables.lessonLinks).delete().eq('id', id);
       if (studentId != null && studentId.trim().isNotEmpty) {

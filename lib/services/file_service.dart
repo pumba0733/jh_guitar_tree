@@ -1,9 +1,9 @@
 // lib/services/file_service.dart
-// v1.29.1 | 워크스페이스 저장/열기 안정화 + 중복 상수 정리
-// - FIX: WORKSPACE_DIR 상수 중복 제거 및 단일화
-// - IMP: 워크스페이스 저장 시 동명 파일 자동 충돌 회피(song (1).ext)
-// - IMP: Supabase Storage URL 키 추출 로직 보강
-// - 기존 API/동작은 그대로 유지 (saveUrlToWorkspaceAndOpen 등)
+// v1.57.0 | 워크스페이스 자동 보정 + 권한 폴백
+// - '/Users/you/…' 템플릿 경로를 현재 사용자 홈으로 자동 교정
+// - '~' 확장 지원
+// - 디렉터리 생성 실패 시 Downloads/GuitarTreeWorkspace 로 폴백
+// - 기존 API/동작은 그대로 유지
 
 import 'dart:async';
 import 'dart:io';
@@ -47,19 +47,68 @@ class FileService {
     return Directory(home);
   }
 
+  static Future<Directory> _downloadsRoot() async {
+    try {
+      if (_isDesktop) {
+        final d = await getDownloadsDirectory();
+        if (d != null) return d;
+      }
+    } catch (_) {}
+    return getApplicationDocumentsDirectory();
+  }
+
+  static String _normalizeWorkspacePath(String raw) {
+    var v = raw.trim();
+    if (v.isEmpty) return v;
+
+    final homePath = _homeDir().path;
+
+    // '~/...' 확장
+    if (v.startsWith('~')) {
+      v = p.join(homePath, v.substring(1));
+    }
+
+    // '/Users/you/...' 템플릿 자동 교정
+    if (v.startsWith('/Users/you/')) {
+      final tail = v.substring('/Users/you/'.length);
+      v = p.join('/Users', p.basename(homePath), tail);
+    }
+
+    return v;
+  }
+
   /// 앱 전역 워크스페이스 루트
   static Future<Directory> _resolveWorkspaceDir() async {
-    // 1) ENV 우선
-    final env = _envWorkspaceDir.trim();
-    if (env.isNotEmpty) {
-      final d = Directory(env);
-      if (!await d.exists()) await d.create(recursive: true);
-      return d;
+    // 1) ENV 우선 + 자동 보정
+    final envRaw = _envWorkspaceDir;
+    if (envRaw.isNotEmpty) {
+      final fixed = _normalizeWorkspacePath(envRaw);
+      try {
+        final d = Directory(fixed);
+        if (!await d.exists()) await d.create(recursive: true);
+        return d;
+      } catch (_) {
+        // 권한/경로 실패 → Downloads 폴백
+        final dl = await _downloadsRoot();
+        final fb = Directory(p.join(dl.path, 'GuitarTreeWorkspace'));
+        if (!await fb.exists()) await fb.create(recursive: true);
+        return fb;
+      }
     }
+
     // 2) 기본값: ~/GuitarTreeWorkspace
-    final d = Directory(p.join(_homeDir().path, 'GuitarTreeWorkspace'));
-    if (!await d.exists()) await d.create(recursive: true);
-    return d;
+    final home = _homeDir().path;
+    final def = Directory(p.join(home, 'GuitarTreeWorkspace'));
+    try {
+      if (!await def.exists()) await def.create(recursive: true);
+      return def;
+    } catch (_) {
+      // 3) 최종 폴백: Downloads/GuitarTreeWorkspace
+      final dl = await _downloadsRoot();
+      final fb = Directory(p.join(dl.path, 'GuitarTreeWorkspace'));
+      if (!await fb.exists()) await fb.create(recursive: true);
+      return fb;
+    }
   }
 
   /// 학생별 워크스페이스 디렉토리 (예: ~/GuitarTreeWorkspace/<studentId>)
@@ -147,13 +196,7 @@ class FileService {
   // Downloads 폴더/대체 폴더
   // -----------------------------
   static Future<Directory> _resolveDownloadsDir() async {
-    try {
-      if (_isDesktop) {
-        final d = await getDownloadsDirectory();
-        if (d != null) return d;
-      }
-    } catch (_) {}
-    return getApplicationDocumentsDirectory();
+    return _downloadsRoot();
   }
 
   static Future<File> saveTextFile({
@@ -355,7 +398,6 @@ class FileService {
 
   // Supabase public/signed/auth URL, 또는 외부 URL에서 스토리지 키 추출 시도
   String? _extractStorageKeyFromUrl(String url) {
-    // 허용 패턴
     const patterns = <String>[
       '/object/public/',
       '/object/sign/',
@@ -365,7 +407,6 @@ class FileService {
       final idx = url.indexOf(prefix);
       if (idx >= 0) {
         final sub = url.substring(idx + prefix.length);
-        // sub: "<bucket>/<key...>?token=..."
         final pathPart = sub.split('?').first;
         final parts = pathPart.split('/');
         if (parts.isEmpty) return null;
