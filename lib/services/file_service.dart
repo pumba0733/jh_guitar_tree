@@ -1,8 +1,9 @@
 // lib/services/file_service.dart
-// v1.29.0 | 워크스페이스 저장/열기 추가 + 기존 기능 유지
-// - NEW: saveUrlToWorkspaceAndOpen / saveBytesToWorkspaceAndOpen
-// - 학생별 워크스페이스(ENV 또는 홈 디렉토리 하위)로 리소스를 저장 후 기본앱 실행
-// - 기존 openSmart/ensureLocalCopy는 그대로(관리자 화면 등에서 사용)
+// v1.29.1 | 워크스페이스 저장/열기 안정화 + 중복 상수 정리
+// - FIX: WORKSPACE_DIR 상수 중복 제거 및 단일화
+// - IMP: 워크스페이스 저장 시 동명 파일 자동 충돌 회피(song (1).ext)
+// - IMP: Supabase Storage URL 키 추출 로직 보강
+// - 기존 API/동작은 그대로 유지 (saveUrlToWorkspaceAndOpen 등)
 
 import 'dart:async';
 import 'dart:io';
@@ -31,13 +32,8 @@ class FileService {
 
   static const String _bucketName = 'lesson_attachments';
 
-  // ========= NEW: Workspace =========
-  static const String envWorkspaceDir = String.fromEnvironment(
-    'WORKSPACE_DIR',
-    defaultValue: '',
-  );
-
-  // 빌드타임 상수: flutter run --dart-define=WORKSPACE_DIR=/path ...
+  // ========= Workspace =========
+  // flutter run --dart-define=WORKSPACE_DIR=/path ...
   static const String _envWorkspaceDir = String.fromEnvironment(
     'WORKSPACE_DIR',
     defaultValue: '',
@@ -66,7 +62,7 @@ class FileService {
     return d;
   }
 
-  /// 학생별 워크스페이스 디렉토리 (예: ~/GuitarTreeWorkspace/<studentId)
+  /// 학생별 워크스페이스 디렉토리 (예: ~/GuitarTreeWorkspace/<studentId>)
   static Future<Directory> _studentWorkspaceDir(String studentId) async {
     final root = await _resolveWorkspaceDir();
     final d = Directory(p.join(root.path, studentId));
@@ -324,7 +320,9 @@ class FileService {
   // 열기(기본앱 고정)
   // -----------------------------
   Future<void> openLocal(String absolutePath) async {
-    if (!_isDesktop) throw UnsupportedError('이 기능은 데스크탑에서만 지원됩니다.');
+    if (!_isDesktop) {
+      throw UnsupportedError('기본 앱 열기는 데스크탑에서만 지원됩니다.');
+    }
     final r = await OpenFilex.open(absolutePath);
     if (r.type != ResultType.done) {
       throw StateError('기본 앱으로 열 수 없습니다: ${r.message}');
@@ -355,9 +353,10 @@ class FileService {
     await openLocal(local);
   }
 
-  // public/signed/auth URL 모두에서 스토리지 키 추출 시도
+  // Supabase public/signed/auth URL, 또는 외부 URL에서 스토리지 키 추출 시도
   String? _extractStorageKeyFromUrl(String url) {
-    final patterns = <String>[
+    // 허용 패턴
+    const patterns = <String>[
       '/object/public/',
       '/object/sign/',
       '/object/auth/',
@@ -366,7 +365,9 @@ class FileService {
       final idx = url.indexOf(prefix);
       if (idx >= 0) {
         final sub = url.substring(idx + prefix.length);
-        final parts = sub.split('?').first.split('/');
+        // sub: "<bucket>/<key...>?token=..."
+        final pathPart = sub.split('?').first;
+        final parts = pathPart.split('/');
         if (parts.isEmpty) return null;
         if (parts.first == _bucketName) {
           return parts.skip(1).join('/');
@@ -450,11 +451,12 @@ class FileService {
     final outName = _displaySafeName(
       att['name']?.toString() ?? p.basename(local),
     );
-    final outPath = p.join(dir.path, outName);
+    final outPath = _avoidNameClash(dir.path, outName);
     await File(outPath).writeAsBytes(bytes);
     return outPath;
   }
 
+  /// macOS Finder에서 파일 보이기
   Future<void> revealInFinder(String absolutePath) async {
     if (!Platform.isMacOS) return;
     try {
@@ -480,7 +482,7 @@ class FileService {
     await _retry(() => _sb.storage.from(_bucketName).remove([key!]));
   }
 
-  // ========= NEW: Save to Workspace then open =========
+  // ========= Save to Workspace then open =========
 
   /// URL을 학생 워크스페이스에 저장하고 기본앱으로 연다.
   Future<String> saveUrlToWorkspaceAndOpen({
@@ -489,7 +491,7 @@ class FileService {
     required String url,
   }) async {
     if (!_isDesktop) {
-      // 데스크탑 아닌 경우엔 기존 외부열기 유지
+      // 데스크탑 아닌 경우엔 외부 앱으로 바로 열기
       await openUrl(url);
       return '';
     }
@@ -508,7 +510,6 @@ class FileService {
     required Uint8List bytes,
   }) async {
     if (!_isDesktop) {
-      // 데스크탑 아닌 경우 대체 처리
       final tmp = await saveBytesFile(filename: filename, bytes: bytes);
       await openLocal(tmp.path);
       return tmp.path;
@@ -519,10 +520,33 @@ class FileService {
     final sub = Directory(p.join(studentDir.path, 'Curriculum'));
     await _ensureDir(sub.path);
 
-    final outPath = p.join(sub.path, safeName);
+    // 동명 파일 충돌 회피
+    final outPath = _avoidNameClash(sub.path, safeName);
     await File(outPath).writeAsBytes(bytes, flush: true);
 
     await openLocal(outPath);
     return outPath;
+  }
+
+  // ===== Helpers =====
+
+  /// 같은 폴더 내 같은 이름이 있으면 `name (1).ext`, `name (2).ext` ...로 회피
+  String _avoidNameClash(String dirPath, String fileName) {
+    String candidate = p.join(dirPath, fileName);
+    if (!File(candidate).existsSync()) return candidate;
+
+    final ext = p.extension(fileName);
+    final base = p.basenameWithoutExtension(fileName);
+    int i = 1;
+    while (true) {
+      final next = p.join(dirPath, '$base ($i)$ext');
+      if (!File(next).existsSync()) return next;
+      i++;
+      if (i > 9999) {
+        // 비상 회피: 타임스탬프
+        final stamp = DateTime.now().millisecondsSinceEpoch;
+        return p.join(dirPath, '$base-$stamp$ext');
+      }
+    }
   }
 }

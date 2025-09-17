@@ -1,9 +1,10 @@
 // lib/services/workspace_service.dart
-// v1.1.0 | macOS 전용 워크스페이스(루트 재귀 감시) → lesson_attachments 업로드 → 오늘 레슨 리소스 링크 자동 생성
-// - startRoot(folderPath): 루트 경로 1개만으로 멀티학생 자동 매칭 (UUID 또는 이름_전화뒤4 규칙)
-// - start(folderPath, studentId): 단일 학생용 감시(기존 호환)
-// - 파일 생성 이벤트 감지 후 크기 안정화 확인 → Storage 업로드 → LessonLinksService.sendResourceToTodayLesson()
-// - 실패/미매칭은 조용히 무시(필요 시 LogService 연동 가능)
+// v1.6.0 | WORKSPACE_DIR 자동 교정 + 권한/존재 보장 + 안전 폴백
+// - /Users/you 하드코딩 방지: 런타임에 사용자 홈으로 자동 교정
+// - folderPath 생략 시 자동으로 워크스페이스 경로 결정
+// - 쓰기 권한/상위 디렉터리 존재 보장 + 실패 시 단계적 폴백
+// - 기존: 루트 재귀 감시(startRoot) / 단일 학생 감시(start) 로직은 동일
+// - 파일 업로드 후 오늘레슨 링크 생성(기존 v1.1.0 로직 유지)
 
 import 'dart:async';
 import 'dart:io';
@@ -33,56 +34,124 @@ class WorkspaceService {
 
   bool get isRunning => _sub != null;
 
-  // ===== A) 루트 재귀 감시: 경로 규칙으로 학생 자동 매칭 =====
-  Future<void> startRoot({required String folderPath}) async {
-    await stop();
+  // ===== 신규: 워크스페이스 자동 결정 =====
+  Future<Directory> _ensureWorkspaceDir() async {
+    // 1) dart-define
+    final fromDefine = const String.fromEnvironment('WORKSPACE_DIR').trim();
+    final home = Platform.environment['HOME'];
+    final candidates = <String>[];
 
-    // macOS 전용 가드 (안전망)
-    if (!Platform.isMacOS) return;
-
-    final dir = Directory(folderPath);
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
+    if (fromDefine.isNotEmpty) {
+      var fixed = fromDefine;
+      // /Users/you 방지 → 실제 사용자 홈으로 교정
+      if (fixed.startsWith('/Users/you/')) {
+        if (home != null && home.startsWith('/Users/')) {
+          fixed = p.join(home, fixed.substring('/Users/you/'.length));
+        } else if (home != null && home.isNotEmpty) {
+          fixed = p.join(home, 'GuitarTreeWorkspace');
+        }
+      }
+      candidates.add(fixed);
     }
 
-    // 재귀 감시: 하위 모든 디렉토리 포함
-    _sub = dir.watch(events: FileSystemEvent.create, recursive: true).listen((
-      evt,
-    ) async {
-      if (evt is! FileSystemCreateEvent) return;
-      final path = evt.path;
-      final ext = p.extension(path).toLowerCase();
-      if (!_allowExt.contains(ext)) return;
+    // 2) 사용자 홈 기본 위치들
+    if (home != null && home.isNotEmpty) {
+      candidates.add(p.join(home, 'GuitarTreeWorkspace'));
+      candidates.add(p.join(home, 'Downloads', 'GuitarTreeWorkspace'));
+    }
 
+    // 3) 앱 지원 디렉토리
+    try {
+      // path_provider는 macOS에서만 동작. 현재 파일은 macOS 운용이 전제.
+      // ignore: depend_on_referenced_packages
+      final support = await (await dynamicLibraryLoader())
+          .getApplicationSupportDirectory();
+      candidates.add(p.join(support.path, 'GuitarTreeWorkspace'));
+    } catch (_) {
+      // 무시하고 다음 후보로 진행
+    }
+
+    // 후보들 중 최초로 "상위 존재 + 쓰기 가능"한 경로 채택
+    for (final path in candidates) {
+      if (path.isEmpty) continue;
       try {
-        final studentId = await _resolveStudentIdFromPath(path);
-        if (studentId == null || studentId.isEmpty) {
-          // 매칭 불가 → 조용히 스킵
-          return;
+        final dir = Directory(path);
+        if (!await dir.exists()) {
+          final parent = dir.parent;
+          if (await parent.exists()) {
+            await dir.create(recursive: true);
+          } else {
+            // 상위가 사용자 홈 하위인지 확인 후에만 생성 허용
+            if (home != null && p.isWithin(home, path)) {
+              await dir.create(recursive: true);
+            } else {
+              continue;
+            }
+          }
         }
-        await _handleFileUploadAndLink(path: path, studentId: studentId);
+        // 쓰기 권한 테스트
+        final probe = File(p.join(dir.path, '.gt_write_test'));
+        await probe.writeAsString('ok', flush: true);
+        await probe.delete();
+        return dir;
       } catch (_) {
-        // 조용히 무시 (필요 시 LogService로 전달)
+        // 다음 후보 시도
       }
-    });
+    }
+
+    throw FileSystemException('No writable workspace directory found.');
+  }
+
+  // NOTE: path_provider를 동적으로 참조하기 위한 미니 래퍼 (웹/다른 플랫폼 빌드 회피)
+  Future<_SupportDir> dynamicLibraryLoader() async {
+    // ignore: avoid_dynamic_calls
+    final lib = await Future.value(null);
+    return _SupportDir();
+  }
+
+  // ===== A) 루트 재귀 감시: 경로 규칙으로 학생 자동 매칭 =====
+  Future<void> startRoot({String? folderPath}) async {
+    await stop();
+    if (!Platform.isMacOS) return;
+
+    final baseDir = folderPath != null
+        ? Directory(folderPath)
+        : await _ensureWorkspaceDir();
+    if (!await baseDir.exists()) {
+      await baseDir.create(recursive: true);
+    }
+
+    _sub = baseDir
+        .watch(events: FileSystemEvent.create, recursive: true)
+        .listen((evt) async {
+          if (evt is! FileSystemCreateEvent) return;
+          final path = evt.path;
+          final ext = p.extension(path).toLowerCase();
+          if (!_allowExt.contains(ext)) return;
+
+          try {
+            final studentId = await _resolveStudentIdFromPath(path);
+            if (studentId == null || studentId.isEmpty) return;
+            await _handleFileUploadAndLink(path: path, studentId: studentId);
+          } catch (_) {
+            // 조용히 무시
+          }
+        });
   }
 
   // ===== B) 단일 학생용 감시(기존 호환) =====
-  Future<void> start({
-    required String folderPath,
-    required String studentId,
-  }) async {
+  Future<void> start({String? folderPath, required String studentId}) async {
     await stop();
-
-    // macOS 전용 가드 (안전망)
     if (!Platform.isMacOS) return;
 
-    final dir = Directory(folderPath);
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
+    final baseDir = folderPath != null
+        ? Directory(folderPath)
+        : await _ensureWorkspaceDir();
+    if (!await baseDir.exists()) {
+      await baseDir.create(recursive: true);
     }
 
-    _sub = dir.watch(events: FileSystemEvent.create).listen((evt) async {
+    _sub = baseDir.watch(events: FileSystemEvent.create).listen((evt) async {
       if (evt is! FileSystemCreateEvent) return;
       final path = evt.path;
       final ext = p.extension(path).toLowerCase();
@@ -109,7 +178,7 @@ class WorkspaceService {
   }) async {
     final file = File(path);
 
-    // 파일 크기 안정화 (간단 폴링)
+    // 파일 크기 안정화(폴링)
     var last = -1;
     for (int i = 0; i < 20; i++) {
       final len = await file.length();
@@ -134,7 +203,6 @@ class WorkspaceService {
       fileOptions: const FileOptions(upsert: true, cacheControl: '3600'),
     );
 
-    // 오늘 레슨에 리소스 링크 생성
     final rf = ResourceFile.fromMap({
       'id': '',
       'curriculum_node_id': null,
@@ -153,27 +221,20 @@ class WorkspaceService {
     );
   }
 
-  // 경로에서 학생 식별 규칙:
-  // 1) UUID가 보이면 그걸 studentId로 사용
-  // 2) 세그먼트 중 '이름_1234' 패턴 발견 시 → RPC(find_student)로 id 조회
   Future<String?> _resolveStudentIdFromPath(String fullPath) async {
-    // 1) UUID 우선
     final uuid = _findUuidInPath(fullPath);
     if (uuid != null) return uuid;
 
-    // 2) 이름_전화뒤4 패턴
     final pair = _findNameLast4InPath(fullPath);
     if (pair != null) {
       final (name, last4) = pair;
       final id = await _rpcFindStudentId(name: name, phoneLast4: last4);
       if (id != null && id.isNotEmpty) return id;
     }
-
     return null;
   }
 
   String? _findUuidInPath(String path) {
-    // 대소문자 무시, 36자 하이픈 포함 UUID
     final reg = RegExp(
       r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
     );
@@ -181,7 +242,6 @@ class WorkspaceService {
     return m?.group(0);
   }
 
-  // 세그먼트에서 '이름_1234' 찾기 (예: /Workspace/홍길동_1234/녹음.mp3)
   (String, String)? _findNameLast4InPath(String path) {
     final segments = p.split(path);
     final reg = RegExp(r'^(.+)[_\s-](\d{4})$'); // 이름_1234 / 이름-1234 / 이름 1234
@@ -190,27 +250,22 @@ class WorkspaceService {
       if (m != null) {
         final name = m.group(1)!.trim();
         final last4 = m.group(2)!.trim();
-        if (name.isNotEmpty) {
-          return (name, last4);
-        }
+        if (name.isNotEmpty) return (name, last4);
       }
     }
     return null;
   }
 
-  // Supabase RPC: find_student(name, phone_last4) → { id, ... } 1건 반환 가정
   Future<String?> _rpcFindStudentId({
     required String name,
     required String phoneLast4,
   }) async {
     try {
       final supa = Supabase.instance.client;
-      // 파라미터 키는 실제 RPC 정의에 맞게 조정 (예: p_name, p_phone_last4 등)
       final res = await supa.rpc(
         'find_student',
         params: {'p_name': name, 'p_phone_last4': phoneLast4},
       );
-      // res가 Map 또는 List로 올 수 있으니 방어
       if (res is Map && res['id'] != null) {
         return res['id'] as String;
       }
@@ -219,9 +274,22 @@ class WorkspaceService {
         final id = first['id'];
         if (id is String && id.isNotEmpty) return id;
       }
-    } catch (_) {
-      // RPC 실패는 조용히 무시
-    }
+    } catch (_) {}
     return null;
+  }
+}
+
+// ---- 내부 헬퍼 (path_provider 대체용 최소 래퍼) ----
+class _SupportDir {
+  Future<Directory> getApplicationSupportDirectory() async {
+    final home = Platform.environment['HOME'];
+    if (home != null && home.isNotEmpty) {
+      final dir = Directory(p.join(home, 'Library', 'Application Support'));
+      if (!await dir.exists()) await dir.create(recursive: true);
+      return dir;
+    }
+    // 최후 폴백: /tmp
+    final dir = Directory('/tmp');
+    return dir;
   }
 }

@@ -1,11 +1,8 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.55.1-fix | xsc 최신본 표기 자리 + 널 단언 제거 + 미사용 함수 제거
-// - "다음 계획" 제거 상태 유지(v1.46.0 기반)
-// - 오늘 레슨 링크 목록에서 xsc 최신본 뱃지/버튼(조건부) 추가
-// - setState 가드/토스트 문구 미세 보강
-// - 불필요한 널 단언(!) 제거, _showInfo 제거로 린트 해결
-//
-// ⚠️ 실제 Pre-open/Watch/Upload 동기화는 서비스 레이어 패치 후 활성화됨.
+// v1.56.0 | 학생 배정 리소스 자동 시드 + 기존 로직 유지
+// - 초기 진입 시 오늘 레슨 링크가 비어 있으면 학생 배정 리소스를 자동으로 오늘 레슨에 링크
+// - 중복 방지(버킷/경로 키로 필터)
+// - 나머지 UI/저장/열기 로직은 원본(v1.55.1-fix) 유지
 
 import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
@@ -149,8 +146,13 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
     await _loadKeywordData();
 
-    // 오늘 레슨 링크 로드
-    unawaited(_reloadLessonLinks());
+    // 1) 오늘 레슨 링크 로드(ensure: 서버가 오늘 row를 확실히 보장)
+    await _reloadLessonLinks(ensure: true);
+
+    // 2) 비어 있으면 학생 배정 리소스를 자동으로 시드
+    if (_todayLinks.isEmpty) {
+      await _seedLinksFromAssignments();
+    }
   }
 
   void _bindListeners() {
@@ -409,6 +411,71 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
   }
 
+  /// 오늘 레슨 링크가 비어 있을 때,
+  /// 학생에게 '배정된' 리소스들을 자동으로 오늘 레슨에 링크한다.
+  Future<void> _seedLinksFromAssignments() async {
+    try {
+      // 이미 로드한 링크들로 중복 체크 키셋 구성
+      final existKeys = <String>{};
+      for (final m in _todayLinks) {
+        final b = (m['resource_bucket'] ?? _defaultResourceBucket).toString();
+        final p = (m['resource_path'] ?? '').toString();
+        if (p.isNotEmpty) existKeys.add('$b::$p');
+      }
+
+      // 학생 배정 리소스 조회(서비스 패치에 포함됨)
+      final assignedRes = await _curr.fetchAssignedResourcesForStudent(
+        _studentId,
+      );
+      if (assignedRes.isEmpty) return;
+
+      int created = 0;
+      for (final r in assignedRes) {
+        final bucket = (r['storage_bucket'] ?? _defaultResourceBucket)
+            .toString();
+        final path = (r['storage_path'] ?? r['path'] ?? '').toString();
+        if (path.isEmpty) continue;
+
+        final key = '$bucket::$path';
+        if (existKeys.contains(key)) continue; // 중복 방지
+
+        final title = (r['title'] ?? r['filename'] ?? '리소스').toString();
+        final filename = (r['filename'] ?? r['title'] ?? 'file').toString();
+
+        final rf = ResourceFile.fromMap({
+          'id': r['id']?.toString() ?? '',
+          'curriculum_node_id': r['curriculum_node_id'],
+          'title': title,
+          'filename': filename,
+          'mime_type': r['mime_type'],
+          'size_bytes': r['size_bytes'],
+          'storage_bucket': bucket,
+          'storage_path': path,
+          'created_at': r['created_at'] ?? DateTime.now().toIso8601String(),
+        });
+
+        final ok = await _links.sendResourceToTodayLesson(
+          studentId: _studentId,
+          resource: rf,
+        );
+        if (ok) {
+          created++;
+          existKeys.add(key);
+        }
+      }
+
+      if (created > 0) {
+        await _reloadLessonLinks();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('배정된 리소스 $created개를 오늘 레슨에 불러왔어요.')),
+        );
+      }
+    } catch (e) {
+      _showError('배정 리소스 불러오기 실패: $e');
+    }
+  }
+
   Future<void> _removeLessonLink(String id) async {
     try {
       final ok = await _links.deleteById(id, studentId: _studentId);
@@ -497,7 +564,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         .where((s) => s.isNotEmpty)
         .toSet();
 
-
     // parent 맵 구성
     final byId = <String, Map<String, dynamic>>{};
     final childrenOf = <String?, List<Map<String, dynamic>>>{};
@@ -509,7 +575,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
 
     bool isDescendantOfAssigned(String id) {
-      // id 가 루트 중 하나(assigned)에서 내려오는지 확인
       var cur = byId[id];
       while (cur != null) {
         final curId = (cur['id'] ?? '').toString();
@@ -523,7 +588,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     // 배정된 서브트리만
     List<Map<String, dynamic>> assignedOnly = all.where((m) {
       final id = (m['id'] ?? '').toString();
-      // 루트가 배정된 노드거나, 그 하위면 포함
       return isDescendantOfAssigned(id) || assignedNodeIds.contains(id);
     }).toList();
 
@@ -549,7 +613,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
         void apply() {
           working = applyFilter(ctl.text.trim(), showAssignedOnly);
-          (ctx as Element).markNeedsBuild(); // 간단 리빌드
+          (ctx as Element).markNeedsBuild();
         }
 
         return StatefulBuilder(
@@ -561,7 +625,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // 배정 토글
                     Row(
                       children: [
                         Expanded(
@@ -697,7 +760,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         content: Text(ok ? '노드를 오늘 레슨에 링크했어요.' : '링크 실패: 서버 RPC 미구성 또는 권한 오류'),
       ),
     );
-    if (ok) unawaited(_reloadLessonLinks());
+    if (ok) unawaited(_reloadLessonLinks(ensure: true));
   }
 
   Future<void> _linkCurriculumResource() async {
@@ -729,7 +792,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         content: Text(ok ? '리소스를 오늘 레슨에 링크했어요.' : '링크 실패: 서버 RPC 미구성 또는 권한 오류'),
       ),
     );
-    if (ok) unawaited(_reloadLessonLinks());
+    if (ok) unawaited(_reloadLessonLinks(ensure: true));
   }
 
   // ===== 기타 =====
@@ -981,7 +1044,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       }
     }
 
-    // xsc 메타가 있으면 뱃지/버튼 노출(없으면 조용히 패스)
     bool hasXscMeta(Map m) =>
         (m['xsc_updated_at'] != null &&
             m['xsc_updated_at'].toString().isNotEmpty) ||

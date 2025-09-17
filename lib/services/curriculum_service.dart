@@ -1,8 +1,8 @@
 // lib/services/curriculum_service.dart
-// v1.46.3 | 커리큘럼 서비스 (루트 file 금지 가드 + 딥링크 유틸 유지)
-// - buildBrowserUrl(nodeId), openInBrowser(nodeId)
-// - listNodes(): RPC 우선 + 폴백
-// - 루트파일 금지 가드(정책과 일치)
+// v1.46.4 | 커리큘럼 서비스
+// - 기존 기능 유지
+// - 학생 기준 배정 리소스 조회(fetchAssignedResourcesForStudent) 추가
+//   (TodayLessonScreen에서 학생 로그인/학생 지정 모드에 사용)
 
 import 'dart:async' show TimeoutException;
 import 'dart:io' show SocketException, HttpException;
@@ -15,6 +15,8 @@ class CurriculumService {
   // ---------- Table / RPC ----------
   static const _tNodes = 'curriculum_nodes';
   static const _tAssign = 'curriculum_assignments';
+  static const _tNodeRes = 'curriculum_node_resources';
+  static const _tRes = 'resources';
   static const _rpcVisibleTree = 'list_visible_curriculum_tree';
 
   // ---------- Deep Links ----------
@@ -312,5 +314,37 @@ class CurriculumService {
       await deleteNode(cid, recursive: true);
     }
     await _retry(() => _c.from(_tNodes).delete().eq('id', id));
+  }
+
+  // ---------- NEW: 학생 기준 배정 리소스 조회 ----------
+  // 학생에게 배정된 카테고리(노드) → 노드-리소스 매핑 → 리소스 rows
+  // TodayLessonScreen에서 "학생 모드"일 때 이 메서드를 사용해 버튼을 채운다.
+  Future<List<Map<String, dynamic>>> fetchAssignedResourcesForStudent(
+    String studentId,
+  ) async {
+    final data = await _retry(() {
+      return _c
+          .from(_tAssign)
+          .select('''
+            curriculum_node_id,
+            ${_tNodeRes}!inner(resource_id),
+            ${_tRes}!inner(*)
+          ''')
+          .eq('student_id', studentId);
+    });
+
+    // PostgREST 조인 결과에서 resources 부분만 추출
+    final list = <Map<String, dynamic>>[];
+    for (final r in (data as List)) {
+      final m = Map<String, dynamic>.from(r as Map);
+      // resources 키 이름은 드라이버 버전에 따라 테이블명 또는 alias로 반환됨
+      final res = m[_tRes];
+      if (res is Map) {
+        list.add(Map<String, dynamic>.from(res));
+      } else if (res is List && res.isNotEmpty && res.first is Map) {
+        list.add(Map<String, dynamic>.from(res.first as Map));
+      }
+    }
+    return list;
   }
 }
