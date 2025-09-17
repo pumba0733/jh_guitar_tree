@@ -1,8 +1,9 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.55.0-pre | xsc 최신본 표기 자리 추가 + 안정성 가드
+// v1.55.1-fix | xsc 최신본 표기 자리 + 널 단언 제거 + 미사용 함수 제거
 // - "다음 계획" 제거 상태 유지(v1.46.0 기반)
 // - 오늘 레슨 링크 목록에서 xsc 최신본 뱃지/버튼(조건부) 추가
 // - setState 가드/토스트 문구 미세 보강
+// - 불필요한 널 단언(!) 제거, _showInfo 제거로 린트 해결
 //
 // ⚠️ 실제 Pre-open/Watch/Upload 동기화는 서비스 레이어 패치 후 활성화됨.
 
@@ -127,9 +128,9 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   }
 
   Future<void> _initAsync({String? initialLessonId}) async {
-    if (initialLessonId != null && initialLessonId.isNotEmpty) {
+    if ((initialLessonId ?? '').isNotEmpty) {
       try {
-        final row = await _service.getById(initialLessonId);
+        final row = await _service.getById(initialLessonId!);
         if (row != null) {
           final sid = (row['student_id'] ?? '').toString();
           final dateStr = (row['date'] ?? '').toString();
@@ -142,7 +143,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
     await _ensureTodayRow();
 
-    if (_fromHistoryId != null && _fromHistoryId!.isNotEmpty) {
+    if (((_fromHistoryId ?? '')).isNotEmpty) {
       await _prefillFromHistory(_fromHistoryId!);
     }
 
@@ -169,7 +170,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
   Future<void> _ensureTodayRow() async {
     try {
-      if (_lessonId != null && _lessonId!.isNotEmpty) {
+      if (((_lessonId ?? '')).isNotEmpty) {
         final row = await _service.getById(_lessonId!);
         if (row != null) {
           _applyRow(row);
@@ -193,8 +194,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       } else {
         row = await _service.upsert({
           'student_id': _studentId,
-          if (_teacherId != null && _teacherId!.isNotEmpty)
-            'teacher_id': _teacherId,
+          if (((_teacherId ?? '')).isNotEmpty) 'teacher_id': _teacherId,
           'date': _todayDateStr,
           'subject': '',
           'memo': '',
@@ -356,7 +356,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   }
 
   Future<void> _saveInternal() async {
-    if (_lessonId == null || _lessonId!.isEmpty) return;
+    if (((_lessonId ?? '')).isEmpty) return;
     try {
       final attachmentsForSave = _attachments.map((m) {
         final c = Map<String, dynamic>.from(m);
@@ -368,8 +368,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         'id': _lessonId,
         'student_id': _studentId,
         'date': _todayDateStr,
-        if (_teacherId != null && _teacherId!.isNotEmpty)
-          'teacher_id': _teacherId,
+        if (((_teacherId ?? '')).isNotEmpty) 'teacher_id': _teacherId,
         'subject': _subjectCtl.text.trim(),
         'memo': _memoCtl.text.trim(),
         'keywords': _selectedKeywords.toList(),
@@ -494,10 +493,10 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
     // 배정된 노드 id 집합(카테고리 기준)
     final assignedNodeIds = assigns
-        .map<String?>((m) => (m['curriculum_node_id'] ?? '').toString())
-        .where((s) => s != null && s!.isNotEmpty)
-        .cast<String>()
+        .map((m) => (m['curriculum_node_id'] ?? '').toString())
+        .where((s) => s.isNotEmpty)
         .toSet();
+
 
     // parent 맵 구성
     final byId = <String, Map<String, dynamic>>{};
@@ -791,11 +790,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
     );
-  }
-
-  void _showInfo(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override

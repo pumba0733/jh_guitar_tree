@@ -32,7 +32,13 @@ class FileService {
   static const String _bucketName = 'lesson_attachments';
 
   // ========= NEW: Workspace =========
-  static final String _ENV_WORKSPACE_DIR = const String.fromEnvironment(
+  static const String envWorkspaceDir = String.fromEnvironment(
+    'WORKSPACE_DIR',
+    defaultValue: '',
+  );
+
+  // 빌드타임 상수: flutter run --dart-define=WORKSPACE_DIR=/path ...
+  static const String _envWorkspaceDir = String.fromEnvironment(
     'WORKSPACE_DIR',
     defaultValue: '',
   );
@@ -48,8 +54,9 @@ class FileService {
   /// 앱 전역 워크스페이스 루트
   static Future<Directory> _resolveWorkspaceDir() async {
     // 1) ENV 우선
-    if (_ENV_WORKSPACE_DIR.trim().isNotEmpty) {
-      final d = Directory(_ENV_WORKSPACE_DIR.trim());
+    final env = _envWorkspaceDir.trim();
+    if (env.isNotEmpty) {
+      final d = Directory(env);
       if (!await d.exists()) await d.create(recursive: true);
       return d;
     }
@@ -59,7 +66,7 @@ class FileService {
     return d;
   }
 
-  /// 학생별 워크스페이스 디렉토리 (예: ~/GuitarTreeWorkspace/<studentId>)
+  /// 학생별 워크스페이스 디렉토리 (예: ~/GuitarTreeWorkspace/<studentId)
   static Future<Directory> _studentWorkspaceDir(String studentId) async {
     final root = await _resolveWorkspaceDir();
     final d = Directory(p.join(root.path, studentId));
