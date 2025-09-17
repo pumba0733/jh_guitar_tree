@@ -1,23 +1,23 @@
 // lib/services/curriculum_service.dart
-// v1.46.2 | 커리큘럼 서비스
-// - NEW: buildBrowserUrl(nodeId), openInBrowser(nodeId)
-// - listNodes(): RPC 우선 + 폴백 유지
-// - 루트파일 금지 가드 유지
+// v1.46.3 | 커리큘럼 서비스 (루트 file 금지 가드 + 딥링크 유틸 유지)
+// - buildBrowserUrl(nodeId), openInBrowser(nodeId)
+// - listNodes(): RPC 우선 + 폴백
+// - 루트파일 금지 가드(정책과 일치)
 
 import 'dart:async' show TimeoutException;
 import 'dart:io' show SocketException, HttpException;
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart'; // ⬅️ 외부/앱 스킴 열기
+import 'package:url_launcher/url_launcher.dart';
 
 class CurriculumService {
   final SupabaseClient _c = Supabase.instance.client;
 
-  // ---------- Table / RPC names ----------
+  // ---------- Table / RPC ----------
   static const _tNodes = 'curriculum_nodes';
   static const _tAssign = 'curriculum_assignments';
   static const _rpcVisibleTree = 'list_visible_curriculum_tree';
 
-  // 🔗 딥링크 베이스(필요 시 .env/상수로 이동 가능)
+  // ---------- Deep Links ----------
   static const String _appDeepLinkBase = 'guitartree://curriculum';
   static const String _webDeepLinkBase =
       'https://app.guitartree.local/curriculum';
@@ -35,7 +35,6 @@ class CurriculumService {
   Map<String, dynamic> _mapOne(dynamic row) =>
       Map<String, dynamic>.from(row as Map);
 
-  // 재시도 유틸
   Future<T> _retry<T>(
     Future<T> Function() task, {
     int maxAttempts = 3,
@@ -83,10 +82,7 @@ class CurriculumService {
     }
   }
 
-  // ========== NEW: Browser Deep Link ==========
-  /// 커리큘럼 브라우저에서 특정 노드를 열기 위한 URL을 만든다.
-  /// - preferAppScheme=true 이면 앱 스킴(guitartree://) 우선
-  /// - 아니면 웹 URL(https://...) 반환
+  // ---------- Deep Link Utils ----------
   String buildBrowserUrl(String nodeId, {bool preferAppScheme = true}) {
     final id = nodeId.trim();
     if (id.isEmpty) {
@@ -96,20 +92,21 @@ class CurriculumService {
     return '$base?node=$id';
   }
 
-  /// 위 URL을 외부 앱/브라우저로 연다.
   Future<void> openInBrowser(
     String nodeId, {
     bool preferAppScheme = true,
   }) async {
     final url = buildBrowserUrl(nodeId, preferAppScheme: preferAppScheme);
-    final uri = Uri.parse(url);
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final ok = await launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.externalApplication,
+    );
     if (!ok) {
       throw StateError('브라우저/앱으로 열기 실패: $url');
     }
   }
 
-  // ========== Reads ==========
+  // ---------- Reads ----------
   Future<List<Map<String, dynamic>>> listNodes() async {
     if (_hasVisibleTreeRpc != false) {
       try {
@@ -158,7 +155,7 @@ class CurriculumService {
     return _mapOne(data);
   }
 
-  // ========== Assignments ==========
+  // ---------- Assignments ----------
   Future<List<Map<String, dynamic>>> listAssignmentsByStudent(
     String studentId,
   ) async {
@@ -192,7 +189,6 @@ class CurriculumService {
       if (path != null) 'path': path,
       if (filePath != null) 'file_path': filePath,
     };
-
     final upserted = await _retry(
       () => _c
           .from(_tAssign)
@@ -212,7 +208,6 @@ class CurriculumService {
         .where((s) => s.trim().isNotEmpty)
         .map((s) => {'student_id': s.trim(), 'curriculum_node_id': nodeId})
         .toList(growable: false);
-
     final res = await _retry(
       () => _c
           .from(_tAssign)
@@ -235,7 +230,7 @@ class CurriculumService {
     );
   }
 
-  // ========== Nodes CRUD ==========
+  // ---------- Nodes CRUD ----------
   Future<Map<String, dynamic>> createNode({
     String? parentId,
     String type = 'category', // 'category' | 'file'
@@ -275,7 +270,6 @@ class CurriculumService {
     if (id.trim().isEmpty) {
       throw ArgumentError('updateNode: id 누락');
     }
-
     final before = await getNode(id);
     if (before == null) {
       throw StateError('updateNode: 대상 노드를 찾을 수 없습니다. id=$id');
@@ -292,7 +286,6 @@ class CurriculumService {
       if (order != null) 'order': order,
       if (extra != null) ...extra,
     };
-
     final updated = await _retry(
       () => _c.from(_tNodes).update(payload).eq('id', id).select().single(),
     );

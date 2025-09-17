@@ -1,9 +1,8 @@
 // lib/services/file_service.dart
-// v1.28.4 | 네트워크 안정화(P2) + URL 키추출 보강(public/sign/auth) + contentType 전달
-// - 재시도/타임아웃 유지
-// - _extractStorageKeyFromUrl: /object/public/, /object/sign/, /object/auth/ 지원
-// - uploadBinary 시 FileOptions.contentType 전달(가능할 때)
-// - 스마트오픈/다운로드 흐름 기존과 동일
+// v1.29.0 | 워크스페이스 저장/열기 추가 + 기존 기능 유지
+// - NEW: saveUrlToWorkspaceAndOpen / saveBytesToWorkspaceAndOpen
+// - 학생별 워크스페이스(ENV 또는 홈 디렉토리 하위)로 리소스를 저장 후 기본앱 실행
+// - 기존 openSmart/ensureLocalCopy는 그대로(관리자 화면 등에서 사용)
 
 import 'dart:async';
 import 'dart:io';
@@ -31,6 +30,47 @@ class FileService {
   SupabaseClient get _sb => Supabase.instance.client;
 
   static const String _bucketName = 'lesson_attachments';
+
+  // ========= NEW: Workspace =========
+  static final String _ENV_WORKSPACE_DIR = const String.fromEnvironment(
+    'WORKSPACE_DIR',
+    defaultValue: '',
+  );
+
+  static Directory _homeDir() {
+    final home =
+        Platform.environment['HOME'] ??
+        Platform.environment['USERPROFILE'] ??
+        Directory.systemTemp.path;
+    return Directory(home);
+  }
+
+  /// 앱 전역 워크스페이스 루트
+  static Future<Directory> _resolveWorkspaceDir() async {
+    // 1) ENV 우선
+    if (_ENV_WORKSPACE_DIR.trim().isNotEmpty) {
+      final d = Directory(_ENV_WORKSPACE_DIR.trim());
+      if (!await d.exists()) await d.create(recursive: true);
+      return d;
+    }
+    // 2) 기본값: ~/GuitarTreeWorkspace
+    final d = Directory(p.join(_homeDir().path, 'GuitarTreeWorkspace'));
+    if (!await d.exists()) await d.create(recursive: true);
+    return d;
+  }
+
+  /// 학생별 워크스페이스 디렉토리 (예: ~/GuitarTreeWorkspace/<studentId>)
+  static Future<Directory> _studentWorkspaceDir(String studentId) async {
+    final root = await _resolveWorkspaceDir();
+    final d = Directory(p.join(root.path, studentId));
+    if (!await d.exists()) await d.create(recursive: true);
+    return d;
+  }
+
+  static Future<void> _ensureDir(String dirPath) async {
+    final d = Directory(dirPath);
+    if (!await d.exists()) await d.create(recursive: true);
+  }
 
   // ===== 재시도 유틸 =====
   Future<T> _retry<T>(
@@ -292,7 +332,7 @@ class FileService {
     if (!ok) throw StateError('URL을 열 수 없습니다: $url');
   }
 
-  /// URL이라도 "항상 기본 앱"으로 열기 위한 스마트 오픈
+  /// URL/바이트를 임시폴더에 저장 후 여는 기존 API
   Future<void> openSmart({String? path, String? url, String? name}) async {
     if (path != null && path.isNotEmpty && File(path).existsSync()) {
       await openLocal(path);
@@ -310,10 +350,6 @@ class FileService {
 
   // public/signed/auth URL 모두에서 스토리지 키 추출 시도
   String? _extractStorageKeyFromUrl(String url) {
-    // 형태 예시:
-    // /storage/v1/object/public/<bucket>/<key...>
-    // /storage/v1/object/sign/<bucket>/<key...>?token=...
-    // /storage/v1/object/auth/<bucket>/<key...>
     final patterns = <String>[
       '/object/public/',
       '/object/sign/',
@@ -331,6 +367,22 @@ class FileService {
       }
     }
     return null;
+  }
+
+  Future<Uint8List> _downloadUrlToBytes(String url) async {
+    final key = _extractStorageKeyFromUrl(url);
+    if (key != null) {
+      return await _retry(() => _sb.storage.from(_bucketName).download(key));
+    }
+    final client = HttpClient();
+    final res = await _retry<HttpClientResponse>(
+      () => client.getUrl(Uri.parse(url)).then((rq) => rq.close()),
+    );
+    if (res.statusCode != 200) {
+      throw StateError('파일 다운로드 실패(HTTP ${res.statusCode})');
+    }
+    final data = await consolidateHttpClientResponseBytes(res);
+    return Uint8List.fromList(data);
   }
 
   Future<String> _ensureLocalCopy(Map<String, dynamic> att) async {
@@ -419,5 +471,51 @@ class FileService {
     if (key == null || key.isEmpty) return;
 
     await _retry(() => _sb.storage.from(_bucketName).remove([key!]));
+  }
+
+  // ========= NEW: Save to Workspace then open =========
+
+  /// URL을 학생 워크스페이스에 저장하고 기본앱으로 연다.
+  Future<String> saveUrlToWorkspaceAndOpen({
+    required String studentId,
+    required String filename,
+    required String url,
+  }) async {
+    if (!_isDesktop) {
+      // 데스크탑 아닌 경우엔 기존 외부열기 유지
+      await openUrl(url);
+      return '';
+    }
+    final bytes = await _downloadUrlToBytes(url);
+    return await saveBytesToWorkspaceAndOpen(
+      studentId: studentId,
+      filename: filename,
+      bytes: bytes,
+    );
+  }
+
+  /// 바이트를 학생 워크스페이스에 저장하고 기본앱으로 연다.
+  Future<String> saveBytesToWorkspaceAndOpen({
+    required String studentId,
+    required String filename,
+    required Uint8List bytes,
+  }) async {
+    if (!_isDesktop) {
+      // 데스크탑 아닌 경우 대체 처리
+      final tmp = await saveBytesFile(filename: filename, bytes: bytes);
+      await openLocal(tmp.path);
+      return tmp.path;
+    }
+
+    final safeName = _displaySafeName(filename);
+    final studentDir = await _studentWorkspaceDir(studentId);
+    final sub = Directory(p.join(studentDir.path, 'Curriculum'));
+    await _ensureDir(sub.path);
+
+    final outPath = p.join(sub.path, safeName);
+    await File(outPath).writeAsBytes(bytes, flush: true);
+
+    await openLocal(outPath);
+    return outPath;
   }
 }

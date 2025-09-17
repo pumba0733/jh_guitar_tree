@@ -1,8 +1,10 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.46.0 | "다음 계획" 전면 제거 (UI/상태/저장 로직)
-// - next_plan 컨트롤러/상태/초기화/프리필/저장 필드 제거
-// - 관련 보조 로딩(_loadRecentNextPlans) 및 UI 섹션 삭제
-// - 링크/키워드/메모/첨부/유튜브 기능은 그대로 유지
+// v1.55.0-pre | xsc 최신본 표기 자리 추가 + 안정성 가드
+// - "다음 계획" 제거 상태 유지(v1.46.0 기반)
+// - 오늘 레슨 링크 목록에서 xsc 최신본 뱃지/버튼(조건부) 추가
+// - setState 가드/토스트 문구 미세 보강
+//
+// ⚠️ 실제 Pre-open/Watch/Upload 동기화는 서비스 레이어 패치 후 활성화됨.
 
 import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
@@ -23,6 +25,7 @@ import '../../services/lesson_links_service.dart';
 import '../../services/curriculum_service.dart';
 import '../../services/resource_service.dart';
 import '../../models/resource.dart';
+import '../../services/xsc_sync_service.dart';
 
 enum _LocalSection { memo, link, attach, lessonLinks }
 
@@ -421,8 +424,10 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
   }
 
+  // _openLessonLink 교체본 (resource 분기만 변경)
   Future<void> _openLessonLink(Map<String, dynamic> link) async {
     final kind = (link['kind'] ?? '').toString();
+
     if (kind == 'resource') {
       try {
         final rf = ResourceFile.fromMap({
@@ -437,23 +442,26 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           'created_at': link['created_at'],
         });
         final url = await _res.signedUrl(rf);
-        await _file.openUrl(url);
+        final filename = rf.filename; // 원본 표시명 유지
+        // 🔁 학생 워크스페이스에 저장 후 기본앱으로 실행
+        await _file.saveUrlToWorkspaceAndOpen(
+          studentId: _studentId,
+          filename: filename,
+          url: url,
+        );
       } catch (e) {
         _showError('리소스 열기 실패: $e');
       }
       return;
     }
 
-    // kind == 'node' → 브라우저/스튜디오로 이동 시도, 실패 시 ID 복사로 폴백
+    // kind == 'node' → 브라우저/스튜디오로 이동 시도, 실패 시 ID 복사
     final nodeId = (link['curriculum_node_id'] ?? '').toString();
     if (nodeId.isEmpty) {
       _showError('노드 정보를 찾을 수 없습니다.');
       return;
     }
     try {
-      // TODO: CurriculumService 쪽에 실제 구현 필요
-      // - macOS/Windows 데스크탑: 내부 라우트 또는 외부 브라우저 딥링크
-      // - 구현 없으면 아래 catch로 폴백
       await _curr.openInBrowser(nodeId);
     } catch (_) {
       await Clipboard.setData(ClipboardData(text: nodeId));
@@ -464,37 +472,117 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
   }
 
+  // ===== xsc 최신본 열기(자리 마련: 서비스 패치 후 연결) =====
+  Future<void> _openLatestXsc(Map<String, dynamic> link) async {
+    try {
+      // kind/resource 가드 및 실제 프리/포스트 동기화 + 기본앱 실행
+      await XscSyncService().openFromLessonLinkMap(
+        link: link,
+        studentId: _studentId,
+      );
+    } catch (e) {
+      _showError('xsc 열기 실패: $e');
+    }
+  }
+
   // ===== 노드/리소스 선택 다이얼로그 =====
   Future<String?> _pickNodeDialog() async {
-    final all = await _curr.listNodes(); // 전체 → 클라 필터
+    // 1) 전체 노드 + 학생 배정 목록 로드
+    final all = await _curr.listNodes(); // 전체 트리
+    final assigns = await _curr.listAssignmentsByStudent(_studentId);
     if (!mounted) return null;
+
+    // 배정된 노드 id 집합(카테고리 기준)
+    final assignedNodeIds = assigns
+        .map<String?>((m) => (m['curriculum_node_id'] ?? '').toString())
+        .where((s) => s != null && s!.isNotEmpty)
+        .cast<String>()
+        .toSet();
+
+    // parent 맵 구성
+    final byId = <String, Map<String, dynamic>>{};
+    final childrenOf = <String?, List<Map<String, dynamic>>>{};
+    for (final m in all) {
+      final id = (m['id'] ?? '').toString();
+      final pid = m['parent_id'];
+      byId[id] = m;
+      childrenOf.putIfAbsent(pid, () => []).add(m);
+    }
+
+    bool isDescendantOfAssigned(String id) {
+      // id 가 루트 중 하나(assigned)에서 내려오는지 확인
+      var cur = byId[id];
+      while (cur != null) {
+        final curId = (cur['id'] ?? '').toString();
+        if (assignedNodeIds.contains(curId)) return true;
+        final pid = cur['parent_id'];
+        cur = (pid == null) ? null : byId[pid.toString()];
+      }
+      return false;
+    }
+
+    // 배정된 서브트리만
+    List<Map<String, dynamic>> assignedOnly = all.where((m) {
+      final id = (m['id'] ?? '').toString();
+      // 루트가 배정된 노드거나, 그 하위면 포함
+      return isDescendantOfAssigned(id) || assignedNodeIds.contains(id);
+    }).toList();
+
     return showDialog<String>(
       context: context,
       builder: (ctx) {
         final ctl = TextEditingController();
-        List<Map<String, dynamic>> filtered = all;
+        bool showAssignedOnly = assignedNodeIds.isNotEmpty; // 기본 ON (배정 존재 시)
+        List<Map<String, dynamic>> working = showAssignedOnly
+            ? assignedOnly
+            : all;
+
+        List<Map<String, dynamic>> applyFilter(String q, bool onlyAssigned) {
+          final src = (onlyAssigned ? assignedOnly : all);
+          if (q.isEmpty) return src;
+          final qq = q.toLowerCase();
+          return src.where((m) {
+            final title = (m['title'] ?? '').toString().toLowerCase();
+            final id = (m['id'] ?? '').toString().toLowerCase();
+            return title.contains(qq) || id.contains(qq);
+          }).toList();
+        }
+
+        void apply() {
+          working = applyFilter(ctl.text.trim(), showAssignedOnly);
+          (ctx as Element).markNeedsBuild(); // 간단 리빌드
+        }
 
         return StatefulBuilder(
           builder: (ctx, setSt) {
-            void apply() {
-              final q = ctl.text.trim().toLowerCase();
-              filtered = q.isEmpty
-                  ? all
-                  : all.where((m) {
-                      final title = (m['title'] ?? '').toString().toLowerCase();
-                      final id = (m['id'] ?? '').toString().toLowerCase();
-                      return title.contains(q) || id.contains(q);
-                    }).toList();
-              setSt(() {}); // ← 안전한 리빌드
-            }
-
             return AlertDialog(
               title: const Text('노드 선택'),
               content: SizedBox(
-                width: 520,
+                width: 560,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // 배정 토글
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('배정된 카테고리만 보기'),
+                            value: showAssignedOnly,
+                            onChanged: (v) {
+                              showAssignedOnly = v;
+                              working = applyFilter(
+                                ctl.text.trim(),
+                                showAssignedOnly,
+                              );
+                              setSt(() {});
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
                     TextField(
                       controller: ctl,
                       autofocus: true,
@@ -503,16 +591,16 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                         prefixIcon: Icon(Icons.search),
                         border: OutlineInputBorder(),
                       ),
-                      onChanged: (_) => apply(),
+                      onChanged: (_) => setSt(apply),
                     ),
                     const SizedBox(height: 12),
                     SizedBox(
-                      height: 320,
+                      height: 360,
                       child: Scrollbar(
                         child: ListView.builder(
-                          itemCount: filtered.length,
+                          itemCount: working.length,
                           itemBuilder: (_, i) {
-                            final m = filtered[i];
+                            final m = working[i];
                             final isFile = (m['type'] ?? '') == 'file';
                             return ListTile(
                               dense: true,
@@ -705,6 +793,11 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     );
   }
 
+  void _showInfo(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   @override
   void dispose() {
     _debounce?.cancel();
@@ -894,19 +987,65 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       }
     }
 
+    // xsc 메타가 있으면 뱃지/버튼 노출(없으면 조용히 패스)
+    bool hasXscMeta(Map m) =>
+        (m['xsc_updated_at'] != null &&
+            m['xsc_updated_at'].toString().isNotEmpty) ||
+        (m['xsc_storage_path'] != null &&
+            m['xsc_storage_path'].toString().isNotEmpty);
+
+    String? xscStamp(Map m) {
+      final v = m['xsc_updated_at']?.toString();
+      if (v == null || v.isEmpty) return null;
+      return v;
+    }
+
     return Column(
       children: _todayLinks.map((m) {
         final kind = (m['kind'] ?? '').toString();
         final isNode = kind == 'node';
+        final showXsc = !isNode && hasXscMeta(m);
 
         return ListTile(
           dense: true,
           leading: Icon(isNode ? Icons.folder : Icons.insert_drive_file),
-          title: Text(titleOf(m), maxLines: 1, overflow: TextOverflow.ellipsis),
-          // 서브텍스트 과감히 제거(필요시 … 메뉴에 '정보 복사')
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  titleOf(m),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (showXsc)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Tooltip(
+                    message: xscStamp(m) != null
+                        ? '최근 저장: ${xscStamp(m)}'
+                        : '학생별 xsc 연결됨',
+                    child: const Chip(
+                      label: Text('최근 저장본'),
+                      padding: EdgeInsets.zero,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ),
+            ],
+          ),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (showXsc)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: IconButton(
+                    tooltip: 'xsc(최신) 열기',
+                    icon: const Icon(Icons.music_note),
+                    onPressed: () => _openLatestXsc(m),
+                  ),
+                ),
               IconButton(
                 tooltip: isNode ? '브라우저에서 열기' : '파일 열기',
                 icon: const Icon(Icons.open_in_new),

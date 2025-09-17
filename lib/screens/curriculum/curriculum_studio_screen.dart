@@ -1,8 +1,7 @@
-// v1.44.2 | 안전성/린트 보강 + 소소 UX 정리
-// - URL 열기 실패 시 사용자 피드백 유지
-// - SnackBar/다이얼로그 직전 context.mounted 가드 통일
-// - FutureBuilder/refresh 패턴 확인 및 미세 정리
-// - 루트 파일/카테고리 동시 허용(현행 유지). 정책 변경 시 UI 버튼 토글만 바꾸면 됨.
+// lib/screens/curriculum/curriculum_studio_screen.dart
+// v1.46.3 | 커리큘럼 스튜디오 (루트 file 생성 버튼 제거/문구 수정)
+// - 리소스 업로드/열기/삭제, 형제 정렬, 하위 category/file 추가 그대로 유지
+// - 서비스 가드/DB 제약과 UI 정책 일치
 
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -39,9 +38,7 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
   Future<void> _refresh() async {
     final future = _svc.listNodes();
     if (!mounted) return;
-    setState(() {
-      _load = future;
-    });
+    setState(() => _load = future);
     await future;
   }
 
@@ -54,8 +51,15 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     final trimmed = title.trim();
     if (trimmed.isEmpty) return;
 
-    await _svc.createNode(parentId: parentId, type: type, title: trimmed);
-    await _refresh();
+    try {
+      await _svc.createNode(parentId: parentId, type: type, title: trimmed);
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('생성 실패: $e')));
+    }
   }
 
   Future<void> _editNode(CurriculumNode n) async {
@@ -68,7 +72,6 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     await _refresh();
   }
 
-  // 기존 링크 편집(호환용) — 파일 노드에서만 의미 있음
   Future<void> _editFileUrl(CurriculumNode n) async {
     final url = await _promptText(
       context,
@@ -118,7 +121,6 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     }
   }
 
-  // ===== 리소스 관리자 =====
   Future<void> _openResourceManager(CurriculumNode n) async {
     if (!mounted) return;
     await showModalBottomSheet(
@@ -128,7 +130,6 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     );
   }
 
-  // ===== 형제 정렬 다이얼로그 =====
   Future<void> _openSiblingReorderDialog({
     required String? parentId,
     required List<CurriculumNode> siblings,
@@ -289,7 +290,7 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
                 child: Padding(
                   padding: EdgeInsets.all(24),
                   child: Text(
-                    '커리큘럼이 없습니다.\n우측 하단 + 버튼으로 루트 카테고리 또는 루트 파일을 추가하세요.',
+                    '커리큘럼이 없습니다.\n우측 하단 + 버튼으로 루트 카테고리를 추가하세요.',
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -304,24 +305,11 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
               Positioned(
                 right: 16,
                 bottom: 16,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FloatingActionButton.extended(
-                      heroTag: 'add_root_file',
-                      onPressed: () => _addNode(parentId: null, type: 'file'),
-                      icon: const Icon(Icons.note_add),
-                      label: const Text('루트 파일'),
-                    ),
-                    const SizedBox(height: 12),
-                    FloatingActionButton.extended(
-                      heroTag: 'add_root_cat',
-                      onPressed: () =>
-                          _addNode(parentId: null, type: 'category'),
-                      icon: const Icon(Icons.create_new_folder),
-                      label: const Text('루트 카테고리'),
-                    ),
-                  ],
+                child: FloatingActionButton.extended(
+                  heroTag: 'add_root_cat',
+                  onPressed: () => _addNode(parentId: null, type: 'category'),
+                  icon: const Icon(Icons.create_new_folder),
+                  label: const Text('루트 카테고리'),
                 ),
               ),
             ],
@@ -333,7 +321,6 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
 }
 
 // ===== 형제 정렬 다이얼로그 =====
-
 class _SiblingReorderDialog extends StatefulWidget {
   final List<CurriculumNode> siblings;
   const _SiblingReorderDialog({required this.siblings});
@@ -396,7 +383,6 @@ class _SiblingReorderDialogState extends State<_SiblingReorderDialog> {
 }
 
 // ===== 리소스 관리 시트 =====
-
 class _ResourceManagerSheet extends StatefulWidget {
   final CurriculumNode node;
   final ResourceService svc;
@@ -436,7 +422,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
           .map(
             (e) => _Picked(
               name: e.name,
-              bytes: e.bytes, // Uint8List? 그대로 전달
+              bytes: e.bytes,
               path: e.path,
               size: e.size,
             ),
@@ -452,7 +438,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
         _Picked(
           name: xf.name,
           path: xf.path,
-          bytes: null, // 큰 파일 대비: path 우선
+          bytes: null,
           size: await xf.length(),
         ),
       );
@@ -469,7 +455,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
         await widget.svc.uploadForNode(
           nodeId: widget.node.id,
           filename: name,
-          bytes: f.bytes, // Uint8List? (null이면 filePath 사용)
+          bytes: f.bytes,
           filePath: f.path,
           mimeType: mime,
           sizeBytes: f.size,
@@ -493,7 +479,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
 
   Future<void> _open(ResourceFile r) async {
     try {
-      final url = await widget.svc.signedUrl(r); // private 버킷도 OK
+      final url = await widget.svc.signedUrl(r);
       await FileService.instance.openSmart(url: url, name: r.filename);
     } catch (e) {
       if (!mounted) return;
@@ -660,14 +646,13 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
 
 class _Picked {
   final String name;
-  final Uint8List? bytes; // ✅ Uint8List 유지
+  final Uint8List? bytes;
   final String? path;
   final int size;
   _Picked({required this.name, this.bytes, this.path, required this.size});
 }
 
 // ===== 공용 다이얼로그 =====
-
 Future<String?> _promptText(
   BuildContext context,
   String title, {
