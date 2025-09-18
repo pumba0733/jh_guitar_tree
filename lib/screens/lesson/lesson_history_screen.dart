@@ -1,15 +1,17 @@
 // lib/screens/lesson/lesson_history_screen.dart
-// v1.49.1 | 삭제 플로우 안정화(+중복탭 방지/로딩 표시)
-// - LessonService.deleteById()의 bool 반환에 맞춰 실제 삭제 여부 확인
-// - 삭제 중인 행은 버튼 비활성 + 진행표시
-// - 실패 시 리스트 롤백 없이 안내만 표시
-// - 나머지 기능/UX 동일
+// v1.59.1-fix2 | lesson_links 스키마 호환: resource_id 제거, bucket/path/filename 사용
+// - links 로딩: resource_bucket/resource_path/resource_filename/resource_title 선택
+// - 리소스 조인 제거(불필요). 링크 메타로 바로 표시/실행
+// - XSC 동기화/기본앱 열기: 링크 메타로 ResourceFile 구성
+// - 이전 fix 유지: select 제네릭 제거, inFilter 사용 제거, FileService.openLocal/OpenUrl 사용
 
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../routes/app_routes.dart';
 import '../../services/lesson_service.dart';
@@ -17,6 +19,11 @@ import '../../services/auth_service.dart';
 import '../../services/file_service.dart';
 import '../../services/log_service.dart';
 import '../../ui/components/file_clip.dart';
+
+// XSC 동기화/리소스 메타
+import '../../models/resource.dart';
+import '../../services/resource_service.dart';
+import '../../services/xsc_sync_service.dart';
 
 class LessonHistoryScreen extends StatefulWidget {
   const LessonHistoryScreen({super.key});
@@ -48,6 +55,10 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
   // 행 단위 삭제 진행상태
   final Set<String> _deleting = {};
 
+  // lesson_links 캐시: lessonId -> links[]
+  final Map<String, List<Map<String, dynamic>>> _linksCache = {};
+  final Set<String> _linksLoading = {};
+
   final DateFormat _date = DateFormat('yyyy.MM.dd');
   final DateFormat _month = DateFormat('yyyy.MM');
 
@@ -72,7 +83,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    // 안전한 arguments 파싱 (불필요 캐스트 제거)
     final raw = ModalRoute.of(context)?.settings.arguments;
     final args = (raw is Map)
         ? Map<String, dynamic>.from(raw)
@@ -108,6 +118,9 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
       _error = null;
       _loading = true;
       _deleting.clear();
+
+      _linksCache.clear();
+      _linksLoading.clear();
     });
     _load();
   }
@@ -127,7 +140,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
         asc: false,
       );
 
-      // ✅ dedupe by id
       final existingIds = _rows.map((e) => e['id']?.toString()).toSet();
       final filtered = chunk
           .where((e) {
@@ -244,6 +256,20 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
     return '"$escaped"';
   }
 
+  String _xscPathOf(Map<String, dynamic> link) {
+    for (final k in const [
+      'xsc_storage_path',
+      'xsc_path',
+      'xsc_key',
+      'xsc_storage_key',
+    ]) {
+      final v = (link[k] ?? '').toString();
+      if (v.isNotEmpty) return v;
+    }
+    return '';
+  }
+
+
   Future<void> _exportCsv() async {
     final headers = ['date', 'subject', 'memo', 'next_plan', 'keywords'];
     final buf = StringBuffer();
@@ -272,8 +298,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
       context,
     ).showSnackBar(SnackBar(content: Text('CSV 저장 완료: ${f.path}')));
   }
-
-  // ===== 네비게이션 & 삭제 =====
 
   Future<void> _navigateToTodayLesson(Map<String, dynamic> args) async {
     if (!mounted) return;
@@ -317,7 +341,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
       return;
     }
 
-    if (_deleting.contains(id)) return; // 중복탭 방지
+    if (_deleting.contains(id)) return;
 
     final ok = await showDialog<bool>(
       context: context,
@@ -341,7 +365,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
 
     setState(() => _deleting.add(id));
     try {
-      // 스토리지 정리 (비동기 best-effort)
       final attachments = (m['attachments'] is List)
           ? (m['attachments'] as List)
           : const [];
@@ -355,14 +378,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
         }
       }
 
-      // ✅ 실제 삭제 시도 (bool 반환)
-      final deleted = await _service.deleteById(
-        id,
-        // 필요 시 스코프 강화:
-        // teacherId: AuthService().currentTeacher?.id,
-        // studentId: _studentId,
-      );
-
+      final deleted = await _service.deleteById(id);
       if (!deleted) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -372,7 +388,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
         return;
       }
 
-      // (선택) 2차 확인: 존재 여부 체크
       final still = await _service.exists(id);
       if (still) {
         if (mounted) {
@@ -386,6 +401,8 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
       if (mounted) {
         setState(() {
           _rows.removeWhere((e) => (e['id'] ?? '').toString() == id);
+          _linksCache.remove(id);
+          _linksLoading.remove(id);
         });
       }
 
@@ -408,12 +425,127 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
         ).showSnackBar(SnackBar(content: Text('삭제 실패: $e')));
       }
     } finally {
-      // ❌ return 금지. mounted 가드만 두고 상태 복원
       if (mounted) {
         setState(() => _deleting.remove(id));
-      } else {
-        // mounted=false면 굳이 setState 안 함. 다음 빌드에서 초기화되므로 무시.
       }
+    }
+  }
+
+  // ---------- lesson_links lazy load ----------
+  Future<void> _ensureLinksLoaded(String lessonId) async {
+    if (_linksCache.containsKey(lessonId) || _linksLoading.contains(lessonId)) {
+      return;
+    }
+    _linksLoading.add(lessonId);
+    setState(() {});
+
+    try {
+      final client = Supabase.instance.client;
+
+      // ✅ resource_id 대신 bucket/path/filename/title을 읽는다
+      final res = await client
+          .from('lesson_links')
+          .select('*')
+          .eq('lesson_id', lessonId)
+          .order('created_at', ascending: false);
+
+      final List rows = res as List;
+      final links = rows
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(growable: false);
+
+      _linksCache[lessonId] = links;
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('링크 불러오기 실패: $e')));
+      _linksCache[lessonId] = const [];
+    } finally {
+      _linksLoading.remove(lessonId);
+      if (mounted) setState(() {});
+    }
+  }
+
+  // ---------- 기본앱 열기 ----------
+  Future<void> _openDefaultAppForLink(Map<String, dynamic> link) async {
+    try {
+      final xscPath = _xscPathOf(link); // ← 변경
+      if (xscPath.isNotEmpty) {
+        final store = Supabase.instance.client.storage.from(
+          XscSyncService.studentXscBucket,
+        );
+        final bytes = await store.download(xscPath);
+        final local = await FileService.saveBytesFile(
+          filename: 'current.xsc',
+          bytes: bytes,
+        );
+        await FileService().openLocal(local.path);
+        return;
+      }
+
+      // 2) 리소스가 있으면: 링크 메타로 ResourceFile 구성 → XscSyncService.open
+      final bucket = (link['resource_bucket'] ?? ResourceService.bucket)
+          .toString();
+      final path = (link['resource_path'] ?? '').toString();
+      final filename = (link['resource_filename'] ?? 'resource').toString();
+      if (path.isNotEmpty) {
+        final rf = ResourceFile.fromMap({
+          'id': null, // id 없이도 동작 가능
+          'storage_bucket': bucket,
+          'storage_path': path,
+          'filename': filename,
+          'title': (link['resource_title'] ?? filename).toString(),
+          'mime_type': null,
+          'size_bytes': null,
+        });
+        await XscSyncService().open(resource: rf, studentId: _studentId);
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('열 수 있는 경로가 없습니다')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('열기 실패: $e')));
+    }
+  }
+
+  // ---------- XSC 동기화 실행 ----------
+  Future<void> _runXscSync(Map<String, dynamic> link) async {
+    try {
+      final bucket = (link['resource_bucket'] ?? ResourceService.bucket)
+          .toString();
+      final path = (link['resource_path'] ?? '').toString();
+      final filename = (link['resource_filename'] ?? 'resource').toString();
+      if (path.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('리소스 경로가 없어 동기화할 수 없습니다.')),
+        );
+        return;
+      }
+      final rf = ResourceFile.fromMap({
+        'id': null,
+        'storage_bucket': bucket,
+        'storage_path': path,
+        'filename': filename,
+        'title': (link['resource_title'] ?? filename).toString(),
+        'mime_type': null,
+        'size_bytes': null,
+      });
+      await XscSyncService().open(resource: rf, studentId: _studentId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('XSC 동기화를 시작했습니다. (저장 시 자동 업로드)')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('XSC 동기화 실패: $e')));
     }
   }
 
@@ -494,6 +626,123 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
     );
   }
 
+  Widget _buildLinksSection(String lessonId) {
+    final isLoading = _linksLoading.contains(lessonId);
+    final links = _linksCache[lessonId];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle('연결된 파일'),
+          const SizedBox(height: 8),
+          if (isLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Text('불러오는 중…'),
+                ],
+              ),
+            )
+          else if (links == null)
+            OutlinedButton.icon(
+              onPressed: () => _ensureLinksLoaded(lessonId),
+              icon: const Icon(Icons.link),
+              label: const Text('링크 불러오기'),
+            )
+          else if (links.isEmpty)
+            const Text('연결된 파일이 없습니다')
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: links.map((l) {
+                final filename = (l['resource_filename'] ?? '').toString();
+                final title = (l['resource_title'] ?? '').toString();
+                final displayName =
+                    (title.isNotEmpty ? title : filename).isEmpty
+                    ? '리소스'
+                    : (title.isNotEmpty ? title : filename);
+                final xscPath = _xscPathOf(l);
+                final xscBadge = xscPath.isNotEmpty ? 'XSC' : null;
+
+                return Card(
+                  margin: const EdgeInsets.symmetric(vertical: 6),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                displayName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (xscBadge != null) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.tertiaryContainer,
+                                ),
+                                child: Text(
+                                  xscBadge,
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            // 기본앱 열기
+                            OutlinedButton.icon(
+                              onPressed: () => _openDefaultAppForLink(l),
+                              icon: const Icon(Icons.play_arrow),
+                              label: const Text('기본앱 열기'),
+                            ),
+                            // XSC 동기화
+                            FilledButton.icon(
+                              onPressed: () => _runXscSync(l),
+                              icon: const Icon(Icons.sync),
+                              label: const Text('XSC 동기화 실행'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRow(Map<String, dynamic> m) {
     final idStr = (m['id'] ?? '').toString();
     final isDeleting = _deleting.contains(idStr);
@@ -521,6 +770,9 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
         subtitle: memo.isEmpty
             ? null
             : Text(memo, maxLines: 1, overflow: TextOverflow.ellipsis),
+        onExpansionChanged: (open) {
+          if (open) _ensureLinksLoaded(idStr);
+        },
         children: [
           if (keywords.isNotEmpty)
             Padding(
@@ -540,6 +792,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
             ),
           if (memo.isNotEmpty) _kvSection('메모', memo),
           if (nextPlan.isNotEmpty) _kvSection('다음 계획', nextPlan, badge: 'NEXT'),
+
           if (attachments.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
@@ -576,6 +829,10 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                 ],
               ),
             ),
+
+          // 오늘수업 링크
+          _buildLinksSection(idStr),
+
           const SizedBox(height: 6),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
@@ -599,10 +856,10 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                   onPressed: isDeleting
                       ? null
                       : () async {
-                          final id = m['id']; // 이 행의 과거 레슨 id
+                          final id = m['id'];
                           final args = {
-                            'studentId': _studentId, // ✅ 필수
-                            'fromHistoryId': id, // ✅ 프리필 트리거
+                            'studentId': _studentId,
+                            'fromHistoryId': id,
                           };
                           await _navigateToTodayLesson(args);
                         },
@@ -617,7 +874,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
     );
   }
 
-  // 항상 스크롤러를 제공하여 모든 상태에서 pull-to-refresh 동작
   Widget _wrapRefresh(Widget child) {
     return RefreshIndicator(
       onRefresh: _refresh,

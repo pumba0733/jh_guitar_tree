@@ -161,9 +161,31 @@ class XscSyncService {
   }
 
   String _workspace() {
-    if (_wsDir.isNotEmpty) return _wsDir;
-    final home = Platform.environment['HOME'] ?? Directory.current.path;
-    return p.join(home, 'GuitarTreeWorkspace');
+    // 1) 후보 경로들 준비
+    final home = Platform.environment['HOME'];
+    final candidates = <String>[
+      if (_wsDir.isNotEmpty) _wsDir, // --dart-define
+      Platform.environment['WORKSPACE_DIR'] ?? '', // 환경변수로도 허용
+      if (home != null && home.isNotEmpty)
+        p.join(home, 'GuitarTreeWorkspace'), // ~/GuitarTreeWorkspace
+      p.join(Directory.systemTemp.path, 'GuitarTreeWorkspace'), // 최후 폴백
+    ].where((e) => e.trim().isNotEmpty).toList();
+
+    // 2) 존재/생성 가능한 첫 경로 사용
+    for (final c in candidates) {
+      try {
+        final d = Directory(c);
+        if (!d.existsSync()) {
+          d.createSync(recursive: true);
+        }
+        return d.path;
+      } catch (_) {
+        // 실패하면 다음 후보로
+      }
+    }
+
+    // 3) 최종 폴백(무조건 가능한 temp)
+    return Directory.systemTemp.createTempSync('GuitarTreeWorkspace_').path;
   }
 
   Future<String> _ensureStudentRoot(String studentId) async {
