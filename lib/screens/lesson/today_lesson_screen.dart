@@ -26,6 +26,7 @@ import '../../services/curriculum_service.dart';
 import '../../services/resource_service.dart';
 import '../../models/resource.dart';
 import '../../services/xsc_sync_service.dart';
+import '../../services/student_service.dart';
 
 enum _LocalSection { memo, link, attach, lessonLinks }
 
@@ -127,6 +128,9 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   }
 
   Future<void> _initAsync({String? initialLessonId}) async {
+    // ★ 학생 모드 첫 진입 시: 학생-토큰 연결 보장
+    await StudentService().attachMeToStudent(_studentId);
+
     if ((initialLessonId ?? '').isNotEmpty) {
       try {
         final row = await _service.getById(initialLessonId!);
@@ -565,7 +569,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         content: Text(ok ? '리소스를 오늘 레슨에 링크했어요.' : '링크 실패: 서버 RPC/권한 확인'),
       ),
     );
-    if (ok) unawaited(_reloadLessonLinks(ensure: true));
+    if (ok) await _reloadLessonLinks(ensure: true);
   }
 
   // ===== 링크 열기: resource만 실제 파일 열기 =====

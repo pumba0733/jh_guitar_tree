@@ -1,5 +1,7 @@
 // lib/services/student_service.dart
-// v1.36.2 | phoneLast4 정규화: 숫자만 추출 후 마지막 4자리 강제 + 기존 흐름 유지
+// v1.58.0 | attachMeToStudent RPC 추가: 학생-로그인 UID 자동 연결(학생 모드 첫 진입 시 호출)
+// - 기존 기능 유지
+// - findByNameAndLast4 / list / create / update / remove / fetchNamesByIds / fetchById 그대로
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../supabase/supabase_tables.dart';
@@ -204,5 +206,16 @@ class StudentService {
 
     if (res == null) return null;
     return Student.fromMap(Map<String, dynamic>.from(res));
+  }
+
+  // ---------- NEW: 학생-토큰 연결(최초 진입 시 한 번 호출) ----------
+  Future<void> attachMeToStudent(String studentId) async {
+    final sid = studentId.trim();
+    if (sid.isEmpty) return;
+    try {
+      await _client.rpc('attach_me_to_student', params: {'p_student_id': sid});
+    } catch (_) {
+      // 이미 연결되어 있거나 권한 이슈면 무시 (RLS는 이후 단계에서 판단)
+    }
   }
 }

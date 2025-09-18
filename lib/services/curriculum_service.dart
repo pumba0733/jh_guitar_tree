@@ -1,8 +1,8 @@
 // lib/services/curriculum_service.dart
-// v1.46.4 | 커리큘럼 서비스
-// - 기존 기능 유지
-// - 학생 기준 배정 리소스 조회(fetchAssignedResourcesForStudent) 추가
-//   (TodayLessonScreen에서 학생 로그인/학생 지정 모드에 사용)
+// v1.46.6 | 배정 리소스 조회 경로 수정 (inFilter 사용) + 미사용 상수 정리
+// - FIX: .in_() → .inFilter('col', values)
+// - CHORE: 미사용 _tNodeRes 제거
+// - 나머지 기존 기능 유지
 
 import 'dart:async' show TimeoutException;
 import 'dart:io' show SocketException, HttpException;
@@ -15,7 +15,6 @@ class CurriculumService {
   // ---------- Table / RPC ----------
   static const _tNodes = 'curriculum_nodes';
   static const _tAssign = 'curriculum_assignments';
-  static const _tNodeRes = 'curriculum_node_resources';
   static const _tRes = 'resources';
   static const _rpcVisibleTree = 'list_visible_curriculum_tree';
 
@@ -316,35 +315,33 @@ class CurriculumService {
     await _retry(() => _c.from(_tNodes).delete().eq('id', id));
   }
 
-  // ---------- NEW: 학생 기준 배정 리소스 조회 ----------
-  // 학생에게 배정된 카테고리(노드) → 노드-리소스 매핑 → 리소스 rows
-  // TodayLessonScreen에서 "학생 모드"일 때 이 메서드를 사용해 버튼을 채운다.
+  // ---------- NEW: 학생 기준 배정 리소스 조회 (FIX: inFilter 사용) ----------
+  // 학생에게 배정된 노드들의 id를 얻고 → resources.curriculum_node_id IN (...) 조회
   Future<List<Map<String, dynamic>>> fetchAssignedResourcesForStudent(
     String studentId,
   ) async {
-    final data = await _retry(() {
-      return _c
+    // 1) 배정된 노드 목록
+    final assigns = await _retry(() async {
+      return await _c
           .from(_tAssign)
-          .select('''
-            curriculum_node_id,
-            ${_tNodeRes}!inner(resource_id),
-            ${_tRes}!inner(*)
-          ''')
+          .select('curriculum_node_id')
           .eq('student_id', studentId);
     });
+    final nodeIds = <String>{
+      for (final r in (assigns as List))
+        if ((r as Map)['curriculum_node_id']?.toString().isNotEmpty ?? false)
+          r['curriculum_node_id'].toString(),
+    };
+    if (nodeIds.isEmpty) return const [];
 
-    // PostgREST 조인 결과에서 resources 부분만 추출
-    final list = <Map<String, dynamic>>[];
-    for (final r in (data as List)) {
-      final m = Map<String, dynamic>.from(r as Map);
-      // resources 키 이름은 드라이버 버전에 따라 테이블명 또는 alias로 반환됨
-      final res = m[_tRes];
-      if (res is Map) {
-        list.add(Map<String, dynamic>.from(res));
-      } else if (res is List && res.isNotEmpty && res.first is Map) {
-        list.add(Map<String, dynamic>.from(res.first as Map));
-      }
-    }
-    return list;
+    // 2) 해당 노드에 속한 리소스 조회
+    final data = await _retry(() async {
+      return await _c
+          .from(_tRes)
+          .select()
+          .inFilter('curriculum_node_id', nodeIds.toList())
+          .order('created_at', ascending: false);
+    });
+    return _mapList(data);
   }
 }

@@ -1,7 +1,8 @@
 // lib/services/lesson_links_service.dart
-// v1.57.0 | 링크 삭제: 보안 RPC 우선 + DELETE 폴백
-// - delete_lesson_link(p_link_id uuid, p_student_id uuid) 호출 우선
-// - 실패 시 기존 DELETE(id [+ owner]) 폴백
+// v1.57.1 | 오늘 레슨 ID 확정 후 직접 INSERT로 링크 생성 + RPC 폴백
+// - FIX: UTC/로컬 날짜 불일치로 링크가 "다른 레슨"에 들어가 목록에 안 뜨는 문제 해결
+// - listByLesson(): 뷰→테이블 폴백 유지
+// - delete 로직/기타 기존 기능 유지
 
 import 'dart:async';
 import 'dart:io';
@@ -63,6 +64,7 @@ class LessonLinksService {
 
   Future<String?> _findTodayLessonId(String studentId) async {
     try {
+      // 로컬(앱) 기준 "오늘" 날짜 문자열
       final today = DateTime.now();
       final yyyy = today.year.toString().padLeft(4, '0');
       final mm = today.month.toString().padLeft(2, '0');
@@ -77,7 +79,6 @@ class LessonLinksService {
             .eq('date', d)
             .limit(1),
       );
-
       final list = (rows as List);
       if (list.isEmpty) return null;
       return (list.first['id'] ?? '').toString();
@@ -87,6 +88,7 @@ class LessonLinksService {
   }
 
   Future<String?> _ensureTodayLessonId(String studentId) async {
+    // 서버 RPC (UTC current_date) — 폴백용
     return _rpcString('ensure_today_lesson', {'p_student_id': studentId});
   }
 
@@ -94,11 +96,85 @@ class LessonLinksService {
     String studentId, {
     bool ensure = false,
   }) async {
+    // 1) 먼저 로컬 날짜로 탐색
     String? id = await _findTodayLessonId(studentId);
+    // 2) 없고 ensure면 서버에서 생성(UTC) → 다시 로컬 날짜로 한 번 더 조회
     if (id == null && ensure) {
-      id = await _ensureTodayLessonId(studentId);
+      await _ensureTodayLessonId(studentId);
+      id = await _findTodayLessonId(studentId);
     }
     return id;
+  }
+
+  /// 내부 유틸: lesson_links/lesson_resource_links에 직접 INSERT
+  Future<String?> _insertResourceLinkDirect({
+    required String lessonId,
+    required ResourceFile resource,
+  }) async {
+    // 뷰가 있으면 뷰로(룰 통해 실테이블 저장), 없으면 실테이블로
+    Future<String?> _ins(String table) async {
+      final payload = <String, dynamic>{
+        'lesson_id': lessonId,
+        'kind': 'resource',
+        'resource_bucket': resource.storageBucket,
+        'resource_path': resource.storagePath,
+        'resource_filename': resource.filename,
+        if ((resource.title ?? '').toString().isNotEmpty)
+          'resource_title': resource.title,
+      };
+      final row = await _retry(
+        () => _c.from(table).insert(payload).select('id').single(),
+      );
+      final id = (row is Map && row['id'] != null)
+          ? row['id'].toString()
+          : null;
+      return id;
+    }
+
+    try {
+      try {
+        final viaView = await _ins(
+          SupabaseTables.lessonLinks,
+        ); // 'lesson_links' 뷰
+        if (viaView != null) return viaView;
+      } catch (_) {
+        // 뷰 경로 실패 → 실테이블 폴백
+      }
+      return await _ins(SupabaseTables.lessonResourceLinks); // 실테이블
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 내부 유틸: node 링크 직접 INSERT (노드도 동일 전략)
+  Future<String?> _insertNodeLinkDirect({
+    required String lessonId,
+    required String nodeId,
+  }) async {
+    Future<String?> _ins(String table) async {
+      final payload = <String, dynamic>{
+        'lesson_id': lessonId,
+        'kind': 'node',
+        'curriculum_node_id': nodeId,
+      };
+      final row = await _retry(
+        () => _c.from(table).insert(payload).select('id').single(),
+      );
+      final id = (row is Map && row['id'] != null)
+          ? row['id'].toString()
+          : null;
+      return id;
+    }
+
+    try {
+      try {
+        final viaView = await _ins(SupabaseTables.lessonLinks);
+        if (viaView != null) return viaView;
+      } catch (_) {}
+      return await _ins(SupabaseTables.lessonResourceLinks);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// 삭제: 보안 RPC 우선, 실패 시 DELETE 폴백
@@ -126,21 +202,42 @@ class LessonLinksService {
     try {
       final q = _c.from(SupabaseTables.lessonLinks).delete().eq('id', id);
       if (studentId != null && studentId.trim().isNotEmpty) {
-        q.eq('student_id', studentId.trim());
+        q.eq('student_id', studentId.trim()); // 뷰에는 컬럼이 없을 수도 있어 무시될 수 있음
       } else if (teacherId != null && teacherId.trim().isNotEmpty) {
-        q.eq('teacher_id', teacherId.trim());
+        q.eq('teacher_id', teacherId.trim()); // 동일
       }
       await _retry(() => q);
       return true;
     } catch (_) {
-      return false;
+      try {
+        await _retry(
+          () =>
+              _c.from(SupabaseTables.lessonResourceLinks).delete().eq('id', id),
+        );
+        return true;
+      } catch (_) {
+        return false;
+      }
     }
   }
 
+  // === 링크 생성 (노드) ===
   Future<String?> sendNodeToTodayLessonId({
     required String studentId,
     required String nodeId,
-  }) {
+  }) async {
+    // 오늘 레슨 ID를 먼저 확정(로컬 날짜 기준으로 보장)
+    final lessonId = await getTodayLessonId(studentId, ensure: true);
+    if (lessonId == null) return null;
+
+    // 1) 직접 INSERT 우선
+    final direct = await _insertNodeLinkDirect(
+      lessonId: lessonId,
+      nodeId: nodeId,
+    );
+    if (direct != null) return direct;
+
+    // 2) 폴백: RPC
     return _rpcString('link_node_to_today_lesson', {
       'p_student_id': studentId,
       'p_node_id': nodeId,
@@ -158,10 +255,23 @@ class LessonLinksService {
     return id != null;
   }
 
+  // === 링크 생성 (리소스) ===
   Future<String?> sendResourceToTodayLessonId({
     required String studentId,
     required ResourceFile resource,
-  }) {
+  }) async {
+    // 오늘 레슨 ID를 먼저 확정(로컬 날짜 기준으로 보장)
+    final lessonId = await getTodayLessonId(studentId, ensure: true);
+    if (lessonId == null) return null;
+
+    // 1) 직접 INSERT 우선
+    final direct = await _insertResourceLinkDirect(
+      lessonId: lessonId,
+      resource: resource,
+    );
+    if (direct != null) return direct;
+
+    // 2) 폴백: RPC
     return _rpcString('link_resource_to_today_lesson', {
       'p_student_id': studentId,
       'p_bucket': resource.storageBucket,
@@ -182,21 +292,36 @@ class LessonLinksService {
     return id != null;
   }
 
+  // === 조회 ===
   Future<List<Map<String, dynamic>>> listByLesson(String lessonId) async {
-    try {
+    Future<List<Map<String, dynamic>>> _selectFrom(String table) async {
       final rows = await _retry(
         () => _c
-            .from(SupabaseTables.lessonLinks)
+            .from(table)
             .select()
             .eq('lesson_id', lessonId)
             .order('created_at', ascending: false),
       );
-      final list = (rows as List)
+      return (rows as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList(growable: false);
-      return list;
+    }
+
+    try {
+      // 1) 우선 호환 VIEW 시도
+      final viaView = await _selectFrom(SupabaseTables.lessonLinks);
+      if (viaView.isNotEmpty) return viaView;
+
+      // 2) VIEW가 비었거나 매핑 문제 시 실테이블 폴백
+      final viaTable = await _selectFrom(SupabaseTables.lessonResourceLinks);
+      return viaTable;
     } catch (_) {
-      return const [];
+      // VIEW가 없거나 권한/스키마 캐시 이슈면 바로 실테이블로
+      try {
+        return await _selectFrom(SupabaseTables.lessonResourceLinks);
+      } catch (_) {
+        return const [];
+      }
     }
   }
 
@@ -204,10 +329,8 @@ class LessonLinksService {
     String studentId, {
     bool ensure = false,
   }) async {
-    String? lessonId = await _findTodayLessonId(studentId);
-    if (lessonId == null && ensure) {
-      lessonId = await _ensureTodayLessonId(studentId);
-    }
+    // 목록 조회에서도 오늘 레슨 ID를 보장해버리자(불일치 차단)
+    final lessonId = await getTodayLessonId(studentId, ensure: ensure);
     if (lessonId == null) return const [];
     return listByLesson(lessonId);
   }
