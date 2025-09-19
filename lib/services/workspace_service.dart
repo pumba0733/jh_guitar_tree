@@ -1,16 +1,16 @@
 // lib/services/workspace_service.dart
-// v1.6.0 | WORKSPACE_DIR 자동 교정 + 권한/존재 보장 + 안전 폴백
-// - /Users/you 하드코딩 방지: 런타임에 사용자 홈으로 자동 교정
-// - folderPath 생략 시 자동으로 워크스페이스 경로 결정
-// - 쓰기 권한/상위 디렉터리 존재 보장 + 실패 시 단계적 폴백
-// - 기존: 루트 재귀 감시(startRoot) / 단일 학생 감시(start) 로직은 동일
-// - 파일 업로드 후 오늘레슨 링크 생성(기존 v1.1.0 로직 유지)
+// v1.6.2 | 워크스페이스 자동 교정 + 경로별 디바운스(필드) + stop() 정리 + 첨부 메타 insert
+// - XSC 제외 (XscSyncService 전담)
+// - 숨김/임시 파일 필터
+// - create|modify|move 감시
+// - lesson_attachments 테이블에도 메타 insert (선택 기능이지만 활성화)
+// - 불필요 import 제거(uuid)
 
 import 'dart:async';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:uuid/uuid.dart';
+
 import 'file_key_util.dart';
 import '../supabase/supabase_tables.dart';
 import '../models/resource.dart';
@@ -23,6 +23,17 @@ class WorkspaceService {
 
   StreamSubscription<FileSystemEvent>? _sub;
 
+  // 경로별 디바운스(중복 업로드 방지)
+  final Map<String, Timer> _debounces = {};
+  void _schedule(String path, void Function() run) {
+    _debounces[path]?.cancel();
+    _debounces[path] = Timer(const Duration(milliseconds: 600), () {
+      _debounces.remove(path)?.cancel();
+      run();
+    });
+  }
+
+  // ⚠️ .xsc 제거: XscSyncService가 관리
   static const _allowExt = {
     '.m4a',
     '.mp3',
@@ -31,7 +42,7 @@ class WorkspaceService {
     '.aiff',
     '.mp4',
     '.mov',
-    '.xsc',
+    // '.xsc'  ← 제외
   };
 
   bool get isRunning => _sub != null;
@@ -64,8 +75,7 @@ class WorkspaceService {
 
     // 3) 앱 지원 디렉토리
     try {
-      final support = await pp
-          .getApplicationSupportDirectory(); // ← path_provider 사용
+      final support = await pp.getApplicationSupportDirectory();
       candidates.add(p.join(support.path, 'GuitarTreeWorkspace'));
     } catch (_) {
       // 무시
@@ -102,11 +112,14 @@ class WorkspaceService {
     throw FileSystemException('No writable workspace directory found.');
   }
 
-  // NOTE: path_provider를 동적으로 참조하기 위한 미니 래퍼 (웹/다른 플랫폼 빌드 회피)
-  Future<_SupportDir> dynamicLibraryLoader() async {
-    // ignore: avoid_dynamic_calls
-    final lib = await Future.value(null);
-    return _SupportDir();
+  // ===== 공통: 파일 필터 =====
+  bool _isHiddenOrTemp(String path) {
+    final name = p.basename(path).toLowerCase();
+    if (name.startsWith('.')) return true; // ._foo, .ds_store 등
+    if (name.startsWith('.sb-')) return true; // 일부 앱 임시 프리픽스
+    if (name.endsWith('~')) return true; // foo~
+    if (name.endsWith('.tmp')) return true; // foo.tmp
+    return false;
   }
 
   // ===== A) 루트 재귀 감시: 경로 규칙으로 학생 자동 매칭 =====
@@ -122,20 +135,37 @@ class WorkspaceService {
     }
 
     _sub = baseDir
-        .watch(events: FileSystemEvent.create, recursive: true)
+        .watch(
+          events:
+              FileSystemEvent.create |
+              FileSystemEvent.modify |
+              FileSystemEvent.move,
+          recursive: true,
+        )
         .listen((evt) async {
-          if (evt is! FileSystemCreateEvent) return;
           final path = evt.path;
+          // 파일이 아니거나 임시/숨김이면 무시
+          try {
+            final st = await File(path).stat();
+            if (st.type != FileSystemEntityType.file) return;
+          } catch (_) {
+            return;
+          }
+          if (_isHiddenOrTemp(path)) return;
+
           final ext = p.extension(path).toLowerCase();
+          if (ext == '.xsc') return; // ❗ XSC는 여기서 다루지 않음
           if (!_allowExt.contains(ext)) return;
 
-          try {
-            final studentId = await _resolveStudentIdFromPath(path);
-            if (studentId == null || studentId.isEmpty) return;
-            await _handleFileUploadAndLink(path: path, studentId: studentId);
-          } catch (_) {
-            // 조용히 무시
-          }
+          _schedule(path, () async {
+            try {
+              final studentId = await _resolveStudentIdFromPath(path);
+              if (studentId == null || studentId.isEmpty) return;
+              await _handleFileUploadAndLink(path: path, studentId: studentId);
+            } catch (_) {
+              // 조용히 무시
+            }
+          });
         });
   }
 
@@ -151,23 +181,46 @@ class WorkspaceService {
       await baseDir.create(recursive: true);
     }
 
-    _sub = baseDir.watch(events: FileSystemEvent.create).listen((evt) async {
-      if (evt is! FileSystemCreateEvent) return;
-      final path = evt.path;
-      final ext = p.extension(path).toLowerCase();
-      if (!_allowExt.contains(ext)) return;
+    _sub = baseDir
+        .watch(
+          events:
+              FileSystemEvent.create |
+              FileSystemEvent.modify |
+              FileSystemEvent.move,
+          recursive: false,
+        )
+        .listen((evt) async {
+          final path = evt.path;
+          try {
+            final st = await File(path).stat();
+            if (st.type != FileSystemEntityType.file) return;
+          } catch (_) {
+            return;
+          }
+          if (_isHiddenOrTemp(path)) return;
 
-      try {
-        await _handleFileUploadAndLink(path: path, studentId: studentId);
-      } catch (_) {
-        // 조용히 무시
-      }
-    });
+          final ext = p.extension(path).toLowerCase();
+          if (ext == '.xsc') return; // ❗ XSC 제외
+          if (!_allowExt.contains(ext)) return;
+
+          _schedule(path, () async {
+            try {
+              await _handleFileUploadAndLink(path: path, studentId: studentId);
+            } catch (_) {
+              // 조용히 무시
+            }
+          });
+        });
   }
 
   Future<void> stop() async {
     await _sub?.cancel();
     _sub = null;
+    // 디바운스 타이머 정리
+    for (final t in _debounces.values) {
+      t.cancel();
+    }
+    _debounces.clear();
   }
 
   // ===== 내부 유틸 =====
@@ -191,47 +244,12 @@ class WorkspaceService {
     final ext = p.extension(name).toLowerCase();
     final now = DateTime.now();
 
-    // === 1) XSC는 '레슨 첨부'로 저장 (ASCII-safe 키 + 표준 경로) ===
+    // === .xsc는 여기서 무시(XscSyncService 담당) ===
     if (ext == '.xsc') {
-      // 오늘 레슨 ID 확보
-      final lessonId = await LessonLinksService().getTodayLessonId(
-        studentId,
-        ensure: true,
-      );
-      if (lessonId == null || lessonId.isEmpty) return;
-
-      final uuid = const Uuid().v4();
-      final storageKey = FileKeyUtil.lessonAttachmentKey(
-        lessonId: lessonId,
-        uuid: uuid,
-        ext: '.xsc',
-      );
-
-      // Storage 업로드 (ASCII-safe key 사용)
-      final bucket =
-          SupabaseBuckets.lessonAttachments; // 문자열이라면 'lesson_attachments'
-      final store = Supabase.instance.client.storage.from(bucket);
-      await store.upload(
-        storageKey,
-        file,
-        fileOptions: const FileOptions(upsert: true, cacheControl: '3600'),
-      );
-
-      // DB insert (표시명은 원본 한글 유지)
-      await Supabase.instance.client.from('lesson_attachments').insert({
-        'lesson_id': lessonId,
-        'type': 'xsc',
-        'storage_bucket': bucket,
-        'storage_key': storageKey,
-        'original_filename': name,
-        'created_at': now.toIso8601String(),
-      });
-
-      // 첨부는 링크 전송 불필요 (Today 화면에서 첨부리스트가 따로 뜨는 구조)
       return;
     }
 
-    // === 2) 그 외(m4a/mp3 등)는 '리소스 링크'로 기존 흐름 유지하되 키는 영문화 ===
+    // === 오디오/영상 → lesson_attachments 버킷 업로드 후 "오늘 레슨 링크" 생성 ===
     final y = now.year.toString().padLeft(4, '0');
     final m = now.month.toString().padLeft(2, '0');
 
@@ -248,23 +266,38 @@ class WorkspaceService {
       fileOptions: const FileOptions(upsert: true, cacheControl: '3600'),
     );
 
-    // ResourceFile로 감싼 뒤 "오늘레슨 링크"로 전송 (기존 UX 유지)
+    // ResourceFile로 감싼 뒤 "오늘 레슨 링크"로 전송
     final rf = ResourceFile.fromMap({
       'id': '',
       'curriculum_node_id': null,
-      'title': name, // UI 표시: 한글 그대로
-      'filename': name, // UI 표시: 한글 그대로
+      'title': name, // UI 표시: 원본 한글
+      'filename': name,
       'mime_type': null,
       'size_bytes': await file.length(),
       'storage_bucket': SupabaseBuckets.lessonAttachments,
-      'storage_path': storagePath, // ← ASCII-safe 키
+      'storage_path': storagePath, // ASCII-safe 키
       'created_at': now.toIso8601String(),
     });
 
-    await LessonLinksService().sendResourceToTodayLesson(
-      studentId: studentId,
-      resource: rf,
-    );
+    // 링크 생성 (오늘 레슨 보장)
+    final links = LessonLinksService();
+    await links.sendResourceToTodayLesson(studentId: studentId, resource: rf);
+
+    // (선택) lesson_attachments 테이블에도 메타 insert — 통계/관리용
+    try {
+      final lessonId = await links.getTodayLessonId(studentId, ensure: true);
+      if (lessonId != null) {
+        await Supabase.instance.client.from('lesson_attachments').insert({
+          'lesson_id': lessonId,
+          'type': 'file',
+          'storage_bucket': SupabaseBuckets.lessonAttachments,
+          'storage_key': storagePath,
+          'original_filename': name,
+        });
+      }
+    } catch (_) {
+      // RLS/권한 상황에 따라 실패할 수 있으므로 조용히 무시
+    }
   }
 
   Future<String?> _resolveStudentIdFromPath(String fullPath) async {
@@ -322,20 +355,5 @@ class WorkspaceService {
       }
     } catch (_) {}
     return null;
-  }
-}
-
-// ---- 내부 헬퍼 (path_provider 대체용 최소 래퍼) ----
-class _SupportDir {
-  Future<Directory> getApplicationSupportDirectory() async {
-    final home = Platform.environment['HOME'];
-    if (home != null && home.isNotEmpty) {
-      final dir = Directory(p.join(home, 'Library', 'Application Support'));
-      if (!await dir.exists()) await dir.create(recursive: true);
-      return dir;
-    }
-    // 최후 폴백: /tmp
-    final dir = Directory('/tmp');
-    return dir;
   }
 }

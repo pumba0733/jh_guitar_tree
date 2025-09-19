@@ -525,14 +525,34 @@ class FileService {
 
   // ========= Save to Workspace then open =========
 
+
+  bool _isAudioName(String name) {
+    final n = name.toLowerCase();
+    return n.endsWith('.mp3') ||
+        n.endsWith('.m4a') ||
+        n.endsWith('.wav') ||
+        n.endsWith('.aif') ||
+        n.endsWith('.aiff') ||
+        n.endsWith('.mp4') ||
+        n.endsWith('.mov');
+  }
+
   /// URL을 학생 워크스페이스에 저장하고 기본앱으로 연다.
   Future<String> saveUrlToWorkspaceAndOpen({
     required String studentId,
     required String filename,
     required String url,
   }) async {
+    // ✅ 오디오는 XscSyncService에서만 다루도록: 여기서는 우회 처리
+    if (_isAudioName(filename)) {
+      // (선호) 조용히 기본앱으로 바로 열기 — mp3 복사본 생성 방지
+      await openUrl(url);
+      return '';
+      // (대안) 개발 중에만 문제 발견을 강제하고 싶다면:
+      // throw StateError('Audio 파일은 XscSyncService를 통해 열어야 합니다.');
+    }
+
     if (!_isDesktop) {
-      // 데스크탑 아닌 경우엔 외부 앱으로 바로 열기
       await openUrl(url);
       return '';
     }
@@ -550,6 +570,18 @@ class FileService {
     required String filename,
     required Uint8List bytes,
   }) async {
+    // ✅ 오디오는 여기서 다루지 않음 (XscSyncService 전용)
+    if (_isAudioName(filename)) {
+      // 개발 중 혼동 방지: 그냥 임시로 열고 끝내거나, 예외를 던지는 방식 중 택1
+      final tmp = await saveBytesFile(
+        filename: filename,
+        bytes: bytes,
+      ); // /Downloads 등
+      await openLocal(tmp.path);
+      return tmp.path;
+      // throw StateError('Audio 파일은 XscSyncService로 열어야 합니다.');
+    }
+
     if (!_isDesktop) {
       final tmp = await saveBytesFile(filename: filename, bytes: bytes);
       await openLocal(tmp.path);
@@ -561,7 +593,6 @@ class FileService {
     final sub = Directory(p.join(studentDir.path, 'Curriculum'));
     await _ensureDir(sub.path);
 
-    // 동명 파일 충돌 회피
     final outPath = _avoidNameClash(sub.path, safeName);
     await File(outPath).writeAsBytes(bytes, flush: true);
 

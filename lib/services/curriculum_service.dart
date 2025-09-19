@@ -114,7 +114,7 @@ class CurriculumService {
         final data = await _retry(() => _c.rpc(_rpcVisibleTree));
         final list = _mapList(data);
         _hasVisibleTreeRpc = true;
-        return list;
+        if (list.isNotEmpty) return list; // ✅ 비어있으면 폴백
       } catch (e) {
         final msg = e.toString().toLowerCase();
         if (msg.contains('does not exist') ||
@@ -134,6 +134,33 @@ class CurriculumService {
     );
     return _mapList(data);
   }
+
+
+  Future<List<Map<String, dynamic>>> listReviewedResourcesByStudent(
+    String studentId, {
+    int limit = 100,
+  }) async {
+    final data = await _retry(
+      () => _c.rpc(
+        'list_reviewed_resources_by_student',
+        params: {'p_student_id': studentId, 'p_limit': limit},
+      ),
+    );
+    return _mapList(data);
+  }
+
+
+  Future<void> ensureStudentBinding(String studentId) async {
+    try {
+      await Supabase.instance.client.rpc(
+        'attach_me_to_student',
+        params: {'p_student_id': studentId},
+      );
+    } catch (_) {
+      // 조용히 무시 (권한/상태에 따라 실패할 수 있음)
+    }
+  }
+
 
   Future<List<Map<String, dynamic>>> listNodesByParent(String? parentId) async {
     final base = _c.from(_tNodes).select();

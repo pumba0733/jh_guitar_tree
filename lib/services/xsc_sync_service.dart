@@ -5,9 +5,10 @@
 // - Supabase list 정렬 시 updatedAt의 타입 명시적 처리(Object → DateTime)
 // - 나머지 로직 동일
 
-import 'dart:async';
+import 'dart:async' show StreamSubscription, Timer, unawaited;
 import 'dart:io';
 import 'dart:typed_data';
+import 'lesson_links_service.dart';
 
 import 'package:crypto/crypto.dart' show sha1;
 import 'package:path/path.dart' as p;
@@ -281,25 +282,39 @@ class XscSyncService {
     final folder = Directory(dir);
     if (!await folder.exists()) return;
 
-    _sub = folder.watch(events: FileSystemEvent.modify).listen((evt) async {
-      final path = evt.path.toString();
-      if (!path.toLowerCase().endsWith('.xsc')) return;
+    // 파일별 디바운스 타이머
+    final Map<String, Timer> debounces = {};
+    // 업로드 중복 방지 락
+    final Map<String, bool> busy = {};
 
+    bool isTempOrHidden(String path) {
+      final name = p.basename(path).toLowerCase();
+      if (name.startsWith('.')) return true; // ._foo, .~lock 등
+      if (name.endsWith('~')) return true; // foo.xsc~
+      if (name.endsWith('.tmp')) return true; // foo.tmp
+      if (name.startsWith('~\$')) return true;
+      if (name.startsWith('.sb-')) return true; // 일부 앱 임시 프리픽스
+      return false;
+    }
+
+    Future<void> uploadOnce(String path) async {
+      if (busy[path] == true) return;
+      busy[path] = true;
       try {
-        // 파일 크기 안정화 (간단 폴링)
+        // 파일 크기 안정화
         final f = File(path);
         var last = -1;
-        for (int i = 0; i < 12; i++) {
+        for (int i = 0; i < 16; i++) {
           final len = await f.length();
           if (last == len) break;
           last = len;
-          await Future.delayed(const Duration(milliseconds: 250));
+          await Future.delayed(const Duration(milliseconds: 200));
         }
 
         final store = _sb.storage.from(studentXscBucket);
         final prefix = '$studentId/$mp3Hash/';
 
-        // 백업 업로드
+        // 백업
         final ts = DateTime.now().toIso8601String().replaceAll(':', '-');
         final backupKey = '${prefix}backups/$ts.xsc';
         await store.upload(
@@ -315,9 +330,45 @@ class XscSyncService {
           f,
           fileOptions: const FileOptions(upsert: true),
         );
+
+        // (선택) UI 메타 즉시 갱신
+        await LessonLinksService().touchXscUpdatedAt(
+          studentId: studentId,
+          mp3Hash: mp3Hash,
+        );
       } catch (_) {
         // 조용히 무시(로그는 상위에서 처리)
+      } finally {
+        busy[path] = false;
       }
-    });
+    }
+
+    void scheduleUpload(String path) {
+      debounces[path]?.cancel();
+      debounces[path] = Timer(const Duration(milliseconds: 800), () {
+        debounces[path]?.cancel();
+        debounces.remove(path);
+        unawaited(uploadOnce(path));
+      });
+    }
+
+    _sub = folder
+        .watch(
+          events:
+              FileSystemEvent.create |
+              FileSystemEvent.modify |
+              FileSystemEvent.move,
+          recursive: false, // mp3Hash 전용 폴더 — 비재귀 권장
+        )
+        .listen((evt) async {
+          final path = evt.path.toString();
+          final lower = path.toLowerCase();
+
+          if (!lower.endsWith('.xsc')) return;
+          if (isTempOrHidden(path)) return;
+
+          // 임시명 → rename 패턴 대응: .xsc면 디바운스로 업로드 스케줄
+          scheduleUpload(path);
+        });
   }
 }

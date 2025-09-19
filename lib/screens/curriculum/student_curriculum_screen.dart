@@ -1,9 +1,8 @@
 // lib/screens/curriculum/student_curriculum_screen.dart
-// v1.43.1 | 학생별 진행 + 오늘 레슨으로 보내기
-// - 배정 목록 + 완료 토글 + 상단 집계 유지
-// - 각 항목에 '오늘 레슨으로 보내기' 버튼 추가
-//   · 노드 자체 전송 또는 리소스 선택 전송 (바텀시트)
-// - LessonLinksService 미구현/SQL 미적용 시 no-op 안내
+// v1.44.0 | '지난 수업에서 다룬 리소스' 섹션 추가 + 무배정 시에도 복습 섹션 노출
+// - LessonService로 최근 수업 N개 조회 → LessonLinksService로 해당 레슨의 리소스 링크만 수집
+// - 날짜별 그룹화, 중복(버킷/경로) 제거, 최신순 정렬
+// - 배정이 비어도 복습 섹션은 항상 표시
 
 import 'package:flutter/material.dart';
 
@@ -12,9 +11,22 @@ import '../../services/progress_service.dart';
 import '../../services/resource_service.dart';
 import '../../services/lesson_links_service.dart';
 import '../../services/file_service.dart';
+import '../../services/lesson_service.dart'; // ✅ 추가
 
 import '../../models/curriculum.dart';
 import '../../models/resource.dart';
+
+// 내부용: 복습 리소스 그룹(레슨별)
+class _ReviewedGroup {
+  final String lessonId;
+  final String dateStr; // YYYY-MM-DD
+  final List<ResourceFile> resources;
+  _ReviewedGroup({
+    required this.lessonId,
+    required this.dateStr,
+    required this.resources,
+  });
+}
 
 class StudentCurriculumScreen extends StatefulWidget {
   final String studentId;
@@ -30,6 +42,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
   final _progress = ProgressService();
   final _resSvc = ResourceService();
   final _links = LessonLinksService();
+  final _lessonSvc = LessonService(); // ✅ 추가
 
   late Future<
     ({
@@ -40,11 +53,16 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
   >
   _load;
 
+  late Future<List<_ReviewedGroup>> _reviewedLoad; // ✅ 추가
   @override
   void initState() {
     super.initState();
+    // 학생-계정 매핑(실패해도 무시)
+    _svc.ensureStudentBinding(widget.studentId);
     _load = _fetch();
+    _reviewedLoad = _fetchReviewed(); // 지난 수업 리소스
   }
+
 
   Future<
     ({
@@ -69,12 +87,83 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
     return (assigns: assigns, nodeMap: nodeMap, doneMap: doneMap);
   }
 
-  Future<void> _refresh() async {
-    final f = _fetch();
-    if (!mounted) return;
-    setState(() => _load = f);
-    await f;
+  // ✅ 지난 수업 리소스 수집
+  Future<List<_ReviewedGroup>> _fetchReviewed({int maxLessons = 20}) async {
+    // 오늘 날짜 문자열
+    final now = DateTime.now();
+    final d0 = DateTime(now.year, now.month, now.day);
+    final todayStr = d0.toIso8601String().split('T').first;
+
+    // 최근 수업 N개(최신순) 불러오기
+    final lessons = await _lessonSvc.listByStudent(
+      widget.studentId,
+      limit: maxLessons,
+    ); // List<Map>
+
+    final groups = <_ReviewedGroup>[];
+    for (final raw in lessons) {
+      final row = Map<String, dynamic>.from(raw);
+      final id = (row['id'] ?? '').toString();
+      final dateStr = (row['date'] ?? '').toString();
+      if (id.isEmpty || dateStr.isEmpty) continue;
+      if (dateStr == todayStr) continue; // "지난" 수업만
+
+      // 해당 레슨의 링크 중 리소스만
+      final links = await _links.listByLesson(id);
+      if (links.isEmpty) continue;
+
+      final seen = <String>{}; // bucket::path 중복 제거
+      final resList = <ResourceFile>[];
+      for (final m in links) {
+        final mm = Map<String, dynamic>.from(m);
+        if ((mm['kind'] ?? '') != 'resource') continue;
+        final bucket = (mm['resource_bucket'] ?? ResourceService.bucket)
+            .toString();
+        final path = (mm['resource_path'] ?? '').toString();
+        if (path.isEmpty) continue;
+
+        final key = '$bucket::$path';
+        if (seen.contains(key)) continue;
+        seen.add(key);
+
+        resList.add(
+          ResourceFile.fromMap({
+            'id': mm['id']?.toString() ?? '',
+            'curriculum_node_id': mm['curriculum_node_id'],
+            'title': (mm['resource_title'] ?? '').toString(),
+            'filename': (mm['resource_filename'] ?? 'file').toString(),
+            'mime_type': null,
+            'size_bytes': null,
+            'storage_bucket': bucket,
+            'storage_path': path,
+            'created_at': mm['created_at'],
+          }),
+        );
+      }
+
+      if (resList.isNotEmpty) {
+        groups.add(
+          _ReviewedGroup(lessonId: id, dateStr: dateStr, resources: resList),
+        );
+      }
+    }
+
+    // 날짜 최신순 정렬
+    groups.sort((a, b) => b.dateStr.compareTo(a.dateStr));
+    return groups;
   }
+
+  Future<void> _refresh() async {
+    final f1 = _fetch();
+    final f2 = _fetchReviewed();
+    if (!mounted) return;
+    setState(() {
+      _load = f1;
+      _reviewedLoad = f2;
+    });
+    await Future.wait([f1, f2]);
+  }
+
 
   Future<void> _toggle(String nodeId) async {
     final ok = await _progress.toggle(
@@ -130,13 +219,104 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
           resource: result.resource!,
         );
       }
-    } catch (e) {
+    } catch (_) {
       ok = false;
     }
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(ok ? '오늘 레슨으로 보냈어요.' : '전송 실패 또는 미구현(SQL Δ 필요)')),
+    );
+  }
+
+  // ✅ 복습 섹션 UI
+  Widget _buildReviewedSection() {
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ExpansionTile(
+        title: const Text('📚 지난 수업에서 다룬 리소스'),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        trailing: IconButton(
+          tooltip: '새로고침',
+          icon: const Icon(Icons.refresh),
+          onPressed: _refresh,
+        ),
+        children: [
+          FutureBuilder<List<_ReviewedGroup>>(
+            future: _reviewedLoad,
+            builder: (context, snap) {
+              if (snap.connectionState != ConnectionState.done) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: LinearProgressIndicator(minHeight: 2),
+                );
+              }
+              if (snap.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text('복습 리소스를 불러오지 못했어요.\n${snap.error}'),
+                );
+              }
+              final groups = snap.data ?? const <_ReviewedGroup>[];
+              if (groups.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: Text('아직 지난 수업에서 다룬 리소스가 없어요.'),
+                );
+              }
+
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: groups.length,
+                separatorBuilder: (_, __) => const Divider(height: 16),
+                itemBuilder: (_, gi) {
+                  final g = groups[gi];
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.event_note),
+                        title: Text('${g.dateStr}'),
+                        subtitle: Text('리소스 ${g.resources.length}개'),
+                      ),
+                      ...g.resources.map(
+                        (r) => ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.insert_drive_file),
+                          title: Text(
+                            (r.title?.isNotEmpty == true
+                                    ? r.title!
+                                    : r.filename)
+                                .trim(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            '${r.storageBucket}/${r.storagePath}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: IconButton(
+                            tooltip: '열기',
+                            icon: const Icon(Icons.open_in_new),
+                            onPressed: () => _openResource(r),
+                          ),
+                          onTap: () => _openResource(r),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 
@@ -166,14 +346,24 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                 return Center(child: Text('로드 실패\n${snap.error}'));
               }
               final data = snap.data!;
+
+              // 배정이 없더라도 복습 섹션은 항상 보여주자.
               if (data.assigns.isEmpty) {
-                return const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Text(
-                      '배정된 커리큘럼이 없습니다.\n강사에게 배정을 요청하세요.',
-                      textAlign: TextAlign.center,
-                    ),
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(8, 12, 8, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
+                        child: Text(
+                          '배정된 커리큘럼이 없습니다.\n강사에게 배정을 요청하세요.',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      // 복습 섹션은 const 아님
+                      _buildReviewedSection(),
+                    ],
                   ),
                 );
               }
@@ -219,6 +409,11 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                       ],
                     ),
                   ),
+
+                  // ✅ 복습 섹션(접었다 펼 수 있음)
+                  _buildReviewedSection(),
+
+                  // 배정 목록
                   Expanded(
                     child: ListView.separated(
                       itemCount: data.assigns.length,
@@ -267,8 +462,6 @@ class _SendChoice {
 class _SendChooserSheet extends StatelessWidget {
   final String title;
   final Future<List<ResourceFile>> resourcesFuture;
-
-  // 기존: const _SendChooserSheet({ super.key, required this.title, required this.resourcesFuture });
   const _SendChooserSheet({required this.title, required this.resourcesFuture});
 
   @override
