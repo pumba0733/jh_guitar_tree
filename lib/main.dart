@@ -38,6 +38,85 @@ Future<void> main() async {
     debug: false,
   );
 
+  final supa = Supabase.instance.client;
+  supa.auth.onAuthStateChange.listen((evt) async {
+    final email = evt.session?.user.email;
+    if (email == null || email.isEmpty) return;
+
+    await supa.rpc(
+      'upsert_teacher_min',
+      params: {
+        'p_email': email,
+        'p_name': email.split('@').first,
+        'p_is_admin': null,
+      },
+    );
+
+    await supa.rpc('sync_auth_user_id_by_email', params: {'p_email': email});
+  });
+
+  // ✅ 부트스트랩: 앱 시작 직후 현재 세션이 있으면 1회 동기화
+  final initialEmail = supa.auth.currentUser?.email;
+  if (initialEmail != null && initialEmail.isNotEmpty) {
+    try {
+      await supa.rpc(
+        'upsert_teacher_min',
+        params: {
+          'p_email': initialEmail,
+          'p_name': initialEmail.split('@').first,
+          'p_is_admin': null, // 운영에선 null 유지
+        },
+      );
+    } catch (e) {
+      // ignore: avoid_print
+      print('bootstrap upsert_teacher_min error: $e');
+    }
+    try {
+      await supa.rpc(
+        'sync_auth_user_id_by_email',
+        params: {'p_email': initialEmail},
+      );
+    } catch (e) {
+      // ignore: avoid_print
+      print('bootstrap sync_auth_user_id_by_email error: $e');
+    }
+  }
+
+  // ✅ 상태 변화 리스너: 로그인/토큰갱신 때만 동기화 (로그아웃 등은 무시)
+  supa.auth.onAuthStateChange.listen((state) async {
+    final event = state.event; // AuthChangeEvent
+    final session = state.session; // Session?
+    final email = session?.user.email ?? '';
+
+    // 필요 이벤트만 처리
+    if (email.isEmpty) return;
+    if (event != AuthChangeEvent.signedIn &&
+        event != AuthChangeEvent.tokenRefreshed) {
+      return;
+    }
+
+    try {
+      await supa.rpc(
+        'upsert_teacher_min',
+        params: {
+          'p_email': email,
+          'p_name': email.split('@').first,
+          'p_is_admin': null,
+        },
+      );
+    } catch (e) {
+      // ignore: avoid_print
+      print('listener upsert_teacher_min error: $e');
+    }
+
+    try {
+      await supa.rpc('sync_auth_user_id_by_email', params: {'p_email': email});
+    } catch (e) {
+      // ignore: avoid_print
+      print('listener sync_auth_user_id_by_email error: $e');
+    }
+  });
+
   // 같은 Zone에서 바로 실행 (runZonedGuarded 제거)
   runApp(const App());
 }

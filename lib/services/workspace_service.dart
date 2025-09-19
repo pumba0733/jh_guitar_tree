@@ -10,10 +10,12 @@ import 'dart:async';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import 'package:uuid/uuid.dart';
+import 'file_key_util.dart';
 import '../supabase/supabase_tables.dart';
 import '../models/resource.dart';
 import 'lesson_links_service.dart';
+import 'package:path_provider/path_provider.dart' as pp;
 
 class WorkspaceService {
   WorkspaceService._();
@@ -62,13 +64,11 @@ class WorkspaceService {
 
     // 3) 앱 지원 디렉토리
     try {
-      // path_provider는 macOS에서만 동작. 현재 파일은 macOS 운용이 전제.
-      // ignore: depend_on_referenced_packages
-      final support = await (await dynamicLibraryLoader())
-          .getApplicationSupportDirectory();
+      final support = await pp
+          .getApplicationSupportDirectory(); // ← path_provider 사용
       candidates.add(p.join(support.path, 'GuitarTreeWorkspace'));
     } catch (_) {
-      // 무시하고 다음 후보로 진행
+      // 무시
     }
 
     // 후보들 중 최초로 "상위 존재 + 쓰기 가능"한 경로 채택
@@ -188,30 +188,76 @@ class WorkspaceService {
     }
 
     final name = p.basename(path);
+    final ext = p.extension(name).toLowerCase();
     final now = DateTime.now();
+
+    // === 1) XSC는 '레슨 첨부'로 저장 (ASCII-safe 키 + 표준 경로) ===
+    if (ext == '.xsc') {
+      // 오늘 레슨 ID 확보
+      final lessonId = await LessonLinksService().getTodayLessonId(
+        studentId,
+        ensure: true,
+      );
+      if (lessonId == null || lessonId.isEmpty) return;
+
+      final uuid = const Uuid().v4();
+      final storageKey = FileKeyUtil.lessonAttachmentKey(
+        lessonId: lessonId,
+        uuid: uuid,
+        ext: '.xsc',
+      );
+
+      // Storage 업로드 (ASCII-safe key 사용)
+      final bucket =
+          SupabaseBuckets.lessonAttachments; // 문자열이라면 'lesson_attachments'
+      final store = Supabase.instance.client.storage.from(bucket);
+      await store.upload(
+        storageKey,
+        file,
+        fileOptions: const FileOptions(upsert: true, cacheControl: '3600'),
+      );
+
+      // DB insert (표시명은 원본 한글 유지)
+      await Supabase.instance.client.from('lesson_attachments').insert({
+        'lesson_id': lessonId,
+        'type': 'xsc',
+        'storage_bucket': bucket,
+        'storage_key': storageKey,
+        'original_filename': name,
+        'created_at': now.toIso8601String(),
+      });
+
+      // 첨부는 링크 전송 불필요 (Today 화면에서 첨부리스트가 따로 뜨는 구조)
+      return;
+    }
+
+    // === 2) 그 외(m4a/mp3 등)는 '리소스 링크'로 기존 흐름 유지하되 키는 영문화 ===
     final y = now.year.toString().padLeft(4, '0');
     final m = now.month.toString().padLeft(2, '0');
 
-    final storagePath = '$y-$m/$studentId/$name';
+    // 안전한 파일명(키용)으로 교체
+    final safeName = FileKeyUtil.keySafe(name);
+    final storagePath = '$y-$m/$studentId/$safeName';
+
     final store = Supabase.instance.client.storage.from(
       SupabaseBuckets.lessonAttachments,
     );
-
     await store.upload(
       storagePath,
       file,
       fileOptions: const FileOptions(upsert: true, cacheControl: '3600'),
     );
 
+    // ResourceFile로 감싼 뒤 "오늘레슨 링크"로 전송 (기존 UX 유지)
     final rf = ResourceFile.fromMap({
       'id': '',
       'curriculum_node_id': null,
-      'title': name,
-      'filename': name,
+      'title': name, // UI 표시: 한글 그대로
+      'filename': name, // UI 표시: 한글 그대로
       'mime_type': null,
       'size_bytes': await file.length(),
       'storage_bucket': SupabaseBuckets.lessonAttachments,
-      'storage_path': storagePath,
+      'storage_path': storagePath, // ← ASCII-safe 키
       'created_at': now.toIso8601String(),
     });
 

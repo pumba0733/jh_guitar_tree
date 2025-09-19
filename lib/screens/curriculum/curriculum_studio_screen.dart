@@ -1,7 +1,9 @@
 // lib/screens/curriculum/curriculum_studio_screen.dart
-// v1.46.3 | 커리큘럼 스튜디오 (루트 file 생성 버튼 제거/문구 수정)
-// - 리소스 업로드/열기/삭제, 형제 정렬, 하위 category/file 추가 그대로 유지
-// - 서비스 가드/DB 제약과 UI 정책 일치
+// v1.47.0 | 커리큘럼 스튜디오 (업로드 바쁜 상태/403 안내/URL 보정/정렬 경계 보정)
+// - 업로드 중 UI 잠금(_busy) + 진행 스피너
+// - Storage/RLS 403 친화 메시지
+// - URL 스킴 자동 보정(https://)
+// - order 이동 경계값 보정
 
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -99,13 +101,32 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
   }
 
   Future<void> _moveOrder(CurriculumNode n, int delta) async {
-    final newOrder = n.order + delta;
-    await _svc.updateNode(id: n.id, order: newOrder);
-    await _refresh();
+    // 경계값 보정: 형제 목록 기준으로 0..(len-1) 사이로 클램프
+    try {
+      final all = await _svc.listNodes();
+      final nodes = all
+          .map((e) => CurriculumNode.fromMap(Map<String, dynamic>.from(e)))
+          .toList();
+      final siblings = nodes.where((x) => x.parentId == n.parentId).toList()
+        ..sort((a, b) => a.order.compareTo(b.order));
+      final minOrder = 0;
+      final maxOrder = siblings.length - 1;
+      final newOrder = (n.order + delta).clamp(minOrder, maxOrder) as int;
+      await _svc.updateNode(id: n.id, order: newOrder);
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('순서 변경 실패: $e')));
+    }
   }
 
   Future<void> _openUrl(String url) async {
-    final uri = Uri.tryParse(url);
+    // 스킴 보정: 사용자가 www. 또는 도메인만 넣은 경우 https:// 접두
+    var u = url.trim();
+    if (!u.contains('://')) u = 'https://$u';
+    final uri = Uri.tryParse(u);
     if (uri == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -117,7 +138,7 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     if (!ok && mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('URL을 열 수 없습니다: $url')));
+      ).showSnackBar(SnackBar(content: Text('URL을 열 수 없습니다: $u')));
     }
   }
 
@@ -395,6 +416,7 @@ class _ResourceManagerSheet extends StatefulWidget {
 class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
   late Future<List<ResourceFile>> _load;
   bool _dragging = false;
+  bool _busy = false; // 업로드/삭제 중 UI 잠금
 
   @override
   void initState() {
@@ -410,6 +432,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
   }
 
   Future<void> _uploadByPicker() async {
+    if (_busy) return;
     final res = await FilePicker.platform.pickFiles(
       allowMultiple: true,
       withData: true,
@@ -432,6 +455,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
   }
 
   Future<void> _uploadByDrop(List<XFile> xfiles) async {
+    if (_busy) return;
     final entries = <_Picked>[];
     for (final xf in xfiles) {
       entries.add(
@@ -447,6 +471,9 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
   }
 
   Future<void> _uploadEntries({required List<_Picked> files}) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+
     int okCount = 0;
     for (final f in files) {
       final name = f.name;
@@ -464,10 +491,20 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
       } catch (e, st) {
         // ignore: avoid_print
         print('Upload error: $e\n$st');
-        if (!mounted) return;
+        final es = '$e';
+        final msg =
+            (es.contains('403') ||
+                es.toLowerCase().contains('row-level security'))
+            ? '권한이 없습니다. 관리자/교사 계정으로 로그인했는지 확인해주세요.'
+            : es;
+        if (!mounted) {
+          // fall out; busy 해제 불가하니 return 전에 해제
+          _busy = false;
+          return;
+        }
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('업로드 실패: $name\n$e')));
+        ).showSnackBar(SnackBar(content: Text('업로드 실패: $name\n$msg')));
       }
     }
     await _refresh();
@@ -475,6 +512,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('업로드 완료: $okCount개')));
+    setState(() => _busy = false);
   }
 
   Future<void> _open(ResourceFile r) async {
@@ -490,6 +528,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
   }
 
   Future<void> _delete(ResourceFile r) async {
+    if (_busy) return;
     final ok = await _confirm(
       context,
       title: '리소스 삭제',
@@ -497,8 +536,19 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
       danger: true,
     );
     if (!ok) return;
-    await widget.svc.delete(r);
-    await _refresh();
+    setState(() => _busy = true);
+    try {
+      await widget.svc.delete(r);
+      await _refresh();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('삭제 실패: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
@@ -516,11 +566,11 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
               automaticallyImplyLeading: false,
               actions: [
                 IconButton(
-                  onPressed: _refresh,
+                  onPressed: _busy ? null : _refresh,
                   icon: const Icon(Icons.refresh),
                 ),
                 IconButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: _busy ? null : () => Navigator.pop(context),
                   icon: const Icon(Icons.close),
                 ),
               ],
@@ -610,12 +660,12 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
                                 children: [
                                   IconButton(
                                     tooltip: '열기',
-                                    onPressed: () => _open(r),
+                                    onPressed: _busy ? null : () => _open(r),
                                     icon: const Icon(Icons.open_in_new),
                                   ),
                                   IconButton(
                                     tooltip: '삭제',
-                                    onPressed: () => _delete(r),
+                                    onPressed: _busy ? null : () => _delete(r),
                                     icon: const Icon(
                                       Icons.delete_forever,
                                       color: Colors.redAccent,
@@ -633,9 +683,15 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
               ),
             ),
             floatingActionButton: FloatingActionButton.extended(
-              onPressed: _uploadByPicker,
-              icon: const Icon(Icons.upload_file),
-              label: const Text('업로드'),
+              onPressed: _busy ? null : _uploadByPicker,
+              icon: _busy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.upload_file),
+              label: Text(_busy ? '업로드 중...' : '업로드'),
             ),
           ),
         ),

@@ -1,8 +1,9 @@
 // lib/services/resource_service.dart
-// v1.45.0 | 버킷 기본값을 서버 정책과 일치('curriculum')로 통일 + 안정 재시도 유지
-// - bucket: 'curriculum' (SQL: storage.buckets id='curriculum', private)
-// - 업로드/DB 기록/서명 URL 로직은 동일
-// - _tableExists: 42P01 등 처리로 안전
+// v1.45.3 | 업/삭 안정화: 404 삭제 무시 + sizeBytes 보강 + 디버그로그
+// - 삭제 시 스토리지 404/NoSuchKey는 무시하고 DB만 정리(과거 경로 불일치 청소)
+// - 업로드 sizeBytes null이면 자동 계산
+// - 업/삭 로그 추가로 원인 추적 용이
+// - 기존: 버킷 기본값 'curriculum' + ASCII-safe key + 임시파일 업로드 유지
 
 import 'dart:async';
 import 'dart:io';
@@ -17,7 +18,7 @@ import '../models/resource.dart';
 class ResourceService {
   final SupabaseClient _c = Supabase.instance.client;
 
-  /// 서버 SQL(v1.44/v1.45)과 맞춘 기본 버킷
+  /// 서버 SQL과 맞춘 기본 버킷
   static const String bucket = 'curriculum';
   static const String _tResources = 'resources';
 
@@ -63,11 +64,21 @@ class ResourceService {
         s.contains('429');
   }
 
+  bool _isNotFound(Object e) {
+    final s = e.toString().toLowerCase();
+    // supabase storage remove: 404 / not found / no such key 패턴 흡수
+    return s.contains('404') ||
+        s.contains('not found') ||
+        s.contains('no such key') ||
+        s.contains('no such file');
+  }
+
   // ===== Key/표시명 정규화 =====
   String _keySafeName(String raw) {
-    final ext = p.extension(raw);
+    final ext = p.extension(raw); // 원래 확장자(점 포함)
     var base = p.basenameWithoutExtension(raw);
 
+    // 경로문자/제어문자 제거 → 영문/숫자/_/.- 만 허용
     base = base.replaceAll(RegExp(r'[\/\\\x00-\x1F]'), '_');
     base = base.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
     base = base.replaceAll(RegExp(r'_+'), '_').trim();
@@ -75,7 +86,7 @@ class ResourceService {
       base = DateTime.now().millisecondsSinceEpoch.toString();
     }
     var safeExt = ext.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '');
-    if (safeExt.length > 10) safeExt = safeExt.substring(0, 10);
+    if (safeExt.length > 10) safeExt = safeExt.substring(0, 10); // 과도한 확장자 보호
     return '$base$safeExt';
   }
 
@@ -129,7 +140,7 @@ class ResourceService {
 
   Future<ResourceFile> insertRow({
     required String nodeId,
-    required String filename, // 표시용(원래 이름 정리)
+    required String filename, // UI 표시용(원래 이름 정리)
     required String storagePath, // 실제 업로드 key
     String? title,
     String? mimeType,
@@ -190,31 +201,66 @@ class ResourceService {
       cacheControl: '3600',
     );
 
+    int? finalSize = sizeBytes;
+
+    // ---- 실제 업로드 ----
     if (bytes != null && bytes.isNotEmpty) {
-      await _retry(
-        () => store.uploadBinary(storagePath, bytes, fileOptions: opts),
-      );
+      final tmpDir = await Directory.systemTemp.createTemp('gt_upload_');
+      final tmpFile = File(p.join(tmpDir.path, safeKeyName));
+      await tmpFile.writeAsBytes(bytes, flush: true);
+      try {
+        finalSize ??= await tmpFile.length();
+        print(
+          '[UP] bucket=$storageBucket path=$storagePath (from=bytes size=$finalSize mime=$resolvedMime)',
+        );
+        await _retry(
+          () => store.upload(storagePath, tmpFile, fileOptions: opts),
+        );
+      } finally {
+        try {
+          await tmpFile.delete();
+        } catch (_) {}
+        try {
+          await tmpDir.delete(recursive: true);
+        } catch (_) {}
+      }
     } else {
-      await _retry(
-        () => store.upload(storagePath, File(filePath!), fileOptions: opts),
+      final f = File(filePath!);
+      finalSize ??= await f.length();
+      print(
+        '[UP] bucket=$storageBucket path=$storagePath (from=file size=$finalSize mime=$resolvedMime)',
       );
+      await _retry(() => store.upload(storagePath, f, fileOptions: opts));
     }
 
     return insertRow(
       nodeId: nodeId,
-      filename: displayName, // ← UI 노출(한글 유지)
-      storagePath: storagePath,
+      filename: displayName, // 한글표시 OK
+      storagePath: storagePath, // ASCII-safe 키
       mimeType: resolvedMime,
-      sizeBytes: sizeBytes,
+      sizeBytes: finalSize,
       storageBucket: storageBucket,
     );
   }
 
   // ===== Delete =====
   Future<void> delete(ResourceFile r) async {
-    await _retry(
-      () => _c.storage.from(r.storageBucket).remove([r.storagePath]),
-    );
+    // 1) 스토리지 삭제: 404/NoSuchKey는 무시 (과거 경로 불일치 청소용)
+    try {
+      print('[DEL] bucket=${r.storageBucket} path=${r.storagePath}');
+      await _retry(
+        () => _c.storage.from(r.storageBucket).remove([r.storagePath]),
+      );
+    } catch (e) {
+      if (_isNotFound(e)) {
+        print(
+          '[DEL] storage not found, continue DB cleanup: ${r.storageBucket}/${r.storagePath}',
+        );
+      } else {
+        rethrow;
+      }
+    }
+    // 2) DB 삭제 (항상 시도)
     await _retry(() => _c.from(_tResources).delete().eq('id', r.id));
   }
 

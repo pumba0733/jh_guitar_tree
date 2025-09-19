@@ -106,71 +106,81 @@ class AuthService {
     final e = _normEmail(email);
     if (e.isEmpty) return false;
 
-    final h = _sha256Hex(password);
+    final pwdHash = _sha256Hex(password);
 
-    // row를 non-null 변수로 수렴
-    Map<String, dynamic>? rpcRow = await _rpcAppLoginTeacher(
-      email: e,
-      pwdHash: h,
-    );
-    Map<String, dynamic> rowMap;
+    // 0) 교사 최소 레코드 보장(권한 상 anon도 호출 가능, is_admin은 null 유지)
+    try {
+      await _client.rpc(
+        'upsert_teacher_min',
+        params: {
+          'p_email': e,
+          'p_name': e.split('@').first,
+          'p_is_admin': null, // 여기서 관리자 승격은 안 함(이미 DB에 true이므로 OK)
+        },
+      );
+    } catch (_) {}
 
-    if (rpcRow != null) {
-      rowMap = rpcRow;
-    } else {
+    // 1) Supabase Auth 세션 보장: SignIn → 실패시 SignUp → 다시 SignIn
+    Future<bool> _ensureAuthSession() async {
       try {
-        final rows = await _client
-            .from('teachers')
-            .select(
-              'id, name, email, is_admin, password_hash, auth_user_id, last_login',
-            )
-            .eq('email', e)
-            .limit(1);
-
-        if (rows.isEmpty) return false;
-
-        final m = Map<String, dynamic>.from(rows.first);
-        final stored = (m['password_hash'] as String?)?.trim() ?? '';
-        if (stored.isEmpty || stored != h) return false;
-
-        rowMap = m;
+        await _client.auth.signInWithPassword(email: e, password: password);
+        return true;
       } catch (_) {
-        return false; // RLS 등으로 실패
+        /* 계속 진행 */
+      }
+      try {
+        await _client.auth.signUp(email: e, password: password);
+      } catch (_) {
+        /* 이미 있을 수 있음 */
+      }
+      try {
+        await _client.auth.signInWithPassword(email: e, password: password);
+        return true;
+      } catch (_) {
+        return false;
       }
     }
 
-    // 여기까지 오면 App-Auth OK (rowMap은 non-null 보장)
-    final teacher = Teacher.fromMap(rowMap);
-    _currentStudent = null;
-    _currentTeacher = teacher;
+    if (!await _ensureAuthSession()) return false;
 
-    // (선택) 접속 흔적: Supabase 세션 이후 시도
+    // 2) auth.uid ↔ teachers.auth_user_id 링크 + 마지막 로그인 시간
     try {
-      await _client.auth.signInWithPassword(email: e, password: password);
+      await _client.rpc('sync_auth_user_id_by_email', params: {'p_email': e});
     } catch (_) {}
-
-    // auth.uid ↔ teachers.auth_user_id 동기화
     try {
-      final authedEmail = _client.auth.currentUser?.email; // nullable
-      if (authedEmail != null && authedEmail.isNotEmpty) {
-        await _client.rpc(
-          'sync_auth_user_id_by_email',
-          params: {'p_email': authedEmail},
-        );
-      }
-    } catch (_) {}
-
-    // 마지막 로그인 시간 업데이트
-    try {
-      final teacherId = teacher.id;
-      await _client
+      final rows = await _client
           .from('teachers')
-          .update({'last_login': DateTime.now().toUtc().toIso8601String()})
-          .eq('id', teacherId);
-    } catch (_) {}
+          .select(
+            'id, name, email, is_admin, password_hash, auth_user_id, last_login',
+          )
+          .eq('email', e)
+          .limit(1);
+      if (rows.isEmpty) return false;
 
-    return true;
+      final m = Map<String, dynamic>.from(rows.first);
+      final stored = (m['password_hash'] as String?)?.trim() ?? '';
+      if (stored.isNotEmpty && stored != pwdHash) {
+        // 테이블 비번 정책을 쓰는 경우: 불일치면 로그인 실패 처리(선택)
+        return false;
+      }
+
+      // last_login 갱신(실패 무시)
+      try {
+        await _client
+            .from('teachers')
+            .update({'last_login': DateTime.now().toUtc().toIso8601String()})
+            .eq('email', e);
+      } catch (_) {}
+
+      // 최종 세션/역할 세팅
+      _currentStudent = null;
+      _currentTeacher = Teacher.fromMap(m);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
+
 
   // ---------------- 로그아웃 ----------------
   Future<void> signOutAll() async {

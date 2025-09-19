@@ -40,6 +40,8 @@ dependencies:
   url_launcher: ^6.3.0
   mime: ^1.0.5               # ⬅️ 리소스 업로드 시 MIME 판별용 (신규 추가)
 
+  uuid: ^4.5.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

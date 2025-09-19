@@ -675,7 +675,9 @@ class _ManageKeywordsScreenState extends State<ManageKeywordsScreen> {
                               prefixIcon: Icon(Icons.search),
                               hintText: '카테고리 검색',
                             ),
-                            onChanged: (_) => setState(_applyCategoryFilter),
+                            onChanged: (_) => setState(() {
+                              _applyCategoryFilter();
+                            }),
                           ),
                         ),
                         const Divider(height: 1),
