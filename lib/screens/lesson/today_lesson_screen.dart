@@ -1,7 +1,8 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.58.1-ui | 수동 선택만 링크: 자동 시드 제거 + 다이얼로그 전체선택 유지 제거
-// - 최초 진입 자동 시드(_seedLinksFromAssignments) 호출 제거 → 사용자가 고른 파일만 링크
-// - 선택 다이얼로그에서 selectAll 유지/자동재선택 제거 → 체크한 항목만 반환
+// v1.64-ui | xsc 우선-열기 UX 보강
+// - “최근 저장본” 툴팁에 가독성 있는 시간 포맷 적용
+// - 오디오 리소스에 보조 메뉴 “원본 mp3로 열기” 추가(기본 클릭은 계속 xsc 우선)
+// - 나머지 로직/구조는 기존 유지
 
 import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
@@ -555,6 +556,18 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         n.endsWith('.mov');
   }
 
+  String? _fmtLocalStamp(String? iso) {
+    if (iso == null || iso.isEmpty) return null;
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) return iso;
+    final local = dt.toLocal();
+    final y = local.year.toString().padLeft(4, '0');
+    final m = local.month.toString().padLeft(2, '0');
+    final d = local.day.toString().padLeft(2, '0');
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    return '$y-$m-$d $hh:$mm';
+  }
 
   // ===== 링크 열기: resource만 실제 파일 열기 =====
   Future<void> _openLessonLink(Map<String, dynamic> link) async {
@@ -619,7 +632,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
   }
 
-
   // ===== xsc 최신본 열기 =====
   Future<void> _openLatestXsc(Map<String, dynamic> link) async {
     try {
@@ -629,6 +641,32 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       );
     } catch (e) {
       _showError('xsc 열기 실패: $e');
+    }
+  }
+
+  // ===== 원본 mp3로 열기(보조 메뉴) =====
+  Future<void> _openOriginalAudio(Map<String, dynamic> link) async {
+    try {
+      final filename = (link['resource_filename'] ?? '').toString();
+      final rf = ResourceFile.fromMap({
+        'id': link['id'],
+        'curriculum_node_id': link['curriculum_node_id'],
+        'title': link['resource_title'],
+        'filename': filename,
+        'mime_type': null,
+        'size_bytes': null,
+        'storage_bucket': link['resource_bucket'] ?? _defaultResourceBucket,
+        'storage_path': link['resource_path'] ?? '',
+        'created_at': link['created_at'],
+      });
+      final url = await _res.signedUrl(rf);
+      await _file.saveUrlToWorkspaceAndOpen(
+        studentId: _studentId,
+        filename: rf.filename,
+        url: url,
+      );
+    } catch (e) {
+      _showError('원본 mp3 열기 실패: $e');
     }
   }
 
@@ -885,7 +923,12 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     String? xscStamp(Map m) {
       final v = m['xsc_updated_at']?.toString();
       if (v == null || v.isEmpty) return null;
-      return v;
+      return _fmtLocalStamp(v) ?? v;
+    }
+
+    bool _isAudioLink(Map m) {
+      final name = (m['resource_filename'] ?? '').toString();
+      return _isAudioName(name);
     }
 
     return Column(
@@ -893,6 +936,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         final kind = (m['kind'] ?? '').toString();
         final isNode = kind == 'node';
         final showXsc = !isNode && hasXscMeta(m);
+        final isAudio = !isNode && _isAudioLink(m);
 
         return ListTile(
           dense: true,
@@ -953,6 +997,9 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                         context,
                       ).showSnackBar(const SnackBar(content: Text('복사했습니다.')));
                       break;
+                    case 'open_mp3':
+                      await _openOriginalAudio(m);
+                      break;
                     case 'delete':
                       if (id.isEmpty) return;
                       _removeLessonLink(id);
@@ -964,6 +1011,11 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                     value: 'copy_id',
                     child: Text(isNode ? '노드 ID 복사' : '경로 복사'),
                   ),
+                  if (isAudio) // 오디오일 때만 보조 메뉴 제공
+                    const PopupMenuItem(
+                      value: 'open_mp3',
+                      child: Text('원본 mp3로 열기'),
+                    ),
                   const PopupMenuDivider(),
                   const PopupMenuItem(value: 'delete', child: Text('삭제')),
                 ],

@@ -16,18 +16,38 @@ import '../../services/lesson_service.dart';
 
 import '../../models/curriculum.dart';
 import '../../models/resource.dart';
+import '../../services/xsc_sync_service.dart';
+// (추가) 내부용: 표시/실행을 일반화한 아이템
+// 표시 공통 모델
+enum _ReviewedItemKind { linkResource, attachment, node }
 
-// 내부용: 복습 리소스 그룹(레슨별)
+class _ReviewedItem {
+  final _ReviewedItemKind kind;
+  final String label; // 파일/리소스/노드 표기
+  final String sub; // 경로/출처
+  final Future<void> Function() onOpen;
+
+  _ReviewedItem({
+    required this.kind,
+    required this.label,
+    required this.sub,
+    required this.onOpen,
+  });
+}
+
+// 레슨별 그룹: items 로 교체
 class _ReviewedGroup {
   final String lessonId;
   final String dateStr; // YYYY-MM-DD
-  final List<ResourceFile> resources;
+  final List<_ReviewedItem> items;
   _ReviewedGroup({
     required this.lessonId,
     required this.dateStr,
-    required this.resources,
+    required this.items,
   });
 }
+
+
 
 class StudentCurriculumScreen extends StatefulWidget {
   final String studentId;
@@ -120,43 +140,86 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
       final id = (row['id'] ?? '').toString();
       final dateStr = (row['date'] ?? '').toString();
       if (id.isEmpty || dateStr.isEmpty) continue;
-      if (dateStr == todayStr) continue;
 
-      final links = await _links.listByLesson(id);
-      if (links.isEmpty) continue;
-
+      final items = <_ReviewedItem>[];
       final seen = <String>{};
-      final resList = <ResourceFile>[];
+
+            // ---- 1) lesson_links: resource_path 가 있으면 리소스 (kind 값과 무관)
+      final links = await _links.listByLesson(id);
       for (final m in links) {
         final mm = Map<String, dynamic>.from(m);
-        if ((mm['kind'] ?? '') != 'resource') continue;
+
         final bucket = (mm['resource_bucket'] ?? ResourceService.bucket)
             .toString();
         final path = (mm['resource_path'] ?? '').toString();
-        if (path.isEmpty) continue;
+        if (path.isEmpty) continue; // ← path 없으면 리소스 아님
 
+        // 중복 제거 (동일 버킷/경로)
         final key = '$bucket::$path';
-        if (seen.contains(key)) continue;
-        seen.add(key);
+        if (!seen.add(key)) continue;
 
-        resList.add(
-          ResourceFile.fromMap({
-            'id': mm['id']?.toString() ?? '',
-            'curriculum_node_id': mm['curriculum_node_id'],
-            'title': (mm['resource_title'] ?? '').toString(),
-            'filename': (mm['resource_filename'] ?? 'file').toString(),
-            'mime_type': null,
-            'size_bytes': null,
-            'storage_bucket': bucket,
-            'storage_path': path,
-            'created_at': mm['created_at'],
-          }),
+        final filename = (mm['resource_filename'] ?? 'resource').toString();
+        final title = (mm['resource_title'] ?? '').toString();
+        final label = (title.isNotEmpty ? title : filename).trim();
+
+        items.add(
+          _ReviewedItem(
+            kind: _ReviewedItemKind.linkResource,
+            label: label.isEmpty ? '리소스' : label,
+            sub: '$bucket/$path',
+            onOpen: () => XscSyncService().openFromLessonLinkMap(
+              link: mm,
+              studentId: widget.studentId,
+            ),
+          ),
         );
       }
 
-      if (resList.isNotEmpty) {
+
+      // 2) lessons.attachments 포함 (현재처럼 유지)
+      final atts = row['attachments'];
+      if (atts is List) {
+        for (final a in atts) {
+          final map = (a is Map)
+              ? Map<String, dynamic>.from(a)
+              : <String, dynamic>{
+                  'url': a.toString(),
+                  'path': a.toString(),
+                  'name': a.toString().split('/').last,
+                };
+
+          final localPath = (map['localPath'] ?? '').toString();
+          final url = (map['url'] ?? '').toString();
+          final path = (map['path'] ?? '').toString();
+          final name = (map['name'] ?? path.split('/').last).toString();
+
+          final key = localPath.isNotEmpty ? 'local::$localPath' : 'url::$url';
+          if (!seen.add(key)) continue;
+
+          items.add(
+            _ReviewedItem(
+              kind: _ReviewedItemKind.attachment,
+              label: name.isEmpty ? '첨부' : name,
+              sub: localPath.isNotEmpty
+                  ? localPath
+                  : (url.isNotEmpty ? url : path),
+              onOpen: () async {
+                if (localPath.isNotEmpty) {
+                  await FileService().openLocal(localPath);
+                } else if (url.isNotEmpty) {
+                  await FileService().openUrl(url);
+                } else if (path.isNotEmpty) {
+                  await FileService().openUrl(path);
+                }
+              },
+            ),
+          );
+        }
+      }
+
+      if (items.isNotEmpty) {
         groups.add(
-          _ReviewedGroup(lessonId: id, dateStr: dateStr, resources: resList),
+          _ReviewedGroup(lessonId: id, dateStr: dateStr, items: items),
         );
       }
     }
@@ -164,6 +227,8 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
     groups.sort((a, b) => b.dateStr.compareTo(a.dateStr));
     return groups;
   }
+
+
 
   Future<void> _refresh() async {
     final f1 = _fetch();
@@ -295,38 +360,99 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.event_note),
-                        title: Text(g.dateStr),
-                        subtitle: Text('리소스 ${g.resources.length}개'),
-                      ),
-                      ...g.resources.map(
-                        (r) => ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.insert_drive_file),
-                          title: Text(
-                            (r.title?.isNotEmpty == true
-                                    ? r.title!
-                                    : r.filename)
-                                .trim(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            '${r.storageBucket}/${r.storagePath}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          trailing: IconButton(
-                            tooltip: '열기',
-                            icon: const Icon(Icons.open_in_new),
-                            onPressed: () => _openResource(r),
-                          ),
-                          onTap: () => _openResource(r),
+                      Builder(
+                          builder: (_) {
+                            final resItems = g.items
+                                .where(
+                                  (it) =>
+                                      it.kind == _ReviewedItemKind.linkResource,
+                                )
+                                .toList();
+                            final attItems = g.items
+                                .where(
+                                  (it) =>
+                                      it.kind == _ReviewedItemKind.attachment,
+                                )
+                                .toList();
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (resItems.isNotEmpty) ...[
+                                  const Padding(
+                                    padding: EdgeInsets.fromLTRB(12, 4, 12, 4),
+                                    child: Text(
+                                      '리소스',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  ...resItems.map(
+                                    (it) => ListTile(
+                                      dense: true,
+                                      leading: const Icon(
+                                        Icons.insert_drive_file,
+                                      ),
+                                      title: Text(
+                                        it.label,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      subtitle: Text(
+                                        it.sub,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      trailing: IconButton(
+                                        tooltip: '열기',
+                                        icon: const Icon(Icons.open_in_new),
+                                        onPressed: it.onOpen,
+                                      ),
+                                      onTap: it.onOpen,
+                                    ),
+                                  ),
+                                ],
+
+                                if (attItems.isNotEmpty) ...[
+                                  const Padding(
+                                    padding: EdgeInsets.fromLTRB(12, 8, 12, 4),
+                                    child: Text(
+                                      '첨부',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  ...attItems.map(
+                                    (it) => ListTile(
+                                      dense: true,
+                                      leading: const Icon(Icons.attachment),
+                                      title: Text(
+                                        it.label,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      subtitle: Text(
+                                        it.sub,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      trailing: IconButton(
+                                        tooltip: '열기',
+                                        icon: const Icon(Icons.open_in_new),
+                                        onPressed: it.onOpen,
+                                      ),
+                                      onTap: it.onOpen,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            );
+                          },
                         ),
-                      ),
+
+
                     ],
                   );
                 },

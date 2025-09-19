@@ -1,5 +1,6 @@
 // lib/models/resource.dart
-// v1.0.1 | Resource DTO: id null-safe, map 정합성
+// v1.1.0 | Resource DTO: id null-safe, map 정합성 + (옵션) contentHash 필드 추가
+// - contentHash는 mp3 바이너리 해시(sha1 등) 매칭 최적화용 (없어도 동작)
 
 class ResourceFile {
   final String id;
@@ -12,6 +13,9 @@ class ResourceFile {
   final String storagePath; // 버킷 내부 경로
   final DateTime? createdAt;
 
+  // (옵션) 동일 음원 매칭 최적화용: 서버/DB에 있으면 사용, 없어도 무시됨
+  final String? contentHash;
+
   const ResourceFile({
     required this.id,
     required this.nodeId,
@@ -22,6 +26,7 @@ class ResourceFile {
     required this.storageBucket,
     required this.storagePath,
     this.createdAt,
+    this.contentHash,
   });
 
   factory ResourceFile.fromMap(Map<String, dynamic> m) {
@@ -39,6 +44,8 @@ class ResourceFile {
       createdAt: m['created_at'] != null
           ? DateTime.tryParse(m['created_at'].toString())
           : null,
+      // content_hash / hash 둘 다 받아줌(서버 스펙 유연성)
+      contentHash: (m['content_hash'] ?? m['hash'])?.toString(),
     );
   }
 
@@ -51,5 +58,6 @@ class ResourceFile {
     if (sizeBytes != null) 'size_bytes': sizeBytes,
     'storage_bucket': storageBucket,
     'storage_path': storagePath,
+    if (contentHash != null) 'content_hash': contentHash,
   };
 }

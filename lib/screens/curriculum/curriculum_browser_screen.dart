@@ -18,6 +18,8 @@ import '../../services/resource_service.dart';
 import '../../services/file_service.dart';
 import '../../services/student_service.dart';
 import '../../services/lesson_links_service.dart';
+import '../../services/xsc_sync_service.dart';
+
 
 class CurriculumBrowserScreen extends StatefulWidget {
   const CurriculumBrowserScreen({super.key});

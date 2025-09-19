@@ -1,5 +1,5 @@
 // lib/screens/lesson/lesson_history_screen.dart
-// v1.59.1-fix2 | lesson_links 스키마 호환: resource_id 제거, bucket/path/filename 사용
+// v1.60.0-ui | 히스토리 링크: ‘열기’ 단일화(동기화 포함), XSC 동기화 버튼 제거
 // - links 로딩: resource_bucket/resource_path/resource_filename/resource_title 선택
 // - 리소스 조인 제거(불필요). 링크 메타로 바로 표시/실행
 // - XSC 동기화/기본앱 열기: 링크 메타로 ResourceFile 구성
@@ -21,8 +21,6 @@ import '../../services/log_service.dart';
 import '../../ui/components/file_clip.dart';
 
 // XSC 동기화/리소스 메타
-import '../../models/resource.dart';
-import '../../services/resource_service.dart';
 import '../../services/xsc_sync_service.dart';
 
 class LessonHistoryScreen extends StatefulWidget {
@@ -468,86 +466,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
   }
 
   // ---------- 기본앱 열기 ----------
-  Future<void> _openDefaultAppForLink(Map<String, dynamic> link) async {
-    try {
-      final xscPath = _xscPathOf(link); // ← 변경
-      if (xscPath.isNotEmpty) {
-        final store = Supabase.instance.client.storage.from(
-          XscSyncService.studentXscBucket,
-        );
-        final bytes = await store.download(xscPath);
-        final local = await FileService.saveBytesFile(
-          filename: 'current.xsc',
-          bytes: bytes,
-        );
-        await FileService().openLocal(local.path);
-        return;
-      }
-
-      // 2) 리소스가 있으면: 링크 메타로 ResourceFile 구성 → XscSyncService.open
-      final bucket = (link['resource_bucket'] ?? ResourceService.bucket)
-          .toString();
-      final path = (link['resource_path'] ?? '').toString();
-      final filename = (link['resource_filename'] ?? 'resource').toString();
-      if (path.isNotEmpty) {
-        final rf = ResourceFile.fromMap({
-          'id': null, // id 없이도 동작 가능
-          'storage_bucket': bucket,
-          'storage_path': path,
-          'filename': filename,
-          'title': (link['resource_title'] ?? filename).toString(),
-          'mime_type': null,
-          'size_bytes': null,
-        });
-        await XscSyncService().open(resource: rf, studentId: _studentId);
-        return;
-      }
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('열 수 있는 경로가 없습니다')));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('열기 실패: $e')));
-    }
-  }
-
-  // ---------- XSC 동기화 실행 ----------
-  Future<void> _runXscSync(Map<String, dynamic> link) async {
-    try {
-      final bucket = (link['resource_bucket'] ?? ResourceService.bucket)
-          .toString();
-      final path = (link['resource_path'] ?? '').toString();
-      final filename = (link['resource_filename'] ?? 'resource').toString();
-      if (path.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('리소스 경로가 없어 동기화할 수 없습니다.')),
-        );
-        return;
-      }
-      final rf = ResourceFile.fromMap({
-        'id': null,
-        'storage_bucket': bucket,
-        'storage_path': path,
-        'filename': filename,
-        'title': (link['resource_title'] ?? filename).toString(),
-        'mime_type': null,
-        'size_bytes': null,
-      });
-      await XscSyncService().open(resource: rf, studentId: _studentId);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('XSC 동기화를 시작했습니다. (저장 시 자동 업로드)')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('XSC 동기화 실패: $e')));
-    }
-  }
+  
 
   Widget _sectionHeader(String month) {
     final bg = Theme.of(context).colorScheme.surfaceContainerHighest;
@@ -714,24 +633,39 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                           ],
                         ),
                         const SizedBox(height: 8),
+                        // 기존 Wrap의 버튼들 교체
                         Wrap(
                           spacing: 8,
                           runSpacing: 8,
                           children: [
-                            // 기본앱 열기
-                            OutlinedButton.icon(
-                              onPressed: () => _openDefaultAppForLink(l),
-                              icon: const Icon(Icons.play_arrow),
-                              label: const Text('기본앱 열기'),
-                            ),
-                            // XSC 동기화
                             FilledButton.icon(
-                              onPressed: () => _runXscSync(l),
-                              icon: const Icon(Icons.sync),
-                              label: const Text('XSC 동기화 실행'),
+                              onPressed: () async {
+                                try {
+                                  await XscSyncService().openFromLessonLinkMap(
+                                    link: l,
+                                    studentId: _studentId,
+                                  );
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('열기 실패: $e')),
+                                  );
+                                }
+                              },
+                              icon: const Icon(Icons.open_in_new),
+                              label: const Text('열기'),
                             ),
+
+
+                            // (선택) 고급: 읽기전용 즉시열기 - 임시파일로만 열고 워처/동기화 안 걸림
+                            // OutlinedButton.icon(
+                            //   onPressed: () => _openQuickViewReadOnly(l),
+                            //   icon: const Icon(Icons.visibility),
+                            //   label: const Text('읽기 전용으로 보기'),
+                            // ),
                           ],
                         ),
+
                       ],
                     ),
                   ),
