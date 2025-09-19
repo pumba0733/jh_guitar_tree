@@ -1,8 +1,8 @@
 // lib/app.dart
-// v1.46.2 | 앱 레벨 보정 + 멀티학생 워크스페이스(루트 감시, 자동 매칭)
-// - 세션 보정(AuthService.ensureTeacherLink) 유지
-// - WORKSPACE_ENABLED + WORKSPACE_DIR만으로 macOS에서 루트(재귀) 감시 시작
-// - 학생 UUID를 사전에 줄 필요 없음 (폴더/파일 규칙으로 자동 매칭)
+// v1.58.1 | 앱 레벨 보정 + 세션 복원 + 멀티학생 워크스페이스
+// - 부팅/세션변경 시 AuthService.restoreLinkedIdentities() 호출 추가
+// - 기존 ensureTeacherLink()는 유지 (교사 이메일-레코드 링크 보강)
+// - WORKSPACE_ENABLED/WORKSPACE_DIR 조건에 맞을 때만 macOS 루트 감시
 
 import 'dart:async' show StreamSubscription, unawaited;
 import 'dart:io' show Platform;
@@ -16,9 +16,6 @@ import 'constants/app_env.dart';
 import 'services/workspace_service.dart';
 
 // ---- Env 플래그 (Dart-define) ----
-// 예시:
-// --dart-define=WORKSPACE_ENABLED=true
-// --dart-define=WORKSPACE_DIR=/Users/you/GuitarTreeWorkspace
 const bool _workspaceEnabled = bool.fromEnvironment(
   'WORKSPACE_ENABLED',
   defaultValue: false,
@@ -43,15 +40,16 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    // 앱 구동 후 주기적 flush 시작
+    // 주기적 flush 시작
     RetryQueueService().start(
       interval: Duration(seconds: AppEnv.retryIntervalSeconds),
     );
 
-    // ✅ 앱 시작 시 이미 세션이 있으면 1회 보정 + 워크스페이스 시작(옵션)
+    // ✅ 부팅 직후: 세션이 이미 있다면 1회 복원 + 링크 보강 + 워크스페이스 시작
     final auth = Supabase.instance.client.auth;
     if (auth.currentUser != null) {
-      unawaited(AuthService().ensureTeacherLink());
+      unawaited(AuthService().restoreLinkedIdentities()); // 교사 세션↔DB 재결합
+      unawaited(AuthService().ensureTeacherLink()); // 이메일 링크 보강
       _maybeStartWorkspace();
     }
 
@@ -61,6 +59,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       if (event == AuthChangeEvent.signedIn ||
           event == AuthChangeEvent.tokenRefreshed ||
           event == AuthChangeEvent.userUpdated) {
+        unawaited(AuthService().restoreLinkedIdentities());
         unawaited(AuthService().ensureTeacherLink());
         _maybeStartWorkspace();
       } else if (event == AuthChangeEvent.signedOut) {
@@ -70,12 +69,10 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   }
 
   void _maybeStartWorkspace() {
-    // macOS + 플래그/경로 충족 시에만 시작, 이미 실행중이면 무시
     if (!Platform.isMacOS) return;
     if (!_workspaceEnabled) return;
     if (_workspaceDir.isEmpty) return;
     if (WorkspaceService.instance.isRunning) return;
-
     unawaited(WorkspaceService.instance.startRoot(folderPath: _workspaceDir));
   }
 
@@ -97,7 +94,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // 포그라운드 복귀 시 즉시 한 번 flush
+      // 포그라운드 복귀 시 즉시 flush
       RetryQueueService().flushAll();
 
       // 세션 살아있으면 워크스페이스 보정
@@ -124,7 +121,6 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       theme: theme,
       initialRoute: AppRoutes.login,
       routes: AppRoutes.routes,
-      // routes에 없는 라우트가 들어오는 경우에만 호출됨
       onGenerateRoute: AppRoutes.onGenerateRoute,
       onUnknownRoute: (_) => MaterialPageRoute(
         builder: (_) =>

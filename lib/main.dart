@@ -1,4 +1,8 @@
-// lib/main.dart — v1.51.1 | Zone mismatch 종결 + PlatformDispatcher 미정의 해결
+// lib/main.dart — v1.58.1 | 초기화/세션리스너 정리 + 세션 복원 호출
+// - 중복 onAuthStateChange 리스너 제거, 단일 리스너로 통합
+// - 부팅 직후/로그인·토큰갱신 시 upsert_teacher_min + sync_auth_user_id_by_email
+// - 각 시점마다 AuthService.restoreLinkedIdentities() 호출로 교사 상태 재결합
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -6,29 +10,30 @@ import 'package:hive_flutter/hive_flutter.dart';
 
 import 'app.dart';
 import 'supabase/supabase_options.dart';
+import 'services/auth_service.dart';
 
 Future<void> main() async {
-  // 바인딩 획득(이 인스턴스를 통해 platformDispatcher 접근)
+  // 바인딩 획득
   final binding = WidgetsFlutterBinding.ensureInitialized();
 
   // 전역 에러 핸들러(Flutter 프레임워크)
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.dumpErrorToConsole(details);
-    // TODO: 필요하면 여기서 Sentry/Crashlytics 연동
+    // TODO: Sentry/Crashlytics 연동 지점
   };
 
-  // 전역 에러 핸들러(플랫폼/비동기): PlatformDispatcher는 binding 경유
+  // 전역 에러 핸들러(플랫폼/비동기)
   binding.platformDispatcher.onError = (Object error, StackTrace stack) {
     // ignore: avoid_print
     print('Uncaught platform error: $error\n$stack');
-    // TODO: 필요하면 여기서 Sentry/Crashlytics 연동
-    return true; // 에러를 우리가 처리했다고 명시
+    // TODO: Sentry/Crashlytics 연동 지점
+    return true;
   };
 
-  // ✅ Hive 초기화 (RetryQueueService 등에서 사용하기 전에 필수)
+  // ✅ Hive 초기화
   await Hive.initFlutter();
 
-  // ✅ Supabase 옵션 확인(placeholder 방지)
+  // ✅ Supabase 옵션 확인
   SupabaseOptions.ensureConfigured();
 
   // ✅ Supabase 초기화
@@ -39,23 +44,16 @@ Future<void> main() async {
   );
 
   final supa = Supabase.instance.client;
-  supa.auth.onAuthStateChange.listen((evt) async {
-    final email = evt.session?.user.email;
-    if (email == null || email.isEmpty) return;
+  if (supa.auth.currentUser == null) {
+    try {
+      await supa.auth.signInAnonymously();
+    } catch (e) {
+      // ignore: avoid_print
+      print('anonymous sign-in failed: $e');
+    }
+  }
 
-    await supa.rpc(
-      'upsert_teacher_min',
-      params: {
-        'p_email': email,
-        'p_name': email.split('@').first,
-        'p_is_admin': null,
-      },
-    );
-
-    await supa.rpc('sync_auth_user_id_by_email', params: {'p_email': email});
-  });
-
-  // ✅ 부트스트랩: 앱 시작 직후 현재 세션이 있으면 1회 동기화
+  // ✅ 부트스트랩: 앱 시작 직후 현재 세션이 있으면 1회 동기화 + 상태 복원
   final initialEmail = supa.auth.currentUser?.email;
   if (initialEmail != null && initialEmail.isNotEmpty) {
     try {
@@ -80,15 +78,20 @@ Future<void> main() async {
       // ignore: avoid_print
       print('bootstrap sync_auth_user_id_by_email error: $e');
     }
+    // 🔁 세션 ↔ 교사 레코드 재결합
+    try {
+      await AuthService().restoreLinkedIdentities();
+    } catch (e) {
+      // ignore: avoid_print
+      print('bootstrap restoreLinkedIdentities error: $e');
+    }
   }
 
-  // ✅ 상태 변화 리스너: 로그인/토큰갱신 때만 동기화 (로그아웃 등은 무시)
+  // ✅ 단일 세션 리스너: 로그인 / 토큰갱신에만 반응
   supa.auth.onAuthStateChange.listen((state) async {
-    final event = state.event; // AuthChangeEvent
-    final session = state.session; // Session?
-    final email = session?.user.email ?? '';
+    final event = state.event;
+    final email = state.session?.user.email ?? '';
 
-    // 필요 이벤트만 처리
     if (email.isEmpty) return;
     if (event != AuthChangeEvent.signedIn &&
         event != AuthChangeEvent.tokenRefreshed) {
@@ -115,8 +118,15 @@ Future<void> main() async {
       // ignore: avoid_print
       print('listener sync_auth_user_id_by_email error: $e');
     }
+
+    // 🔁 세션 ↔ 교사 레코드 재결합
+    try {
+      await AuthService().restoreLinkedIdentities();
+    } catch (e) {
+      // ignore: avoid_print
+      print('listener restoreLinkedIdentities error: $e');
+    }
   });
 
-  // 같은 Zone에서 바로 실행 (runZonedGuarded 제거)
   runApp(const App());
 }

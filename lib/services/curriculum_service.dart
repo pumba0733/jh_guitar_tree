@@ -107,6 +107,14 @@ class CurriculumService {
     }
   }
 
+  Future<void> _ensureAuthSession() async {
+    if (_c.auth.currentUser == null) {
+      try {
+        await _c.auth.signInAnonymously();
+      } catch (_) {}
+    }
+  }
+
   // ---------- Reads ----------
   Future<List<Map<String, dynamic>>> listNodes() async {
     if (_hasVisibleTreeRpc != false) {
@@ -184,14 +192,43 @@ class CurriculumService {
   }
 
   // ---------- Assignments ----------
+    // ---------- Assignments ----------
   Future<List<Map<String, dynamic>>> listAssignmentsByStudent(
     String studentId,
   ) async {
+    // 0) 학생-세션 연결이 안되어 있으면 붙여둔다(무해, 실패시 무시)
+    try {
+      await Supabase.instance.client.rpc(
+        'attach_me_to_student',
+        params: {'p_student_id': studentId},
+      );
+    } catch (_) {}
+
+    // 1) SECURITY DEFINER RPC 우선 (RLS 우회 X, 서버에서 권한 체크)
+    try {
+      final data = await _retry(
+        () => _c.rpc(
+          'list_assignments_by_student',
+          params: {'p_student_id': studentId},
+        ),
+        // attach 직후 반영 지연 대비 재시도 허용
+        shouldRetry: (_) => true,
+      );
+      final list = _mapList(data);
+      if (list.isNotEmpty) return list;
+      // 비어있으면 아래 폴백으로 시도
+    } catch (_) {
+      /* 폴백 */
+    }
+
+    // 2) 폴백: 직접 테이블 조회(교사/관리자 세션에서만 통과될 수 있음)
     final data = await _retry(
       () => _c.from(_tAssign).select().eq('student_id', studentId),
     );
     return _mapList(data);
   }
+
+
 
   Future<List<Map<String, dynamic>>> listAssignmentsByNode(
     String nodeId,
@@ -347,6 +384,10 @@ class CurriculumService {
   Future<List<Map<String, dynamic>>> fetchAssignedResourcesForStudent(
     String studentId,
   ) async {
+    // ⬇️ 추가
+    await _ensureAuthSession();
+    await ensureStudentBinding(studentId);
+
     // 1) 배정된 노드 목록
     final assigns = await _retry(() async {
       return await _c
@@ -361,7 +402,7 @@ class CurriculumService {
     };
     if (nodeIds.isEmpty) return const [];
 
-    // 2) 해당 노드에 속한 리소스 조회
+    // 2) 해당 노드의 리소스
     final data = await _retry(() async {
       return await _c
           .from(_tRes)
@@ -371,4 +412,5 @@ class CurriculumService {
     });
     return _mapList(data);
   }
+
 }

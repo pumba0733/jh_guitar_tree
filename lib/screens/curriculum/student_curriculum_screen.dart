@@ -1,17 +1,18 @@
 // lib/screens/curriculum/student_curriculum_screen.dart
-// v1.44.0 | '지난 수업에서 다룬 리소스' 섹션 추가 + 무배정 시에도 복습 섹션 노출
-// - LessonService로 최근 수업 N개 조회 → LessonLinksService로 해당 레슨의 리소스 링크만 수집
-// - 날짜별 그룹화, 중복(버킷/경로) 제거, 최신순 정렬
-// - 배정이 비어도 복습 섹션은 항상 표시
+// v1.58.0 | B안 정합 보강
+// - 초기 진입 시 ensureTeacherLink() 호출(교사 세션-DB 연결 보강)
+// - 초기 fetch → 이후 구독 패턴은 이 화면에서 fetch만 담당(구독은 상위에서 선택적으로)
+// - 복습 섹션/배정 섹션 로딩·리트라이 UX 미세개선
 
 import 'package:flutter/material.dart';
 
+import '../../services/auth_service.dart';
 import '../../services/curriculum_service.dart';
 import '../../services/progress_service.dart';
 import '../../services/resource_service.dart';
 import '../../services/lesson_links_service.dart';
 import '../../services/file_service.dart';
-import '../../services/lesson_service.dart'; // ✅ 추가
+import '../../services/lesson_service.dart';
 
 import '../../models/curriculum.dart';
 import '../../models/resource.dart';
@@ -42,25 +43,37 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
   final _progress = ProgressService();
   final _resSvc = ResourceService();
   final _links = LessonLinksService();
-  final _lessonSvc = LessonService(); // ✅ 추가
+  final _lessonSvc = LessonService();
 
-  late Future<
+  Future<
     ({
       List<CurriculumAssignment> assigns,
       Map<String, CurriculumNode> nodeMap,
       Map<String, bool> doneMap,
     })
-  >
+  >?
   _load;
 
-  late Future<List<_ReviewedGroup>> _reviewedLoad; // ✅ 추가
-  @override
+  Future<List<_ReviewedGroup>>? _reviewedLoad;
+
+    @override
   void initState() {
     super.initState();
-    // 학생-계정 매핑(실패해도 무시)
-    _svc.ensureStudentBinding(widget.studentId);
-    _load = _fetch();
-    _reviewedLoad = _fetchReviewed(); // 지난 수업 리소스
+    AuthService().ensureTeacherLink();
+
+    // ensureStudentBinding 완료 후에 fetch 시작
+    Future.microtask(() async {
+      try {
+        await _svc.ensureStudentBinding(widget.studentId);
+        // 아주 짧은 딜레이로 RLS 전파 대기
+        await Future.delayed(const Duration(milliseconds: 80));
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _load = _fetch();
+        _reviewedLoad = _fetchReviewed();
+      });
+    });
   }
 
 
@@ -72,33 +85,34 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
     })
   >
   _fetch() async {
+    // 노드 트리
     final nodesRaw = await _svc.listNodes();
     final nodes = nodesRaw
         .map((e) => CurriculumNode.fromMap(Map<String, dynamic>.from(e)))
         .toList();
     final nodeMap = {for (final n in nodes) n.id: n};
 
+    // 배정
     final assignsRaw = await _svc.listAssignmentsByStudent(widget.studentId);
     final assigns = assignsRaw
         .map((e) => CurriculumAssignment.fromMap(Map<String, dynamic>.from(e)))
         .toList();
 
+    // 진도
     final doneMap = await _progress.mapByStudent(widget.studentId);
     return (assigns: assigns, nodeMap: nodeMap, doneMap: doneMap);
   }
 
-  // ✅ 지난 수업 리소스 수집
+  // 지난 수업 리소스 수집
   Future<List<_ReviewedGroup>> _fetchReviewed({int maxLessons = 20}) async {
-    // 오늘 날짜 문자열
     final now = DateTime.now();
     final d0 = DateTime(now.year, now.month, now.day);
     final todayStr = d0.toIso8601String().split('T').first;
 
-    // 최근 수업 N개(최신순) 불러오기
     final lessons = await _lessonSvc.listByStudent(
       widget.studentId,
       limit: maxLessons,
-    ); // List<Map>
+    );
 
     final groups = <_ReviewedGroup>[];
     for (final raw in lessons) {
@@ -106,13 +120,12 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
       final id = (row['id'] ?? '').toString();
       final dateStr = (row['date'] ?? '').toString();
       if (id.isEmpty || dateStr.isEmpty) continue;
-      if (dateStr == todayStr) continue; // "지난" 수업만
+      if (dateStr == todayStr) continue;
 
-      // 해당 레슨의 링크 중 리소스만
       final links = await _links.listByLesson(id);
       if (links.isEmpty) continue;
 
-      final seen = <String>{}; // bucket::path 중복 제거
+      final seen = <String>{};
       final resList = <ResourceFile>[];
       for (final m in links) {
         final mm = Map<String, dynamic>.from(m);
@@ -148,7 +161,6 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
       }
     }
 
-    // 날짜 최신순 정렬
     groups.sort((a, b) => b.dateStr.compareTo(a.dateStr));
     return groups;
   }
@@ -164,7 +176,6 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
     await Future.wait([f1, f2]);
   }
 
-
   Future<void> _toggle(String nodeId) async {
     final ok = await _progress.toggle(
       studentId: widget.studentId,
@@ -173,7 +184,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
     if (!mounted) return;
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('진도 테이블이 아직 준비되지 않았습니다. SQL Δ 적용 필요.')),
+        const SnackBar(content: Text('진도 테이블이 준비되지 않았습니다. (SQL 적용 필요)')),
       );
     }
     await _refresh();
@@ -195,7 +206,6 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
     required String nodeId,
     required String nodeTitle,
   }) async {
-    // 리소스 불러오고 바텀시트에서 선택
     final resFuture = _resSvc.listByNode(nodeId);
     if (!mounted) return;
     final result = await showModalBottomSheet<_SendChoice>(
@@ -225,11 +235,12 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(ok ? '오늘 레슨으로 보냈어요.' : '전송 실패 또는 미구현(SQL Δ 필요)')),
+      SnackBar(content: Text(ok ? '오늘 레슨으로 보냈어요.' : '전송 실패 또는 미구현(SQL 보강 필요)')),
     );
   }
 
-  // ✅ 복습 섹션 UI
+  // ===== UI =====
+
   Widget _buildReviewedSection() {
     return Card(
       elevation: 0,
@@ -244,15 +255,22 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
           onPressed: _refresh,
         ),
         children: [
-          FutureBuilder<List<_ReviewedGroup>>(
-            future: _reviewedLoad,
-            builder: (context, snap) {
-              if (snap.connectionState != ConnectionState.done) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: LinearProgressIndicator(minHeight: 2),
-                );
-              }
+                    if (_reviewedLoad == null)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: LinearProgressIndicator(minHeight: 2),
+            )
+          else
+            FutureBuilder<List<_ReviewedGroup>>(
+              future: _reviewedLoad,
+              builder: (context, snap) {
+                if (snap.connectionState != ConnectionState.done) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  );
+                }
+
               if (snap.hasError) {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -281,7 +299,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.event_note),
-                        title: Text('${g.dateStr}'),
+                        title: Text(g.dateStr),
                         subtitle: Text('리소스 ${g.resources.length}개'),
                       ),
                       ...g.resources.map(
@@ -329,25 +347,27 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
           IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
         ],
       ),
-      body:
-          FutureBuilder<
-            ({
-              List<CurriculumAssignment> assigns,
-              Map<String, CurriculumNode> nodeMap,
-              Map<String, bool> doneMap,
-            })
-          >(
-            future: _load,
-            builder: (context, snap) {
-              if (snap.connectionState != ConnectionState.done) {
-                return const Center(child: CircularProgressIndicator());
-              }
+            body: _load == null
+          ? const Center(child: CircularProgressIndicator())
+          : FutureBuilder<
+              ({
+                List<CurriculumAssignment> assigns,
+                Map<String, CurriculumNode> nodeMap,
+                Map<String, bool> doneMap,
+              })
+            >(
+              future: _load,
+              builder: (context, snap) {
+                if (snap.connectionState != ConnectionState.done) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
               if (snap.hasError) {
                 return Center(child: Text('로드 실패\n${snap.error}'));
               }
               final data = snap.data!;
 
-              // 배정이 없더라도 복습 섹션은 항상 보여주자.
+              // 배정이 없더라도 복습 섹션은 항상 표시
               if (data.assigns.isEmpty) {
                 return SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(8, 12, 8, 24),
@@ -361,7 +381,6 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                           textAlign: TextAlign.center,
                         ),
                       ),
-                      // 복습 섹션은 const 아님
                       _buildReviewedSection(),
                     ],
                   ),
@@ -410,7 +429,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                     ),
                   ),
 
-                  // ✅ 복습 섹션(접었다 펼 수 있음)
+                  // 복습 섹션
                   _buildReviewedSection(),
 
                   // 배정 목록
@@ -554,7 +573,7 @@ class _SendChooserSheet extends StatelessWidget {
   }
 }
 
-// ====== 개별 항목 타일 (리소스 읽기 전용 + 전송 버튼) ======
+// ====== 개별 항목 타일 ======
 
 class _AssignmentTile extends StatefulWidget {
   final String title;

@@ -39,7 +39,7 @@ class StudentService {
     // Prefer RPC
     final rpcRes = await _client.rpc(
       'find_student',
-      params: {'p_name': n, 'p_last4': l4},
+      params: {'p_name': n, 'p_phone_last4': l4},
     );
 
     if (rpcRes is Map && rpcRes.isNotEmpty) {
