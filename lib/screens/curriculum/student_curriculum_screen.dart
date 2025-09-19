@@ -19,7 +19,7 @@ import '../../models/resource.dart';
 import '../../services/xsc_sync_service.dart';
 // (추가) 내부용: 표시/실행을 일반화한 아이템
 // 표시 공통 모델
-enum _ReviewedItemKind { linkResource, attachment, node }
+enum _ReviewedItemKind { linkResource, attachment }
 
 class _ReviewedItem {
   final _ReviewedItemKind kind;
@@ -125,9 +125,6 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
 
   // 지난 수업 리소스 수집
   Future<List<_ReviewedGroup>> _fetchReviewed({int maxLessons = 20}) async {
-    final now = DateTime.now();
-    final d0 = DateTime(now.year, now.month, now.day);
-    final todayStr = d0.toIso8601String().split('T').first;
 
     final lessons = await _lessonSvc.listByStudent(
       widget.studentId,
@@ -306,163 +303,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
 
   // ===== UI =====
 
-  Widget _buildReviewedSection() {
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ExpansionTile(
-        title: const Text('📚 지난 수업에서 다룬 리소스'),
-        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        trailing: IconButton(
-          tooltip: '새로고침',
-          icon: const Icon(Icons.refresh),
-          onPressed: _refresh,
-        ),
-        children: [
-                    if (_reviewedLoad == null)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: LinearProgressIndicator(minHeight: 2),
-            )
-          else
-            FutureBuilder<List<_ReviewedGroup>>(
-              future: _reviewedLoad,
-              builder: (context, snap) {
-                if (snap.connectionState != ConnectionState.done) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: LinearProgressIndicator(minHeight: 2),
-                  );
-                }
-
-              if (snap.hasError) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text('복습 리소스를 불러오지 못했어요.\n${snap.error}'),
-                );
-              }
-              final groups = snap.data ?? const <_ReviewedGroup>[];
-              if (groups.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: Text('아직 지난 수업에서 다룬 리소스가 없어요.'),
-                );
-              }
-
-              return ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: groups.length,
-                separatorBuilder: (_, __) => const Divider(height: 16),
-                itemBuilder: (_, gi) {
-                  final g = groups[gi];
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Builder(
-                          builder: (_) {
-                            final resItems = g.items
-                                .where(
-                                  (it) =>
-                                      it.kind == _ReviewedItemKind.linkResource,
-                                )
-                                .toList();
-                            final attItems = g.items
-                                .where(
-                                  (it) =>
-                                      it.kind == _ReviewedItemKind.attachment,
-                                )
-                                .toList();
-
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                if (resItems.isNotEmpty) ...[
-                                  const Padding(
-                                    padding: EdgeInsets.fromLTRB(12, 4, 12, 4),
-                                    child: Text(
-                                      '리소스',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
-                                  ...resItems.map(
-                                    (it) => ListTile(
-                                      dense: true,
-                                      leading: const Icon(
-                                        Icons.insert_drive_file,
-                                      ),
-                                      title: Text(
-                                        it.label,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      subtitle: Text(
-                                        it.sub,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      trailing: IconButton(
-                                        tooltip: '열기',
-                                        icon: const Icon(Icons.open_in_new),
-                                        onPressed: it.onOpen,
-                                      ),
-                                      onTap: it.onOpen,
-                                    ),
-                                  ),
-                                ],
-
-                                if (attItems.isNotEmpty) ...[
-                                  const Padding(
-                                    padding: EdgeInsets.fromLTRB(12, 8, 12, 4),
-                                    child: Text(
-                                      '첨부',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
-                                  ...attItems.map(
-                                    (it) => ListTile(
-                                      dense: true,
-                                      leading: const Icon(Icons.attachment),
-                                      title: Text(
-                                        it.label,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      subtitle: Text(
-                                        it.sub,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      trailing: IconButton(
-                                        tooltip: '열기',
-                                        icon: const Icon(Icons.open_in_new),
-                                        onPressed: it.onOpen,
-                                      ),
-                                      onTap: it.onOpen,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            );
-                          },
-                        ),
-
-
-                    ],
-                  );
-                },
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
+  
 
   @override
   Widget build(BuildContext context) {
@@ -473,7 +314,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
           IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
         ],
       ),
-            body: _load == null
+      body: _load == null
           ? const Center(child: CircularProgressIndicator())
           : FutureBuilder<
               ({
@@ -488,18 +329,16 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-              if (snap.hasError) {
-                return Center(child: Text('로드 실패\n${snap.error}'));
-              }
-              final data = snap.data!;
+                if (snap.hasError) {
+                  return Center(child: Text('로드 실패\n${snap.error}'));
+                }
+                final data = snap.data!;
 
-              // 배정이 없더라도 복습 섹션은 항상 표시
-              if (data.assigns.isEmpty) {
-                return SingleChildScrollView(
+                // === 리스트뷰 기반 통일 ===
+                return ListView(
                   padding: const EdgeInsets.fromLTRB(8, 12, 8, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
+                  children: [
+                    if (data.assigns.isEmpty) ...[
                       const Padding(
                         padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
                         child: Text(
@@ -507,88 +346,233 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                           textAlign: TextAlign.center,
                         ),
                       ),
-                      _buildReviewedSection(),
-                    ],
-                  ),
-                );
-              }
-
-              // 집계
-              final total = data.assigns.length;
-              final doneCount = data.assigns
-                  .where((a) => data.doneMap[a.curriculumNodeId] == true)
-                  .length;
-
-              return Column(
-                children: [
-                  // 상단 집계 바
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      border: Border(
-                        bottom: BorderSide(
-                          color: Theme.of(context).dividerColor,
+                    ] else ...[
+                      // 상단 집계 바
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surface,
+                          border: Border(
+                            bottom: BorderSide(
+                              color: Theme.of(context).dividerColor,
+                            ),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.insights,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '완료 ${data.doneMap.values.where((v) => v).length} / ${data.assigns.length}',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const Spacer(),
+                            Text(
+                              data.doneMap.values.where((v) => v).length ==
+                                      data.assigns.length
+                                  ? '완료됨'
+                                  : '${(((data.doneMap.values.where((v) => v).length / data.assigns.length) * 100)).toStringAsFixed(0)}%',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.insights,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '완료 $doneCount / $total',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const Spacer(),
-                        Text(
-                          doneCount == total
-                              ? '완료됨'
-                              : '${(((doneCount / total) * 100)).toStringAsFixed(0)}%',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
-                  ),
+                    ],
 
-                  // 복습 섹션
-                  _buildReviewedSection(),
-
-                  // 배정 목록
-                  Expanded(
-                    child: ListView.separated(
-                      itemCount: data.assigns.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (_, i) {
-                        final a = data.assigns[i];
-                        final n = data.nodeMap[a.curriculumNodeId];
-                        final title = n?.title ?? '(삭제된 항목)';
-                        final done = data.doneMap[a.curriculumNodeId] ?? false;
-
-                        return _AssignmentTile(
-                          title: title,
-                          pathSegments: a.path ?? const [],
-                          done: done,
-                          onToggle: () => _toggle(a.curriculumNodeId),
-                          onFetchResources: () =>
-                              _resSvc.listByNode(a.curriculumNodeId),
-                          onOpenResource: _openResource,
-                          onSendToTodayLesson: () => _sendToTodayLesson(
-                            nodeId: a.curriculumNodeId,
-                            nodeTitle: title,
-                          ),
-                        );
-                      },
+                    // 📚 지난 수업 섹션 (기존 _buildReviewedSection())
+                    Card(
+                      elevation: 0,
+                      margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ExpansionTile(
+                        title: const Text('📚 지난 수업에서 다룬 리소스'),
+                        childrenPadding: const EdgeInsets.fromLTRB(
+                          12,
+                          0,
+                          12,
+                          12,
+                        ),
+                        trailing: IconButton(
+                          tooltip: '새로고침',
+                          icon: const Icon(Icons.refresh),
+                          onPressed: _refresh,
+                        ),
+                        children: [
+                          if (_reviewedLoad == null)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: LinearProgressIndicator(minHeight: 2),
+                            )
+                          else
+                            FutureBuilder<List<_ReviewedGroup>>(
+                              future: _reviewedLoad,
+                              builder: (context, snap) {
+                                if (snap.connectionState !=
+                                    ConnectionState.done) {
+                                  return const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 12),
+                                    child: LinearProgressIndicator(
+                                      minHeight: 2,
+                                    ),
+                                  );
+                                }
+                                if (snap.hasError) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child: Text(
+                                      '복습 리소스를 불러오지 못했어요.\n${snap.error}',
+                                    ),
+                                  );
+                                }
+                                final groups = snap.data ?? [];
+                                if (groups.isEmpty) {
+                                  return const Padding(
+                                    padding: EdgeInsets.only(bottom: 12),
+                                    child: Text('아직 지난 수업에서 다룬 리소스가 없어요.'),
+                                  );
+                                }
+                                return Column(
+                                  children: groups.map((g) {
+                                    final resItems = g.items
+                                        .where(
+                                          (it) =>
+                                              it.kind ==
+                                              _ReviewedItemKind.linkResource,
+                                        )
+                                        .toList();
+                                    final attItems = g.items
+                                        .where(
+                                          (it) =>
+                                              it.kind ==
+                                              _ReviewedItemKind.attachment,
+                                        )
+                                        .toList();
+                                    return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        if (resItems.isNotEmpty) ...[
+                                          const Padding(
+                                            padding: EdgeInsets.fromLTRB(
+                                              12,
+                                              4,
+                                              12,
+                                              4,
+                                            ),
+                                            child: Text(
+                                              '리소스',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                          ...resItems.map(
+                                            (it) => ListTile(
+                                              dense: true,
+                                              leading: const Icon(
+                                                Icons.insert_drive_file,
+                                              ),
+                                              title: Text(
+                                                it.label,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              subtitle: Text(
+                                                it.sub,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              trailing: IconButton(
+                                                tooltip: '열기',
+                                                icon: const Icon(
+                                                  Icons.open_in_new,
+                                                ),
+                                                onPressed: it.onOpen,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                        if (attItems.isNotEmpty) ...[
+                                          const Padding(
+                                            padding: EdgeInsets.fromLTRB(
+                                              12,
+                                              8,
+                                              12,
+                                              4,
+                                            ),
+                                            child: Text(
+                                              '첨부',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                          ...attItems.map(
+                                            (it) => ListTile(
+                                              dense: true,
+                                              leading: const Icon(
+                                                Icons.attachment,
+                                              ),
+                                              title: Text(
+                                                it.label,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              subtitle: Text(
+                                                it.sub,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              trailing: IconButton(
+                                                tooltip: '열기',
+                                                icon: const Icon(
+                                                  Icons.open_in_new,
+                                                ),
+                                                onPressed: it.onOpen,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                        const Divider(),
+                                      ],
+                                    );
+                                  }).toList(),
+                                );
+                              },
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              );
-            },
-          ),
+
+                    // === 배정 목록 ===
+                    for (final a in data.assigns)
+                      _AssignmentTile(
+                        title:
+                            data.nodeMap[a.curriculumNodeId]?.title ??
+                            '(삭제된 항목)',
+                        pathSegments: a.path ?? const [],
+                        done: data.doneMap[a.curriculumNodeId] ?? false,
+                        onToggle: () => _toggle(a.curriculumNodeId),
+                        onFetchResources: () =>
+                            _resSvc.listByNode(a.curriculumNodeId),
+                        onOpenResource: _openResource,
+                        onSendToTodayLesson: () => _sendToTodayLesson(
+                          nodeId: a.curriculumNodeId,
+                          nodeTitle:
+                              data.nodeMap[a.curriculumNodeId]?.title ??
+                              '(삭제된 항목)',
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
     );
   }
 }
