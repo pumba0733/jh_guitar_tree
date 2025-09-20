@@ -320,4 +320,23 @@ class LessonLinksService {
       );
     } catch (_) {}
   }
+
+  // [ADD] (선택) 첨부 XSC 경로 업서트 RPC
+  Future<void> upsertAttachmentXscMeta({
+    required String studentId,
+    required String mp3Hash, // == mediaHash
+    required String xscStoragePath, // ex) student_xsc/<sid>/<hash>/current.xsc
+  }) async {
+    try {
+      await _c.rpc(
+        'upsert_attachment_xsc_meta',
+        params: {
+          'p_student_id': studentId,
+          'p_mp3_hash': mp3Hash,
+          'p_xsc_storage_path': xscStoragePath,
+        },
+      );
+    } catch (_) {}
+  }
+
 }

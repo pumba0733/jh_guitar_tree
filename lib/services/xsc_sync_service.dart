@@ -44,12 +44,11 @@ class XscSyncService {
     _sub = null;
   }
 
-  // ---------------- 판별: XSC 대상 미디어인지 ----------------
-  bool isMediaEligibleForXsc(ResourceFile r) {
-    final name = r.filename.toLowerCase();
-    final mt = (r.mimeType ?? '').toLowerCase();
+  // [ADD] 이름/MIME로 미디어 판별(첨부 맵에서도 재사용)
+  bool _isMediaByNameMime(String name, String? mime) {
+    final lowerName = name.toLowerCase();
+    final mt = (mime ?? '').toLowerCase();
 
-    // 확장자 화이트리스트 (오디오 + 비디오)
     const exts = [
       '.mp3',
       '.wav',
@@ -63,12 +62,15 @@ class XscSyncService {
       '.mkv',
       '.avi',
     ];
-    final byExt = exts.any((e) => name.endsWith(e));
-
-    // MIME 힌트 (audio/*, video/*)
+    final byExt = exts.any((e) => lowerName.endsWith(e));
     final byMime = mt.startsWith('audio/') || mt.startsWith('video/');
-
     return byExt || byMime;
+  }
+
+
+  // ---------------- 판별: XSC 대상 미디어인지 ----------------
+  bool isMediaEligibleForXsc(ResourceFile r) {
+    return _isMediaByNameMime(r.filename, r.mimeType);
   }
 
   // ---------------- JSON helpers ----------------
@@ -121,6 +123,76 @@ class XscSyncService {
 
     await open(resource: rf, studentId: studentId);
   }
+
+  // [ADD] 첨부(lessons.attachments의 item)에서 열기: URL/경로 기반
+  Future<void> openFromAttachment({
+    required Map<String, dynamic> attachment,
+    required String studentId,
+    String? mimeType, // 선택: 상위에서 MIME 힌트 줄 수 있음
+  }) async {
+    final url = (attachment['url'] ?? attachment['path'] ?? '')
+        .toString()
+        .trim();
+    final nameSrc = (attachment['name'] ?? '').toString().trim();
+    final filename = nameSrc.isNotEmpty
+        ? nameSrc
+        : (url.isNotEmpty ? p.basename(url) : 'media');
+
+    if (url.isEmpty) {
+      throw ArgumentError('attachment url/path가 비어 있습니다.');
+    }
+
+    // 0) 미디어 여부 판단 (확장자+MIME)
+    final isMedia = _isMediaByNameMime(filename, mimeType);
+    if (!isMedia) {
+      await _file.openUrl(url); // 미디어 아니면 그냥 열기
+      return;
+    }
+
+    // 1) 공유 미디어 캐시 확보 (URL 다운로드 기반)
+    final sharedMediaPath = await _ensureSharedMediaFromUrl(
+      url: url,
+      filename: filename,
+    );
+
+    // 2) 학생 폴더 준비 + 미디어 해시
+    final mediaHash = await _sha1OfFile(sharedMediaPath);
+    final studentRoot = await _ensureStudentRoot(studentId);
+    final studentDir = await _ensureDir(p.join(studentRoot, mediaHash));
+
+    // 3-A) 캐시 내 *.xsc → 학생 폴더로 이관
+    String? localXsc = await _migrateCacheXscIfExists(
+      cacheMediaPath: sharedMediaPath,
+      studentDir: studentDir,
+    );
+
+    // 3-B) 학생 폴더에 미디어 배치 (초회는 복사 고정)
+    final linkedOrCopiedMedia = await _placeMediaForStudent(
+      sharedMediaPath: sharedMediaPath,
+      studentMediaDir: studentDir,
+      forceCopy: localXsc == null,
+    );
+
+    // 4) 원격 최신 xsc 내려받기 → 없으면 로컬 스캔
+    localXsc ??= await _downloadLatestXscIfAny(
+      studentId: studentId,
+      mediaHash: mediaHash,
+      intoDir: studentDir,
+    );
+    localXsc ??= await _findLocalLatestXsc(studentDir);
+
+    // 5) 열기 (xsc 우선)
+    final toOpen = localXsc ?? linkedOrCopiedMedia;
+    await _file.openLocal(toOpen);
+
+    // 6) 저장 감시 & 업로드 (기존 LessonLinksService 시그니처와 동일하게 mp3Hash=mediaHash)
+    await _watchAndSyncXsc(
+      dir: studentDir,
+      studentId: studentId,
+      mediaHash: mediaHash,
+    );
+  }
+
 
   Future<void> open({
     required ResourceFile resource,
@@ -237,6 +309,36 @@ class XscSyncService {
     await _writeJsonFile(indexPath, index);
     return outPath;
   }
+
+  // [ADD] 외부/서명 URL 기반 공유 미디어 캐시 확보
+  Future<String> _ensureSharedMediaFromUrl({
+    required String url,
+    required String filename,
+  }) async {
+    final cacheRoot = await _ensureDir(p.join(_workspace(), '.shared_cache'));
+
+    // 1) 내려받아 임시 해시 계산
+    final tmp = await FileService.saveBytesFile(
+      filename: filename,
+      bytes: await _downloadBytes(url),
+    );
+    final computedHash = await _sha1OfFile(tmp.path);
+
+    // 2) 캐시에 이동/복사
+    final hashDir = await _ensureDir(p.join(cacheRoot, computedHash));
+    final outPath = p.join(hashDir, filename);
+    final out = File(outPath);
+    if (!await out.exists()) {
+      await File(tmp.path).copy(outPath);
+    } else {
+      // 이미 있으면 임시파일은 정리
+      try {
+        await File(tmp.path).delete();
+      } catch (_) {}
+    }
+    return outPath;
+  }
+
 
   /// 캐시 폴더(.shared_cache/<hash>/)에 생긴 *.xsc를 학생 폴더로 이동
   Future<String?> _migrateCacheXscIfExists({
@@ -439,8 +541,7 @@ class XscSyncService {
       try {
         final metaPath = p.join(dir, '.current.xsc.meta.json');
         final meta = <String, dynamic>{
-          // 주의: remote_key는 실제 키(경로)로 저장하는 편이 추적에 유리
-          'remote_key': remoteObj?.id?.toString() ?? '',
+          'remote_key': '$studentId/$mediaHash/current.xsc', // ← 일관된 스토리지 키
           'updated_at': (remoteObj?.updatedAt is DateTime)
               ? (remoteObj.updatedAt as DateTime).toIso8601String()
               : remoteObj?.updatedAt?.toString(),
@@ -550,6 +651,12 @@ class XscSyncService {
           studentId: studentId,
           mp3Hash: mediaHash,
         );
+        await LessonLinksService().upsertAttachmentXscMeta(
+          studentId: studentId,
+          mp3Hash: mediaHash,
+          xscStoragePath: 'student_xsc/$studentId/$mediaHash/current.xsc',
+        );
+
       } catch (_) {
       } finally {
         busy[path] = false;
