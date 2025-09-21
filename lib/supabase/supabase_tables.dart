@@ -1,5 +1,5 @@
 // lib/supabase/supabase_tables.dart
-// v1.44.1 | 테이블/뷰/버킷 상수 보강 (lesson_resource_links 추가)
+// v1.65 | lesson_attachments 테이블/버킷 상수 추가
 
 class SupabaseTables {
   static const String teachers = 'teachers';
@@ -15,10 +15,11 @@ class SupabaseTables {
 
   // 리소스/링크
   static const String resources = 'resources';
-  // 실제 테이블(권장 네이밍): lesson_resource_links
   static const String lessonResourceLinks = 'lesson_resource_links';
-  // 호환/뷰 이름: lesson_links
   static const String lessonLinks = 'lesson_links';
+
+  // ✅ 추가: 첨부 실테이블
+  static const String lessonAttachments = 'lesson_attachments';
 }
 
 class SupabaseViews {
@@ -28,4 +29,6 @@ class SupabaseViews {
 class SupabaseBuckets {
   static const String curriculumFiles = 'curriculum';
   static const String lessonAttachments = 'lesson_attachments';
+  // ✅ 추가: 학생별 XSC 버킷
+  static const String studentXsc = 'student_xsc';
 }

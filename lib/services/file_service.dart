@@ -1,9 +1,9 @@
 // lib/services/file_service.dart
-// v1.57.0 | 워크스페이스 자동 보정 + 권한 폴백
-// - '/Users/you/…' 템플릿 경로를 현재 사용자 홈으로 자동 교정
-// - '~' 확장 지원
-// - 디렉터리 생성 실패 시 Downloads/GuitarTreeWorkspace 로 폴백
-// - 기존 API/동작은 그대로 유지
+// v1.66 | '첨부=리소스 업로드+오늘레슨 링크' 신규 API 추가 (기존 API는 유지)
+// - attachFileAsResourceForTodayLesson(...) 1건
+// - attachPlatformFilesAsResourcesForTodayLesson(...) 여러건
+// - pickAndAttachAsResourcesForTodayLesson(...) 피커 → 업로드+링크
+// - 기존 lesson_attachments 업로드 API는 남기되 사용 지양(주석)
 
 import 'dart:async';
 import 'dart:io';
@@ -19,6 +19,11 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../supabase/supabase_tables.dart';
+
+import '../models/resource.dart';
+import './resource_service.dart';
+import './lesson_links_service.dart';
 
 class FileService {
   FileService._();
@@ -30,10 +35,9 @@ class FileService {
 
   SupabaseClient get _sb => Supabase.instance.client;
 
-  static const String _bucketName = 'lesson_attachments';
+  static const String _bucketName = SupabaseBuckets.lessonAttachments;
 
   // ========= Workspace =========
-  // flutter run --dart-define=WORKSPACE_DIR=/path ...
   static const String _envWorkspaceDir = String.fromEnvironment(
     'WORKSPACE_DIR',
     defaultValue: '',
@@ -63,23 +67,17 @@ class FileService {
 
     final homePath = _homeDir().path;
 
-    // '~/...' 확장
     if (v.startsWith('~')) {
       v = p.join(homePath, v.substring(1));
     }
-
-    // '/Users/you/...' 템플릿 자동 교정
     if (v.startsWith('/Users/you/')) {
       final tail = v.substring('/Users/you/'.length);
       v = p.join('/Users', p.basename(homePath), tail);
     }
-
     return v;
   }
 
-  /// 앱 전역 워크스페이스 루트
   static Future<Directory> _resolveWorkspaceDir() async {
-    // 1) ENV 우선 + 자동 보정
     final envRaw = _envWorkspaceDir;
     if (envRaw.isNotEmpty) {
       final fixed = _normalizeWorkspacePath(envRaw);
@@ -88,7 +86,6 @@ class FileService {
         if (!await d.exists()) await d.create(recursive: true);
         return d;
       } catch (_) {
-        // 권한/경로 실패 → Downloads 폴백
         final dl = await _downloadsRoot();
         final fb = Directory(p.join(dl.path, 'GuitarTreeWorkspace'));
         if (!await fb.exists()) await fb.create(recursive: true);
@@ -96,14 +93,12 @@ class FileService {
       }
     }
 
-    // 2) 기본값: ~/GuitarTreeWorkspace
     final home = _homeDir().path;
     final def = Directory(p.join(home, 'GuitarTreeWorkspace'));
     try {
       if (!await def.exists()) await def.create(recursive: true);
       return def;
     } catch (_) {
-      // 3) 최종 폴백: Downloads/GuitarTreeWorkspace
       final dl = await _downloadsRoot();
       final fb = Directory(p.join(dl.path, 'GuitarTreeWorkspace'));
       if (!await fb.exists()) await fb.create(recursive: true);
@@ -111,7 +106,6 @@ class FileService {
     }
   }
 
-  /// 학생별 워크스페이스 디렉토리 (예: ~/GuitarTreeWorkspace/<studentId>)
   static Future<Directory> _studentWorkspaceDir(String studentId) async {
     final root = await _resolveWorkspaceDir();
     final d = Directory(p.join(root.path, studentId));
@@ -193,7 +187,7 @@ class FileService {
   }
 
   // -----------------------------
-  // Downloads 폴더/대체 폴더
+  // Downloads helpers
   // -----------------------------
   static Future<Directory> _resolveDownloadsDir() async {
     return _downloadsRoot();
@@ -218,7 +212,7 @@ class FileService {
   }
 
   // -----------------------------
-  // 로컬 선택/업로드
+  // 로컬 선택
   // -----------------------------
   Future<List<PlatformFile>> pickLocalFiles({
     List<String>? allowedExtensions,
@@ -239,6 +233,10 @@ class FileService {
     return result.files;
   }
 
+  // -----------------------------
+  // (구) lesson_attachments 업로드 API
+  //  👉 v1.66 이후 사용 지양: 새 API(attachFileAsResourceForTodayLesson) 사용
+  // -----------------------------
   Future<Map<String, dynamic>> uploadXFile({
     required XFile xfile,
     required String studentId,
@@ -360,6 +358,101 @@ class FileService {
   }
 
   // -----------------------------
+  // 신규: '첨부=리소스 업로드 + 오늘레슨 링크' API
+  // -----------------------------
+
+  /// 파일 1건을 '공유 리소스(curriculum)'로 업로드 후, 오늘레슨에 즉시 링크
+  Future<ResourceFile> attachFileAsResourceForTodayLesson({
+    required String studentId,
+    required String localPath,
+    String? originalFilename,
+    String? nodeId, // 필요 시 특정 노드 귀속. 기본 null(학생 업로드)
+  }) async {
+    final resource = await ResourceService().uploadFromLocalPathAsResource(
+      localPath: localPath,
+      originalFilename: originalFilename,
+      nodeId: nodeId,
+    );
+    await LessonLinksService().ensureTodayLessonAndLinkResource(
+      studentId: studentId,
+      resource: resource,
+    );
+    return resource;
+  }
+
+  /// 여러 파일(피커 결과)을 리소스로 업로드 후, 오늘레슨에 모두 링크
+  Future<List<ResourceFile>> attachPlatformFilesAsResourcesForTodayLesson({
+    required String studentId,
+    required List<PlatformFile> files,
+    String? nodeId,
+  }) async {
+    final results = <ResourceFile>[];
+    for (final f in files) {
+      String? path = f.path;
+      String name = f.name;
+      String tmpForStream = '';
+
+      if (path == null) {
+        // readStream/bytes → 임시로 저장 후 경로화
+        final tempDir = await getTemporaryDirectory();
+        tmpForStream = p.join(
+          tempDir.path,
+          _displaySafeName(name.isEmpty ? 'file' : name),
+        );
+        if (f.readStream != null) {
+          final out = File(tmpForStream).openWrite();
+          await f.readStream!.pipe(out);
+          await out.flush();
+          await out.close();
+        } else if (f.bytes != null) {
+          await File(tmpForStream).writeAsBytes(f.bytes!);
+        } else {
+          throw StateError('파일 데이터를 읽을 수 없습니다: ${f.name}');
+        }
+        path = tmpForStream;
+      }
+
+      final res = await attachFileAsResourceForTodayLesson(
+        studentId: studentId,
+        localPath: path,
+        originalFilename: name.isNotEmpty ? name : p.basename(path),
+        nodeId: nodeId,
+      );
+      results.add(res);
+
+      // 임시파일 정리
+      if (tmpForStream.isNotEmpty) {
+        try {
+          await File(tmpForStream).delete();
+        } catch (_) {}
+      }
+    }
+    return results;
+  }
+
+  /// 파일 피커를 띄워 선택한 파일들을 리소스로 업로드 후 오늘레슨에 링크
+  Future<List<ResourceFile>> pickAndAttachAsResourcesForTodayLesson({
+    required String studentId,
+    String? nodeId, // null이면 업로드 전용 노드로 자동 귀속
+  }) async {
+    // 데스크탑 전용 가드(필요시)
+    final picked = await pickLocalFiles(
+      allowMultiple: true,
+      allowedExtensions: null, // 확장자 제한 없으면 null
+    ); // ← List<PlatformFile> 반환
+
+    if (picked.isEmpty) return const [];
+
+    // 이미 있는 함수 재사용해서 깔끔하게 업로드+링크
+    return await attachPlatformFilesAsResourcesForTodayLesson(
+      studentId: studentId,
+      files: picked,
+      nodeId: nodeId,
+    );
+  }
+
+
+  // -----------------------------
   // 열기(기본앱 고정)
   // -----------------------------
   Future<void> openLocal(String absolutePath) async {
@@ -380,7 +473,6 @@ class FileService {
     if (!ok) throw StateError('URL을 열 수 없습니다: $url');
   }
 
-  /// URL/바이트를 임시폴더에 저장 후 여는 기존 API
   Future<void> openSmart({String? path, String? url, String? name}) async {
     if (path != null && path.isNotEmpty && File(path).existsSync()) {
       await openLocal(path);
@@ -396,7 +488,6 @@ class FileService {
     await openLocal(local);
   }
 
-  // Supabase public/signed/auth URL, 또는 외부 URL에서 스토리지 키 추출 시도
   String? _extractStorageKeyFromUrl(String url) {
     const patterns = <String>[
       '/object/public/',
@@ -497,7 +588,6 @@ class FileService {
     return outPath;
   }
 
-  /// macOS Finder에서 파일 보이기
   Future<void> revealInFinder(String absolutePath) async {
     if (!Platform.isMacOS) return;
     try {
@@ -506,7 +596,7 @@ class FileService {
   }
 
   // -----------------------------
-  // Storage 삭제
+  // Storage 삭제 (lesson_attachments 버킷)
   // -----------------------------
   Future<void> delete(String urlOrPath) async {
     String? key;
@@ -519,12 +609,10 @@ class FileService {
       }
     }
     if (key == null || key.isEmpty) return;
-
     await _retry(() => _sb.storage.from(_bucketName).remove([key!]));
   }
 
   // ========= Save to Workspace then open =========
-
 
   bool _isAudioName(String name) {
     final n = name.toLowerCase();
@@ -537,19 +625,14 @@ class FileService {
         n.endsWith('.mov');
   }
 
-  /// URL을 학생 워크스페이스에 저장하고 기본앱으로 연다.
   Future<String> saveUrlToWorkspaceAndOpen({
     required String studentId,
     required String filename,
     required String url,
   }) async {
-    // ✅ 오디오는 XscSyncService에서만 다루도록: 여기서는 우회 처리
     if (_isAudioName(filename)) {
-      // (선호) 조용히 기본앱으로 바로 열기 — mp3 복사본 생성 방지
       await openUrl(url);
       return '';
-      // (대안) 개발 중에만 문제 발견을 강제하고 싶다면:
-      // throw StateError('Audio 파일은 XscSyncService를 통해 열어야 합니다.');
     }
 
     if (!_isDesktop) {
@@ -564,22 +647,15 @@ class FileService {
     );
   }
 
-  /// 바이트를 학생 워크스페이스에 저장하고 기본앱으로 연다.
   Future<String> saveBytesToWorkspaceAndOpen({
     required String studentId,
     required String filename,
     required Uint8List bytes,
   }) async {
-    // ✅ 오디오는 여기서 다루지 않음 (XscSyncService 전용)
     if (_isAudioName(filename)) {
-      // 개발 중 혼동 방지: 그냥 임시로 열고 끝내거나, 예외를 던지는 방식 중 택1
-      final tmp = await saveBytesFile(
-        filename: filename,
-        bytes: bytes,
-      ); // /Downloads 등
+      final tmp = await saveBytesFile(filename: filename, bytes: bytes);
       await openLocal(tmp.path);
       return tmp.path;
-      // throw StateError('Audio 파일은 XscSyncService로 열어야 합니다.');
     }
 
     if (!_isDesktop) {
@@ -595,14 +671,11 @@ class FileService {
 
     final outPath = _avoidNameClash(sub.path, safeName);
     await File(outPath).writeAsBytes(bytes, flush: true);
-
     await openLocal(outPath);
     return outPath;
   }
 
   // ===== Helpers =====
-
-  /// 같은 폴더 내 같은 이름이 있으면 `name (1).ext`, `name (2).ext` ...로 회피
   String _avoidNameClash(String dirPath, String fileName) {
     String candidate = p.join(dirPath, fileName);
     if (!File(candidate).existsSync()) return candidate;
@@ -615,10 +688,12 @@ class FileService {
       if (!File(next).existsSync()) return next;
       i++;
       if (i > 9999) {
-        // 비상 회피: 타임스탬프
         final stamp = DateTime.now().millisecondsSinceEpoch;
         return p.join(dirPath, '$base-$stamp$ext');
       }
     }
   }
+
+    // v1.66: 파일 선택 -> 리소스 업로드 -> 오늘레슨 링크
+  
 }

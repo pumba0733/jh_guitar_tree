@@ -12,14 +12,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../../services/resource_service.dart';
 import '../../routes/app_routes.dart';
 import '../../services/lesson_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/file_service.dart';
 import '../../services/log_service.dart';
 import '../../ui/components/file_clip.dart';
-
+import '../../services/lesson_links_service.dart';
+import '../../models/resource.dart';
 // XSC 동기화/리소스 메타
 import '../../services/xsc_sync_service.dart';
 
@@ -266,6 +267,31 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
     }
     return '';
   }
+  
+  String? _fmtLocalStamp(String? iso) {
+    if (iso == null || iso.isEmpty) return null;
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) return iso;
+    final local = dt.toLocal();
+    final y = local.year.toString().padLeft(4, '0');
+    final m = local.month.toString().padLeft(2, '0');
+    final d = local.day.toString().padLeft(2, '0');
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    return '$y-$m-$d $hh:$mm';
+  }
+
+  /// 오디오/비디오 판별(원본 열기 보조메뉴용)
+  bool _isAudioName(String name) {
+    final n = name.toLowerCase();
+    return n.endsWith('.mp3') ||
+        n.endsWith('.m4a') ||
+        n.endsWith('.wav') ||
+        n.endsWith('.aif') ||
+        n.endsWith('.aiff') ||
+        n.endsWith('.mp4') || // 영상도 오디오 추출 케이스
+        n.endsWith('.mov');
+  }
 
 
   Future<void> _exportCsv() async {
@@ -430,28 +456,18 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
   }
 
   // ---------- lesson_links lazy load ----------
+  // ---------- lesson_links lazy load ----------
   Future<void> _ensureLinksLoaded(String lessonId) async {
     if (_linksCache.containsKey(lessonId) || _linksLoading.contains(lessonId)) {
       return;
     }
     _linksLoading.add(lessonId);
-    setState(() {});
+    if (mounted) setState(() {});
 
     try {
-      final client = Supabase.instance.client;
-
-      // ✅ resource_id 대신 bucket/path/filename/title을 읽는다
-      final res = await client
-          .from('lesson_links')
-          .select('*')
-          .eq('lesson_id', lessonId)
-          .order('created_at', ascending: false);
-
-      final List rows = res as List;
-      final links = rows
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList(growable: false);
-
+      // v1.66: 서비스 경유(뷰→실테이블 폴백 내장)
+      final svc = LessonLinksService();
+      final links = await svc.listByLesson(lessonId);
       _linksCache[lessonId] = links;
     } catch (e) {
       if (!mounted) return;
@@ -464,6 +480,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
       if (mounted) setState(() {});
     }
   }
+
 
   // ---------- 기본앱 열기 ----------
   
@@ -610,6 +627,34 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
+                            if ((l['xsc_updated_at'] ?? '')
+                                .toString()
+                                .isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Tooltip(
+                                message:
+                                    '최근 저장: ${_fmtLocalStamp((l['xsc_updated_at'] ?? '').toString())}',
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.tertiaryContainer,
+                                  ),
+                                  child: Text(
+                                    '최근 저장본',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(fontWeight: FontWeight.w800),
+                                  ),
+                                ),
+                              ),
+                            ],
                             if (xscBadge != null) ...[
                               const SizedBox(width: 8),
                               Container(
@@ -655,6 +700,55 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                               icon: const Icon(Icons.open_in_new),
                               label: const Text('열기'),
                             ),
+                                if (_isAudioName(
+                              (l['resource_filename'] ?? '').toString(),
+                            ))
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  try {
+                                    // 원본(사본 저장 후 기본앱)으로 열기
+                                    final bucket =
+                                        (l['resource_bucket'] ?? 'resources')
+                                            .toString();
+                                    final path = (l['resource_path'] ?? '')
+                                        .toString();
+                                    final name =
+                                        (l['resource_filename'] ?? 'resource')
+                                            .toString();
+
+                                    final rf = ResourceFile.fromMap({
+                                      'id': (l['id'] ?? '').toString(),
+                                      'curriculum_node_id':
+                                          l['curriculum_node_id'],
+                                      'title': (l['resource_title'] ?? '')
+                                          .toString(),
+                                      'filename': name,
+                                      'mime_type': null,
+                                      'size_bytes': null,
+                                      'storage_bucket': bucket,
+                                      'storage_path': path,
+                                      'created_at': l['created_at'],
+                                    });
+
+                                    final url = await ResourceService()
+                                        .signedUrl(rf);
+                                    await FileService()
+                                        .saveUrlToWorkspaceAndOpen(
+                                          studentId: _studentId,
+                                          filename: name,
+                                          url: url,
+                                        );
+                                  } catch (e) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('원본 열기 실패: $e')),
+                                    );
+                                  }
+                                },
+                                icon: const Icon(Icons.audiotrack),
+                                label: const Text('원본 mp3로 열기'),
+                              ),
+
 
 
                             // (선택) 고급: 읽기전용 즉시열기 - 임시파일로만 열고 워처/동기화 안 걸림

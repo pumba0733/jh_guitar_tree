@@ -1,9 +1,9 @@
 // lib/services/resource_service.dart
-// v1.45.3 | 업/삭 안정화: 404 삭제 무시 + sizeBytes 보강 + 디버그로그
-// - 삭제 시 스토리지 404/NoSuchKey는 무시하고 DB만 정리(과거 경로 불일치 청소)
-// - 업로드 sizeBytes null이면 자동 계산
-// - 업/삭 로그 추가로 원인 추적 용이
-// - 기존: 버킷 기본값 'curriculum' + ASCII-safe key + 임시파일 업로드 유지
+// v1.66 | '첨부=리소스' 전환용 최소 확장
+// - insertRowGeneric(nodeId?) 추가 (노드 없이도 리소스 insert)
+// - findDuplicateByNameAndSize(filename,size)로 간단 중복 방지
+// - uploadGeneric(...) / uploadFromLocalPathAsResource(...) 추가
+// - 기존 API(uploadForNode/insertRow)는 그대로 유지
 
 import 'dart:async';
 import 'dart:io';
@@ -18,7 +18,7 @@ import '../models/resource.dart';
 class ResourceService {
   final SupabaseClient _c = Supabase.instance.client;
 
-  /// 서버 SQL과 맞춘 기본 버킷
+  /// 서버 SQL과 맞춘 기본 버킷(공유 원본 1벌)
   static const String bucket = 'curriculum';
   static const String _tResources = 'resources';
 
@@ -66,7 +66,6 @@ class ResourceService {
 
   bool _isNotFound(Object e) {
     final s = e.toString().toLowerCase();
-    // supabase storage remove: 404 / not found / no such key 패턴 흡수
     return s.contains('404') ||
         s.contains('not found') ||
         s.contains('no such key') ||
@@ -75,10 +74,8 @@ class ResourceService {
 
   // ===== Key/표시명 정규화 =====
   String _keySafeName(String raw) {
-    final ext = p.extension(raw); // 원래 확장자(점 포함)
+    final ext = p.extension(raw);
     var base = p.basenameWithoutExtension(raw);
-
-    // 경로문자/제어문자 제거 → 영문/숫자/_/.- 만 허용
     base = base.replaceAll(RegExp(r'[\/\\\x00-\x1F]'), '_');
     base = base.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
     base = base.replaceAll(RegExp(r'_+'), '_').trim();
@@ -86,7 +83,7 @@ class ResourceService {
       base = DateTime.now().millisecondsSinceEpoch.toString();
     }
     var safeExt = ext.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '');
-    if (safeExt.length > 10) safeExt = safeExt.substring(0, 10); // 과도한 확장자 보호
+    if (safeExt.length > 10) safeExt = safeExt.substring(0, 10);
     return '$base$safeExt';
   }
 
@@ -121,11 +118,59 @@ class ResourceService {
           (s.contains('relation') && s.contains('does not exist'))) {
         return false;
       }
-      return true; // 권한/기타 오류는 존재로 간주
+      return true;
     }
   }
 
-  // ===== Queries =====
+    Future<String> ensureUploadsNode() async {
+    // 1) code='uploads_auto' 조회
+    try {
+      final sel = await _retry(
+        () => _c
+            .from('curriculum_nodes')
+            .select('id')
+            .eq('code', 'uploads_auto')
+            .limit(1),
+      );
+      final list = _asList(sel);
+      if (list.isNotEmpty) return list.first['id'].toString();
+    } catch (_) {
+      // 컬럼/뷰 준비 전 등 예외는 아래 insert 시도로 폴백
+    }
+
+    // 2) 없으면 생성 (루트 category, order=9999)
+    try {
+      final ins = await _retry(
+        () => _c
+            .from('curriculum_nodes')
+            .insert({
+              'parent_id': null,
+              'type': 'category',
+              'title': '📥 업로드(자동)',
+              '"order"': 9999, // 주의: 컬럼명이 "order"
+              'code': 'uploads_auto',
+            })
+            .select('id')
+            .single(),
+      );
+      return _one(ins)['id'].toString();
+    } catch (e) {
+      // 경합 등으로 실패 시 재조회
+      final sel = await _retry(
+        () => _c
+            .from('curriculum_nodes')
+            .select('id')
+            .eq('code', 'uploads_auto')
+            .limit(1),
+      );
+      final list = _asList(sel);
+      if (list.isNotEmpty) return list.first['id'].toString();
+      rethrow;
+    }
+  }
+
+
+  // ===== Queries (기존) =====
   Future<List<ResourceFile>> listByNode(String nodeId) async {
     if (!await _tableExists()) return const <ResourceFile>[];
     final data = await _retry(
@@ -138,14 +183,38 @@ class ResourceService {
     return _asList(data).map(ResourceFile.fromMap).toList();
   }
 
+  // ===== 신규: 간단 중복 방지(파일명+크기) =====
+  Future<ResourceFile?> findDuplicateByNameAndSize({
+    required String filename,
+    required int size,
+  }) async {
+    if (!await _tableExists()) return null;
+    try {
+      final rows = await _retry(
+        () => _c
+            .from(_tResources)
+            .select()
+            .eq('filename', filename)
+            .eq('size_bytes', size)
+            .limit(1),
+      );
+      final list = _asList(rows);
+      if (list.isEmpty) return null;
+      return ResourceFile.fromMap(list.first);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ===== Insert (기존: node 필수) =====
   Future<ResourceFile> insertRow({
     required String nodeId,
-    required String filename, // UI 표시용(원래 이름 정리)
-    required String storagePath, // 실제 업로드 key
+    required String filename,
+    required String storagePath,
     String? title,
     String? mimeType,
     int? sizeBytes,
-    String storageBucket = bucket, // 기본 'curriculum'
+    String storageBucket = bucket,
   }) async {
     final payload = <String, dynamic>{
       'curriculum_node_id': nodeId,
@@ -162,22 +231,47 @@ class ResourceService {
     return ResourceFile.fromMap(_one(ins));
   }
 
-  // ===== Upload =====
+  // ===== 신규: Insert (nodeId 선택) =====
+  Future<ResourceFile> insertRowGeneric({
+    String? nodeId,
+    required String filename,
+    required String storagePath,
+    String? title,
+    String? mimeType,
+    int? sizeBytes,
+    String storageBucket = bucket,
+  }) async {
+    final payload = <String, dynamic>{
+      if (nodeId != null) 'curriculum_node_id': nodeId,
+      if (title != null) 'title': title,
+      'filename': filename,
+      if (mimeType != null) 'mime_type': mimeType,
+      if (sizeBytes != null) 'size_bytes': sizeBytes,
+      'storage_bucket': storageBucket,
+      'storage_path': storagePath,
+    };
+    final ins = await _retry(
+      () => _c.from(_tResources).insert(payload).select().single(),
+    );
+    return ResourceFile.fromMap(_one(ins));
+  }
+
+  // ===== Upload (기존: node 필수) =====
   Future<ResourceFile> uploadForNode({
     required String nodeId,
-    required String filename, // 원본 파일명
+    required String filename,
     Uint8List? bytes,
     String? filePath,
     String? mimeType,
     int? sizeBytes,
-    String storageBucket = bucket, // 기본 'curriculum'
+    String storageBucket = bucket,
   }) async {
     if ((bytes == null || bytes.isEmpty) &&
         (filePath == null || filePath.isEmpty)) {
       throw ArgumentError('uploadForNode: bytes 또는 filePath 중 하나는 필요합니다.');
     }
     if (!await _tableExists()) {
-      throw StateError('resources 테이블이 아직 준비되지 않았습니다. SQL Δ 적용 필요.');
+      throw StateError('resources 테이블이 아직 준비되지 않았습니다. SQL Δ 필요.');
     }
 
     final now = DateTime.now();
@@ -185,8 +279,8 @@ class ResourceService {
     final m = now.month.toString().padLeft(2, '0');
 
     final baseOriginal = p.basename(filename);
-    final safeKeyName = _keySafeName(baseOriginal); // Storage key
-    final displayName = _displaySafeName(baseOriginal); // UI 표시용
+    final safeKeyName = _keySafeName(baseOriginal);
+    final displayName = _displaySafeName(baseOriginal);
 
     final nodeSeg = nodeId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
     final storagePath = '$y-$m/$nodeSeg/$safeKeyName';
@@ -203,16 +297,12 @@ class ResourceService {
 
     int? finalSize = sizeBytes;
 
-    // ---- 실제 업로드 ----
     if (bytes != null && bytes.isNotEmpty) {
       final tmpDir = await Directory.systemTemp.createTemp('gt_upload_');
       final tmpFile = File(p.join(tmpDir.path, safeKeyName));
       await tmpFile.writeAsBytes(bytes, flush: true);
       try {
         finalSize ??= await tmpFile.length();
-        print(
-          '[UP] bucket=$storageBucket path=$storagePath (from=bytes size=$finalSize mime=$resolvedMime)',
-        );
         await _retry(
           () => store.upload(storagePath, tmpFile, fileOptions: opts),
         );
@@ -227,40 +317,135 @@ class ResourceService {
     } else {
       final f = File(filePath!);
       finalSize ??= await f.length();
-      print(
-        '[UP] bucket=$storageBucket path=$storagePath (from=file size=$finalSize mime=$resolvedMime)',
-      );
       await _retry(() => store.upload(storagePath, f, fileOptions: opts));
     }
 
     return insertRow(
       nodeId: nodeId,
-      filename: displayName, // 한글표시 OK
-      storagePath: storagePath, // ASCII-safe 키
+      filename: displayName,
+      storagePath: storagePath,
       mimeType: resolvedMime,
       sizeBytes: finalSize,
       storageBucket: storageBucket,
     );
   }
 
+  // ===== 신규: Upload (nodeId 선택/없음) =====
+  Future<ResourceFile> uploadGeneric({
+    String? nodeId,
+    required String filename,
+    Uint8List? bytes,
+    String? filePath,
+    String? mimeType,
+    int? sizeBytes,
+    String storageBucket = bucket,
+  }) async {
+    // [ADD] nodeId 없으면 업로드용 숨김 노드 보장
+    final String effectiveNodeId = nodeId ?? await ensureUploadsNode();
+    if ((bytes == null || bytes.isEmpty) &&
+        (filePath == null || filePath.isEmpty)) {
+      throw ArgumentError('uploadGeneric: bytes 또는 filePath 중 하나는 필요합니다.');
+    }
+    if (!await _tableExists()) {
+      throw StateError('resources 테이블이 아직 준비되지 않았습니다.');
+    }
+
+    final now = DateTime.now();
+    final y = now.year.toString().padLeft(4, '0');
+    final m = now.month.toString().padLeft(2, '0');
+
+    final baseOriginal = p.basename(filename);
+    final safeKeyName = _keySafeName(baseOriginal);
+    final displayName = _displaySafeName(baseOriginal);
+
+    final nodeSeg = effectiveNodeId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final storagePath = '$y-$m/$nodeSeg/$safeKeyName';
+
+
+    final resolvedMime =
+        mimeType ?? lookupMimeType(baseOriginal) ?? 'application/octet-stream';
+
+    final store = _c.storage.from(storageBucket);
+    final opts = FileOptions(
+      upsert: true,
+      contentType: resolvedMime,
+      cacheControl: '3600',
+    );
+
+    int? finalSize = sizeBytes;
+
+    if (bytes != null && bytes.isNotEmpty) {
+      final tmpDir = await Directory.systemTemp.createTemp('gt_upload_');
+      final tmpFile = File(p.join(tmpDir.path, safeKeyName));
+      await tmpFile.writeAsBytes(bytes, flush: true);
+      try {
+        finalSize ??= await tmpFile.length();
+        await _retry(
+          () => store.upload(storagePath, tmpFile, fileOptions: opts),
+        );
+      } finally {
+        try {
+          await tmpFile.delete();
+        } catch (_) {}
+        try {
+          await tmpDir.delete(recursive: true);
+        } catch (_) {}
+      }
+    } else {
+      final f = File(filePath!);
+      finalSize ??= await f.length();
+      await _retry(() => store.upload(storagePath, f, fileOptions: opts));
+    }
+
+    // 중복 방지(최소): 파일명+크기 동일시 기존 row 재사용
+    if (finalSize != null) {
+      final dup = await findDuplicateByNameAndSize(
+        filename: displayName,
+        size: finalSize!,
+      );
+      if (dup != null) return dup;
+    }
+
+    return insertRowGeneric(
+      nodeId: effectiveNodeId, // ← NOT NULL 보장
+      filename: displayName,
+      storagePath: storagePath,
+      mimeType: resolvedMime,
+      sizeBytes: finalSize,
+      storageBucket: storageBucket,
+    );
+  }
+
+  Future<ResourceFile> uploadFromLocalPathAsResource({
+    required String localPath,
+    String? originalFilename,
+    String? nodeId, // null 허용
+  }) async {
+    final f = File(localPath);
+    final exists = await f.exists();
+    if (!exists) {
+      throw ArgumentError('파일을 찾을 수 없습니다: $localPath');
+    }
+    final size = await f.length();
+    final name = originalFilename ?? p.basename(localPath);
+    return uploadGeneric(
+      nodeId: nodeId,
+      filename: name,
+      filePath: localPath,
+      sizeBytes: size,
+      storageBucket: bucket,
+    );
+  }
+
   // ===== Delete =====
   Future<void> delete(ResourceFile r) async {
-    // 1) 스토리지 삭제: 404/NoSuchKey는 무시 (과거 경로 불일치 청소용)
     try {
-      print('[DEL] bucket=${r.storageBucket} path=${r.storagePath}');
       await _retry(
         () => _c.storage.from(r.storageBucket).remove([r.storagePath]),
       );
     } catch (e) {
-      if (_isNotFound(e)) {
-        print(
-          '[DEL] storage not found, continue DB cleanup: ${r.storageBucket}/${r.storagePath}',
-        );
-      } else {
-        rethrow;
-      }
+      if (!_isNotFound(e)) rethrow;
     }
-    // 2) DB 삭제 (항상 시도)
     await _retry(() => _c.from(_tResources).delete().eq('id', r.id));
   }
 

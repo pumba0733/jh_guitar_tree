@@ -9,8 +9,9 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import 'package:crypto/crypto.dart' show sha1;
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import 'dart:typed_data';
 import 'file_key_util.dart';
 import '../supabase/supabase_tables.dart';
 import '../models/resource.dart';
@@ -122,6 +123,13 @@ class WorkspaceService {
     return false;
   }
 
+  Future<String> _sha1OfFile(String path) async {
+   final f = File(path);
+   final bytes = await f.readAsBytes();
+   return sha1.convert(bytes).toString();
+  }
+
+  
   // ===== A) 루트 재귀 감시: 경로 규칙으로 학생 자동 매칭 =====
   Future<void> startRoot({String? folderPath}) async {
     await stop();
@@ -287,12 +295,15 @@ class WorkspaceService {
     try {
       final lessonId = await links.getTodayLessonId(studentId, ensure: true);
       if (lessonId != null) {
+        final mediaHash = await _sha1OfFile(path);
         await Supabase.instance.client.from('lesson_attachments').insert({
           'lesson_id': lessonId,
           'type': 'file',
           'storage_bucket': SupabaseBuckets.lessonAttachments,
           'storage_key': storagePath,
           'original_filename': name,
+          'mp3_hash': mediaHash,
+          'media_name': name,
         });
       }
     } catch (_) {
