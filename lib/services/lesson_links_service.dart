@@ -1,7 +1,8 @@
 // lib/services/lesson_links_service.dart
-// v1.66 | 오늘 수업 리소스 수집 + 실행 유틸 + 링크 보장 래퍼 추가
-// - ensureTodayLessonAndLinkResource(studentId, resource) 추가
-// - listTodayByStudent: 뷰 단독 조회 → 테이블 우선(listByLesson)로 변경 (뷰/RLS 이슈 회피)
+// v1.66-ensure-only | 오늘 레슨 ID 확보 경로를 ensure로 일원화
+// - getTodayLessonId(...) 는 deprecated 처리 + 내부적으로 항상 ensure 경로 사용
+// - listTodayByStudent(...ensure) 파라미터는 유지하되, 내부적으로 항상 ensure 호출
+// - 나머지 공개 API 시그니처 변경 없음(호출부 수정 불필요)
 
 import 'dart:async';
 import 'dart:io';
@@ -64,6 +65,7 @@ class LessonAttachmentItem {
 class LessonLinksService {
   final SupabaseClient _c = Supabase.instance.client;
 
+  // ---------- 공통 유틸 ----------
   Future<T> _retry<T>(
     Future<T> Function() task, {
     int maxAttempts = 3,
@@ -113,6 +115,8 @@ class LessonLinksService {
     }
   }
 
+  // ---------- 내부: 오늘 레슨 ID 조회/보장 ----------
+  // 단순 SELECT (fallback 용도로만 사용)
   Future<String?> _findTodayLessonId(String studentId) async {
     try {
       final today = DateTime.now();
@@ -131,34 +135,52 @@ class LessonLinksService {
       final list = rows as List;
       if (list.isEmpty) return null;
       final first = list.first as Map;
-      return (first['id'] ?? '').toString();
+      final id = (first['id'] ?? '').toString();
+      return id.isNotEmpty ? id : null;
     } catch (_) {
       return null;
     }
   }
 
+  // ensure RPC
   Future<String?> _ensureTodayLessonId(String studentId) async {
     return _rpcString('ensure_today_lesson', {'p_student_id': studentId});
   }
 
-  Future<String?> getTodayLessonId(
-    String studentId, {
-    bool ensure = false,
-  }) async {
-    String? id = await _findTodayLessonId(studentId);
-    if (id == null && ensure) {
-      final ensuredId = await _ensureTodayLessonId(studentId);
-      id = ensuredId ?? await _findTodayLessonId(studentId);
-    }
-    return id;
+  /// ✅ 항상 ensure 경로만 사용하도록 일원화
+  Future<String?> getTodayLessonIdEnsure(String studentId) async {
+    // 1) ensure로 생성/확보
+    final ensured = await _ensureTodayLessonId(studentId);
+    if ((ensured ?? '').isNotEmpty) return ensured;
+
+    // 2) 예외 상황: ensure 응답이 비정상일 때 다시 SELECT로 확인
+    final found = await _findTodayLessonId(studentId);
+    if ((found ?? '').isNotEmpty) return found;
+
+    return null;
   }
 
-  Future<String?> getTodayLessonIdEnsure(String studentId) {
-    return getTodayLessonId(studentId, ensure: true);
+  @Deprecated(
+    '항상 getTodayLessonIdEnsure(studentId)를 사용하세요. '
+    '이 메서드는 내부적으로도 ensure 경로를 탑니다.',
+  )
+  Future<String?> getTodayLessonId(
+    String studentId, {
+    bool ensure = false, // <- 무시됨(호환용)
+  }) async {
+    // 호환성 유지: 항상 ensure 호출
+    if (!ensure) {
+      // 로그만 남겨 혼선을 방지
+      // ignore: avoid_print
+      print(
+        '[LLS][DEPRECATED] getTodayLessonId(..., ensure:$ensure) '
+        '→ ensure 경로로 강제 전환',
+      );
+    }
+    return getTodayLessonIdEnsure(studentId);
   }
 
   // ---------- INSERT (리소스/노드) ----------
-
   Future<String?> _insertResourceLinkDirect({
     required String lessonId,
     required ResourceFile resource,
@@ -178,10 +200,12 @@ class LessonLinksService {
           () => _c.from(table).insert(payload).select('id').single(),
         );
         final id = (row['id'] ?? '').toString();
-        // 👇 계측
+        // 계측
+        // ignore: avoid_print
         print('[LLS] insert into $table ok id=$id payload=$payload');
         return id.isNotEmpty ? id : null;
       } catch (e) {
+        // ignore: avoid_print
         print('[LLS] insert into $table failed: $e');
         rethrow;
       }
@@ -189,11 +213,12 @@ class LessonLinksService {
 
     try {
       try {
-        final viaView = await ins(SupabaseTables.lessonLinks);
+        final viaView = await ins(SupabaseTables.lessonLinks); // VIEW
         if (viaView != null) return viaView;
       } catch (_) {}
-      return await ins(SupabaseTables.lessonResourceLinks);
+      return await ins(SupabaseTables.lessonResourceLinks); // TABLE
     } catch (e) {
+      // ignore: avoid_print
       print('[LLS] both insert paths failed, fallback to RPC: $e');
       return null;
     }
@@ -252,7 +277,7 @@ class LessonLinksService {
     required String studentId,
     required String nodeId,
   }) async {
-    final lessonId = await getTodayLessonId(studentId, ensure: true);
+    final lessonId = await getTodayLessonIdEnsure(studentId);
     if (lessonId != null) {
       final direct = await _insertNodeLinkDirect(
         lessonId: lessonId,
@@ -281,7 +306,7 @@ class LessonLinksService {
     required String studentId,
     required ResourceFile resource,
   }) async {
-    final lessonId = await getTodayLessonId(studentId, ensure: true);
+    final lessonId = await getTodayLessonIdEnsure(studentId);
     if (lessonId != null) {
       final direct = await _insertResourceLinkDirect(
         lessonId: lessonId,
@@ -322,7 +347,6 @@ class LessonLinksService {
   }
 
   // ---------- 조회 ----------
-
   Future<List<Map<String, dynamic>>> listByLesson(String lessonId) async {
     Future<List<Map<String, dynamic>>> selectFrom(String table) async {
       final rows = await _retry(
@@ -337,21 +361,20 @@ class LessonLinksService {
           .toList(growable: false);
     }
 
-    // 🔧 뷰가 깨져있어도 동작하도록: 테이블 먼저 → 실패/빈결과면 뷰 시도
+    // 테이블 우선 → 실패/빈결과면 뷰 시도
     try {
       final viaTable = await selectFrom(SupabaseTables.lessonResourceLinks);
       if (viaTable.isNotEmpty) return viaTable;
     } catch (_) {}
 
     try {
-      return await selectFrom(SupabaseTables.lessonLinks); // (뷰)
+      return await selectFrom(SupabaseTables.lessonLinks); // VIEW
     } catch (_) {
       return const [];
     }
   }
 
   // ---------- v1.66: 오늘 수업 리소스 묶어서 반환 ----------
-
   Future<TodayResources> fetchTodayResources({
     required String studentId,
   }) async {
@@ -387,7 +410,7 @@ class LessonLinksService {
       );
     }
 
-    // lessons.attachments (배열) → 호환 유지 (null-safe)
+    // lessons.attachments 배열(null-safe)
     try {
       final row = await _retry<Map<String, dynamic>?>(
         () => _c
@@ -445,7 +468,6 @@ class LessonLinksService {
   }
 
   // ---------- 실행 유틸 ----------
-
   Future<void> openFromLessonLink(
     LessonLinkItem link, {
     required String studentId,
@@ -518,23 +540,23 @@ class LessonLinksService {
   /// 오늘 레슨의 리소스/노드 링크 목록
   Future<List<Map<String, dynamic>>> listTodayByStudent(
     String studentId, {
-    bool ensure = false,
+    bool ensure = false, // <- 호환용(무시)
   }) async {
-    final lessonId = ensure
-        ? await getTodayLessonIdEnsure(studentId)
-        : await getTodayLessonId(studentId, ensure: false);
+    // 항상 ensure로 lesson_id 확보
+    final lessonId = await getTodayLessonIdEnsure(studentId);
+    // ignore: avoid_print
     print(
-      '[LLS] listTodayByStudent student=$studentId lessonId=$lessonId ensure=$ensure',
+      '[LLS] listTodayByStudent student=$studentId lessonId=$lessonId (ensure=forced)',
     );
     if (lessonId == null) return const [];
 
-    // ✅ 핵심 수정: 테이블 우선(뷰 RLS/정의 이슈 회피) → 비면 최종적으로 뷰 한 번 더 시도
+    // 테이블 우선 → 비면 뷰 한번 더 시도
     final viaTableOrView = await listByLesson(lessonId);
     if (viaTableOrView.isNotEmpty) return viaTableOrView;
 
     try {
       final rows = await _c
-          .from('lesson_links')
+          .from(SupabaseTables.lessonLinks)
           .select(
             'id, lesson_id, kind, curriculum_node_id, resource_bucket, resource_path, resource_filename, resource_title, created_at',
           )

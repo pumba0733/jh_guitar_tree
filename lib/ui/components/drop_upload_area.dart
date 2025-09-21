@@ -1,17 +1,19 @@
 // lib/ui/components/drop_upload_area.dart
-// v1.28.4 | control_flow_in_finally 경고 해소
-// - finally 블록에서 return 제거 → if (mounted) setState(...)만 수행
+// v1.67 | 드래그&드롭 → 리소스 업로드 + 오늘레슨 링크로 전환
+// - onUploaded: List<ResourceFile> 반환
+// - 내부에서 FileService.attachXFilesAsResourcesForTodayLesson 사용
 
 import 'dart:io';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:cross_file/cross_file.dart';
 import '../../services/file_service.dart';
+import '../../models/resource.dart';
 
 class DropUploadArea extends StatefulWidget {
   final String studentId;
-  final String dateStr; // YYYY-MM-DD
-  final void Function(List<Map<String, dynamic>> uploaded) onUploaded;
+  final String dateStr; // YYYY-MM-DD (표시용, 실제 업로드는 리소스 버킷)
+  final void Function(List<ResourceFile> uploaded) onUploaded;
   final void Function(Object error)? onError;
 
   const DropUploadArea({
@@ -36,7 +38,7 @@ class _DropUploadAreaState extends State<DropUploadArea> {
       Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 
   Future<void> _handleDropFiles(List<XFile> files) async {
-    if (_uploading) return;
+    if (_uploading || files.isEmpty) return;
 
     setState(() {
       _uploading = true;
@@ -46,38 +48,21 @@ class _DropUploadAreaState extends State<DropUploadArea> {
 
     try {
       final fs = FileService.instance;
-      final uploads = <Map<String, dynamic>>[];
 
-      // 동시 업로드 제한: 3개씩 배치 처리
-      const concurrent = 3;
-      for (var i = 0; i < files.length; i += concurrent) {
-        final batch = files.sublist(
-          i,
-          (i + concurrent > files.length) ? files.length : i + concurrent,
-        );
+      // 배치 업로드(최대 동시 3권장) – attachXFilesAsResourcesForTodayLesson는 순차처리
+      // 필요 시 여기서 files를 청크로 나눠 진행율 표기 세분화 가능
+      final uploaded = await fs.attachXFilesAsResourcesForTodayLesson(
+        studentId: widget.studentId,
+        xfiles: files,
+        nodeId: null,
+      );
 
-        final results = await Future.wait(
-          batch.map((xf) async {
-            final u = await fs.uploadXFile(
-              xfile: XFile(xf.path, name: xf.name),
-              studentId: widget.studentId,
-              dateStr: widget.dateStr,
-            );
-            if (!mounted) return u;
-            setState(() => _done += 1);
-            return u;
-          }),
-        );
-
-        uploads.addAll(results);
-      }
-
-      widget.onUploaded(uploads);
+      widget.onUploaded(uploaded);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${uploads.length}개 파일 업로드 완료'),
+          content: Text('리소스 ${uploaded.length}개 업로드 및 링크 완료'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -88,7 +73,6 @@ class _DropUploadAreaState extends State<DropUploadArea> {
         context,
       ).showSnackBar(SnackBar(content: Text('드래그 업로드 실패: $e')));
     } finally {
-      // ❌ return 금지 → ✅ mounted일 때만 상태 정리
       if (mounted) {
         setState(() {
           _hover = false;
@@ -152,7 +136,7 @@ class _DropUploadAreaState extends State<DropUploadArea> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    '여기에 파일을 드롭하여 업로드',
+                    '여기에 파일을 드롭하여 오늘 레슨에 추가',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: _hover
                           ? Theme.of(context).colorScheme.primary

@@ -1,9 +1,9 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.66-ui (patched) | 첨부 → 리소스 업로드 + 오늘레슨 링크
-// - 업로드 버튼: FileService.pickAndAttachAsResourcesForTodayLesson 사용
-// - 업로드 후 lesson_links 즉시 리프레시
-// - DropUploadArea는 구 첨부 버킷으로 가므로 일시 비활성(주석)하여 혼선 방지
-// - FileClip.onOpen → LessonLinksService.openFromAttachment (원본 유지)
+// v1.67-ux | 평면형 UX 재배치 (빠른 실행 → 오늘 링크 → 주제/키워드/메모 → 첨부)
+// - 접었다/펼침 제거, 드래그 첨부 재활성화
+// - 리소스 링크/업로드 + 유튜브 열기 동선 최상단 배치
+// - 기존 기능(서비스 호출/저장/링크 열기) 유지
+// - 1.66에서의 컴파일 경고/에러 정리
 
 import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
@@ -13,12 +13,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../ui/components/file_clip.dart';
+import '../../ui/components/drop_upload_area.dart';
+import '../../ui/components/save_status_indicator.dart';
+
 import '../../services/lesson_service.dart';
 import '../../services/keyword_service.dart';
 import '../../services/file_service.dart';
 import '../../services/log_service.dart';
-import '../../ui/components/save_status_indicator.dart';
-// import '../../ui/components/drop_upload_area.dart'; // v1.66: 구 첨부 버킷 경로 → 비활성
 
 import '../../services/lesson_links_service.dart';
 import '../../services/curriculum_service.dart';
@@ -27,11 +28,8 @@ import '../../models/resource.dart';
 import '../../services/xsc_sync_service.dart';
 import '../../services/student_service.dart';
 
-enum _LocalSection { memo, link, attach, lessonLinks }
-
 class TodayLessonScreen extends StatefulWidget {
   const TodayLessonScreen({super.key});
-
   @override
   State<TodayLessonScreen> createState() => _TodayLessonScreenState();
 }
@@ -41,7 +39,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   final KeywordService _keyword = KeywordService();
   final FileService _file = FileService();
 
-  // 링크/커리큘럼/리소스
   final LessonLinksService _links = LessonLinksService();
   final CurriculumService _curr = CurriculumService();
   final ResourceService _res = ResourceService();
@@ -75,7 +72,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   List<KeywordItem> _filteredItems = const [];
   final Set<String> _selectedKeywords = {};
 
-  // (구) 첨부 – v1.66에서는 표시만 유지(열기/XSC 라우팅용), 업로드는 리소스로 전환
+  // (구) 첨부 – 표시는 유지(열기/XSC 라우팅용). 새 첨부는 DropUploadArea로 추가
   final List<Map<String, dynamic>> _attachments = [];
 
   // 오늘 레슨 링크
@@ -94,7 +91,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     if (_initialized) return;
     _initialized = true;
 
-    // ===== 인자 파싱 & 가드 =====
+    // 인자 파싱
     final raw = ModalRoute.of(context)?.settings.arguments;
     final args = (raw is Map)
         ? Map<String, dynamic>.from(raw)
@@ -150,8 +147,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
 
     await _loadKeywordData();
-
-    // 1) 오늘 레슨 링크 로드(ensure: 서버가 오늘 row를 확실히 보장)
     await _reloadLessonLinks(ensure: true);
   }
 
@@ -478,7 +473,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     );
   }
 
-  // ===== 링크 열기 =====
+  // ===== 링크/첨부 열기 =====
   Future<void> _openLessonLink(Map<String, dynamic> link) async {
     final kind = (link['kind'] ?? '').toString();
 
@@ -502,13 +497,13 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           ),
           studentId: _studentId,
         );
+
       } catch (e) {
         _showError('리소스 열기 실패: $e');
       }
       return;
     }
 
-    // kind == 'node' → 브라우저/스튜디오 이동
     final nodeId = (link['curriculum_node_id'] ?? '').toString();
     if (nodeId.isEmpty) {
       _showError('노드 정보를 찾을 수 없습니다.');
@@ -571,13 +566,12 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     _scheduleSave();
   }
 
-  // v1.66: 업로드 → 리소스 업로드 + 오늘레슨 링크
-  Future<void> _handleUploadAttachments() async {
+  // v1.66: 리소스 업로드(공용) → 오늘레슨에 자동 링크
+  Future<void> _handleUploadAsResources() async {
     if (!_isDesktop) return;
     try {
       final resources = await _file.pickAndAttachAsResourcesForTodayLesson(
         studentId: _studentId,
-        // nodeId: null,
       );
       if (resources.isEmpty) return;
 
@@ -586,7 +580,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         SnackBar(content: Text('리소스 ${resources.length}개를 링크했어요.')),
       );
 
-      // 🔧 업로드는 성공했는데 리스트 새로고침만 실패하는 경우가 있어 메시지를 분리
       try {
         await _reloadLessonLinks(ensure: true);
       } catch (e) {
@@ -597,8 +590,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
   }
 
-
-  // (구) 첨부 삭제 – 표시는 유지하되, 더 이상 새로 추가하지 않음
+  // (구) 첨부 삭제 – 표시는 유지, 새 첨부는 DropUploadArea에서 추가됨
   Future<void> _handleRemoveAttachment(int index) async {
     try {
       final removed = _attachments.removeAt(index);
@@ -639,83 +631,135 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final canAttach = _isDesktop;
 
     return Scaffold(
       appBar: AppBar(title: const Text('오늘 수업')),
-      body: _buildBody(canAttach),
-      bottomNavigationBar: _buildSaveBar(),
-    );
-  }
-
-  Widget _buildBody(bool canAttach) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ===== 링크 액션바 =====
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: _linkCurriculumResourceAssigned,
-                    icon: const Icon(Icons.link),
-                    label: const Text('리소스 링크 추가'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _reloadLessonLinks(ensure: true),
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('링크 새로고침'),
-                  ),
-                  Text(
-                    '학생에게 배정된 리소스만 링크할 수 있어요.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ===== 1) 빠른 실행 바: 링크/업로드/유튜브 =====
+            Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                child: Column(
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: _linkCurriculumResourceAssigned,
+                          icon: const Icon(Icons.link),
+                          label: const Text('리소스 링크 추가'),
+                        ),
+                        FilledButton.icon(
+                          onPressed: _handleUploadAsResources,
+                          icon: const Icon(Icons.upload_file),
+                          label: const Text('리소스로 업로드(오늘레슨 링크)'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => _reloadLessonLinks(ensure: true),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('링크 새로고침'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _youtubeCtl,
+                            decoration: const InputDecoration(
+                              hintText: '▶️ 유튜브 URL을 붙여넣고 엔터로 열기',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            onSubmitted: (_) async {
+                              final url = _youtubeCtl.text.trim();
+                              if (url.isEmpty) return;
+                              try {
+                                await _file.openUrl(url);
+                              } catch (e) {
+                                _showError('링크 열기 실패: $e');
+                              }
+                              _scheduleSave();
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          onPressed: () async {
+                            final url = _youtubeCtl.text.trim();
+                            if (url.isEmpty) return;
+                            try {
+                              await _file.openUrl(url);
+                            } catch (e) {
+                              _showError('링크 열기 실패: $e');
+                            }
+                          },
+                          child: const Text('열기'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '학생에게 배정된 리소스만 링크할 수 있어요. 업로드는 공용 리소스로 저장 후 오늘 레슨에 자동 링크됩니다.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 8),
 
-          _sectionTitle('주제'),
-          TextField(
-            controller: _subjectCtl,
-            decoration: const InputDecoration(
-              hintText: '예: 코드 전환 + 다운업 스트로크',
-              border: OutlineInputBorder(),
+            const SizedBox(height: 12),
+
+            // ===== 2) 오늘 레슨 링크(평면 리스트) =====
+            Text('오늘 레슨 링크', style: _sectionH1(context)),
+            const SizedBox(height: 6),
+            _buildLessonLinksListPlain(),
+
+            const SizedBox(height: 16),
+
+            // ===== 3) 주제 =====
+            Text('주제', style: _sectionH1(context)),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _subjectCtl,
+              decoration: const InputDecoration(
+                hintText: '예: 코드 전환 + 다운업 스트로크',
+                border: OutlineInputBorder(),
+              ),
+              textInputAction: TextInputAction.next,
             ),
-            textInputAction: TextInputAction.next,
-            onSubmitted: (_) {
-              Scrollable.ensureVisible(
-                _keywordsKey.currentContext ?? context,
-                duration: const Duration(milliseconds: 250),
-              );
-            },
-          ),
-          const SizedBox(height: 16),
 
-          _sectionTitle('키워드'),
-          _buildKeywordControls(),
-          const SizedBox(height: 8),
-          _buildKeywordSearchBox(),
-          const SizedBox(height: 8),
-          _buildKeywordChips(),
+            const SizedBox(height: 16),
 
-          const SizedBox(height: 8),
-          _buildExpandable(
-            title: '✏️ 수업 메모',
-            section: _LocalSection.memo,
-            child: TextField(
+            // ===== 4) 키워드 =====
+            Text('키워드', style: _sectionH1(context)),
+            const SizedBox(height: 8),
+            _buildKeywordControls(),
+            const SizedBox(height: 8),
+            _buildKeywordSearchBox(),
+            const SizedBox(height: 8),
+            _buildKeywordChips(),
+
+            const SizedBox(height: 16),
+
+            // ===== 5) 메모 =====
+            Text('수업 메모', style: _sectionH1(context)),
+            const SizedBox(height: 6),
+            TextField(
               controller: _memoCtl,
               decoration: const InputDecoration(
                 hintText: '수업 중 메모를 기록하세요',
@@ -723,71 +767,332 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
               ),
               maxLines: 6,
             ),
-          ),
 
-          const SizedBox(height: 8),
-          _buildExpandable(
-            title: '🔗 오늘 레슨 링크',
-            section: _LocalSection.lessonLinks,
-            child: _buildLessonLinksList(),
-          ),
+            const SizedBox(height: 16),
 
-          const SizedBox(height: 8),
-          _buildExpandable(
-            title: '▶️ 유튜브 링크',
-            section: _LocalSection.link,
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _youtubeCtl,
-                    decoration: const InputDecoration(
-                      hintText: 'https://youtu.be/...',
-                      border: OutlineInputBorder(),
-                    ),
-                    onSubmitted: (_) async {
-                      final url = _youtubeCtl.text.trim();
-                      if (url.isEmpty) return;
-                      try {
-                        await _file.openUrl(url);
-                      } catch (e) {
-                        _showError('링크 열기 실패: $e');
-                      }
-                      _scheduleSave();
-                    },
+            // ===== 6) 첨부 (구 기능 + 드래그) =====
+            Text('첨부 파일', style: _sectionH1(context)),
+            const SizedBox(height: 6),
+            if (_isDesktop)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '아래 영역에 드래그하여 첨부하거나, 리소스 업로드 버튼을 사용하세요. (첨부는 레거시 저장소 · 표시/열기용)',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: () async {
-                    final url = _youtubeCtl.text.trim();
-                    if (url.isEmpty) return;
-                    try {
-                      await _file.openUrl(url);
-                    } catch (e) {
-                      _showError('링크 열기 실패: $e');
-                    }
-                  },
-                  child: const Text('열기'),
-                ),
-              ],
-            ),
-          ),
+                  const SizedBox(height: 8),
+                  // 교체 대상: DropUploadArea(
+                  DropUploadArea(
+                    studentId: _studentId,
+                    dateStr: _todayDateStr,
+                    // onUploaded: (list) async { ... }  // ❌ 이전 코드(Map, async)
+                    onUploaded: (List<ResourceFile> list) {
+                      // 리소스로 업로드된 항목은 첨부 목록에 넣지 않고, 오늘 레슨 링크만 갱신
+                      if (list.isNotEmpty) {
+                        unawaited(
+                          _reloadLessonLinks(ensure: true).catchError((e) {
+                            if (!mounted) return;
+                            _showError('링크 목록 새로고침 실패: $e');
+                          }),
+                        );
+                      }
 
-          const SizedBox(height: 8),
-          _buildExpandable(
-            title: '📎 첨부 파일(표시 전용 · 새 업로드는 리소스)',
-            section: _LocalSection.attach,
-            child: canAttach ? _attachmentDesktop() : _platformNotice(),
+                      if (!mounted) return;
+                      setState(() {}); // 링크 섹션 갱신
+                      _scheduleSave(); // 오늘 수업 row 저장
+                    },
+                    onError: (err) => _showError('드래그 업로드 실패: $err'),
+                  ),
+
+
+                  if (_attachments.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      '첨부 목록',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: List.generate(_attachments.length, (i) {
+                        final att = _attachments[i];
+                        final name = (att['name'] ?? att['path'] ?? 'file')
+                            .toString();
+
+                        return FileClip(
+                          name: name,
+                          path: (att['path'] ?? '').toString().isNotEmpty
+                              ? att['path']
+                              : null,
+                          url: (att['url'] ?? '').toString().isNotEmpty
+                              ? att['url']
+                              : null,
+                          onDelete: () => _handleRemoveAttachment(i),
+                          onOpen: (messenger, attachment) async {
+                            try {
+                              final item = LessonAttachmentItem(
+                                lessonId: _lessonId ?? '',
+                                type: 'file',
+                                createdAt: DateTime.now(),
+                                localPath:
+                                    (attachment['localPath'] ?? '')
+                                        .toString()
+                                        .isNotEmpty
+                                    ? attachment['localPath'].toString()
+                                    : null,
+                                url:
+                                    (attachment['url'] ?? '')
+                                        .toString()
+                                        .isNotEmpty
+                                    ? attachment['url'].toString()
+                                    : null,
+                                path:
+                                    (attachment['path'] ?? '')
+                                        .toString()
+                                        .isNotEmpty
+                                    ? attachment['path'].toString()
+                                    : null,
+                                originalFilename:
+                                    (attachment['name'] ?? '')
+                                        .toString()
+                                        .isNotEmpty
+                                    ? attachment['name'].toString()
+                                    : null,
+                                mediaName:
+                                    (attachment['mediaName'] ?? '')
+                                        .toString()
+                                        .isNotEmpty
+                                    ? attachment['mediaName'].toString()
+                                    : null,
+                                xscStoragePath:
+                                    (attachment['xscStoragePath'] ?? '')
+                                        .toString()
+                                        .isNotEmpty
+                                    ? attachment['xscStoragePath'].toString()
+                                    : null,
+                                xscUpdatedAt: DateTime.tryParse(
+                                  (attachment['xscUpdatedAt'] ?? '').toString(),
+                                ),
+                              );
+
+                              await _links.openFromAttachment(
+                                item,
+                                studentId: _studentId,
+                              );
+                            } catch (e) {
+                              messenger.showSnackBar(
+                                SnackBar(content: Text('열기 실패: $e')),
+                              );
+                            }
+                          },
+                        );
+                      }),
+                    ),
+                  ],
+                ],
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '⚠️ 모바일/Web에서는 첨부/실행 기능이 제한됩니다. 데스크탑에서 사용해주세요.',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.orange),
+                ),
+              ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: SaveStatusIndicator(
+            status: _status,
+            lastSavedAt: _lastSavedAt,
           ),
-        ],
+        ),
       ),
     );
   }
 
-  final GlobalKey _keywordsKey = GlobalKey();
+  // ===== 공통 UI 빌더 =====
+
+  TextStyle _sectionH1(BuildContext ctx) =>
+      const TextStyle(fontSize: 16, fontWeight: FontWeight.w700);
+
+  // 오늘 레슨 링크 평면 리스트
+  Widget _buildLessonLinksListPlain() {
+    if (_loadingLinks) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: LinearProgressIndicator(minHeight: 2),
+      );
+    }
+    if (_todayLinks.isEmpty) {
+      return Text('아직 링크가 없습니다.', style: Theme.of(context).textTheme.bodySmall);
+    }
+
+    String titleOf(Map m) {
+      final kind = (m['kind'] ?? '').toString();
+      if (kind == 'node') {
+        final t = (m['node_title'] ?? '').toString().trim();
+        return t.isEmpty ? '(제목 없음)' : t;
+      } else {
+        final t = (m['resource_title'] ?? '').toString().trim();
+        if (t.isNotEmpty) return t;
+        return (m['resource_filename'] ?? '리소스').toString();
+      }
+    }
+
+    bool hasXscMeta(Map m) =>
+        (m['xsc_updated_at'] != null &&
+            m['xsc_updated_at'].toString().isNotEmpty) ||
+        (m['xsc_storage_path'] != null &&
+            m['xsc_storage_path'].toString().isNotEmpty);
+
+    String? xscStamp(Map m) {
+      final v = m['xsc_updated_at']?.toString();
+      if (v == null || v.isEmpty) return null;
+      return _fmtLocalStamp(v) ?? v;
+    }
+
+    bool isAudioLink(Map m) {
+      final name = (m['resource_filename'] ?? '').toString().toLowerCase();
+      return name.endsWith('.mp3') ||
+          name.endsWith('.m4a') ||
+          name.endsWith('.wav') ||
+          name.endsWith('.aif') ||
+          name.endsWith('.aiff') ||
+          name.endsWith('.mp4') ||
+          name.endsWith('.mov');
+    }
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        children: _todayLinks.map((m) {
+          final kind = (m['kind'] ?? '').toString();
+          final isNode = kind == 'node';
+          final showXsc = !isNode && hasXscMeta(m);
+          final isAudio = !isNode && isAudioLink(m);
+
+          return ListTile(
+            dense: true,
+            leading: Icon(isNode ? Icons.folder : Icons.insert_drive_file),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    titleOf(m),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (showXsc)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Tooltip(
+                      message: xscStamp(m) != null
+                          ? '최근 저장: ${xscStamp(m)}'
+                          : '학생별 xsc 연결됨',
+                      child: const Chip(
+                        label: Text('최근 저장본'),
+                        padding: EdgeInsets.zero,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (showXsc)
+                  IconButton(
+                    tooltip: 'xsc(최신) 열기',
+                    icon: const Icon(Icons.music_note),
+                    onPressed: () => _openLatestXsc(m),
+                  ),
+                IconButton(
+                  tooltip: isNode ? '노드는 열기 제공 안함' : '파일 열기',
+                  icon: const Icon(Icons.open_in_new),
+                  onPressed: isNode ? null : () => _openLessonLink(m),
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (v) async {
+                    final id = (m['id'] ?? '').toString();
+                    switch (v) {
+                      case 'copy_id':
+                        final text = isNode
+                            ? (m['curriculum_node_id'] ?? '').toString()
+                            : '${m['resource_bucket'] ?? _defaultResourceBucket}/${m['resource_path'] ?? ''}';
+                        await Clipboard.setData(ClipboardData(text: text));
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('복사했습니다.')),
+                        );
+                        break;
+                      case 'open_mp3':
+                        await _openOriginalAudio(m);
+                        break;
+                      case 'open_node':
+                        {
+                          final nodeId = (m['curriculum_node_id'] ?? '')
+                              .toString();
+                          if (nodeId.isEmpty) break;
+                          try {
+                            await _curr.openInBrowser(nodeId);
+                          } catch (_) {
+                            await Clipboard.setData(
+                              ClipboardData(text: nodeId),
+                            );
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('노드 ID를 복사했습니다.')),
+                            );
+                          }
+                          break;
+                        }
+                      case 'delete':
+                        if (id.isEmpty) return;
+                        _removeLessonLink(id);
+                        break;
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'copy_id',
+                      child: Text(isNode ? '노드 ID 복사' : '경로 복사'),
+                    ),
+                    if (isAudio)
+                      const PopupMenuItem(
+                        value: 'open_mp3',
+                        child: Text('원본 mp3로 열기'),
+                      ),
+                    if (isNode)
+                      const PopupMenuItem(
+                        value: 'open_node',
+                        child: Text('커리큘럼에서 열기'),
+                      ),
+                    const PopupMenuDivider(),
+                    const PopupMenuItem(value: 'delete', child: Text('삭제')),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
 
   // === 키워드 섹션 UI ===
+  final GlobalKey _keywordsKey = GlobalKey();
+
   Widget _buildKeywordControls() {
     if (_loadingKeywords) {
       return const Padding(
@@ -840,7 +1145,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
               await _loadKeywordData();
               if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('키워드 캐시를 초기화하고 다시 불러왔어요.')),
+                const SnackBar(content: Text('키워드 캐시 초기화 및 재로딩 완료')),
               );
             },
           ),
@@ -888,166 +1193,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     );
   }
 
-  Widget _buildLessonLinksList() {
-    if (_loadingLinks) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 8),
-        child: LinearProgressIndicator(minHeight: 2),
-      );
-    }
-    if (_todayLinks.isEmpty) {
-      return Text('아직 링크가 없습니다.', style: Theme.of(context).textTheme.bodySmall);
-    }
-
-    String titleOf(Map m) {
-      final kind = (m['kind'] ?? '').toString();
-      if (kind == 'node') {
-        final t = (m['node_title'] ?? '').toString().trim();
-        return t.isEmpty ? '(제목 없음)' : t;
-      } else {
-        final t = (m['resource_title'] ?? '').toString().trim();
-        if (t.isNotEmpty) return t;
-        return (m['resource_filename'] ?? '리소스').toString();
-      }
-    }
-
-    bool hasXscMeta(Map m) =>
-        (m['xsc_updated_at'] != null &&
-            m['xsc_updated_at'].toString().isNotEmpty) ||
-        (m['xsc_storage_path'] != null &&
-            m['xsc_storage_path'].toString().isNotEmpty);
-
-    String? xscStamp(Map m) {
-      final v = m['xsc_updated_at']?.toString();
-      if (v == null || v.isEmpty) return null;
-      return _fmtLocalStamp(v) ?? v;
-    }
-
-    bool isAudioLink(Map m) {
-      final name = (m['resource_filename'] ?? '').toString();
-      return _isAudioName(name);
-    }
-
-    return Column(
-      children: _todayLinks.map((m) {
-        final kind = (m['kind'] ?? '').toString();
-        final isNode = kind == 'node';
-        final showXsc = !isNode && hasXscMeta(m);
-        final isAudio = !isNode && isAudioLink(m);
-
-        return ListTile(
-          dense: true,
-          leading: Icon(isNode ? Icons.folder : Icons.insert_drive_file),
-          title: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  titleOf(m),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (showXsc)
-                Padding(
-                  padding: const EdgeInsets.only(left: 8),
-                  child: Tooltip(
-                    message: xscStamp(m) != null
-                        ? '최근 저장: ${xscStamp(m)}'
-                        : '학생별 xsc 연결됨',
-                    child: const Chip(
-                      label: Text('최근 저장본'),
-                      padding: EdgeInsets.zero,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (showXsc)
-                Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: IconButton(
-                    tooltip: 'xsc(최신) 열기',
-                    icon: const Icon(Icons.music_note),
-                    onPressed: () => _openLatestXsc(m),
-                  ),
-                ),
-              IconButton(
-                tooltip: isNode ? '노드는 열기 제공 안함' : '파일 열기',
-                icon: const Icon(Icons.open_in_new),
-                onPressed: isNode ? null : () => _openLessonLink(m),
-              ),
-              PopupMenuButton<String>(
-                onSelected: (v) async {
-                  final id = (m['id'] ?? '').toString();
-                  switch (v) {
-                    case 'copy_id':
-                      final text = isNode
-                          ? (m['curriculum_node_id'] ?? '').toString()
-                          : '${m['resource_bucket'] ?? _defaultResourceBucket}/${m['resource_path'] ?? ''}';
-                      await Clipboard.setData(ClipboardData(text: text));
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(const SnackBar(content: Text('복사했습니다.')));
-                      break;
-                    case 'open_mp3':
-                      await _openOriginalAudio(m);
-                      break;
-                    case 'open_node':
-                      {
-                        final nodeId = (m['curriculum_node_id'] ?? '')
-                            .toString();
-                        if (nodeId.isEmpty) break;
-                        try {
-                          await _curr.openInBrowser(nodeId);
-                        } catch (_) {
-                          await Clipboard.setData(ClipboardData(text: nodeId));
-                          if (!mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('노드 ID를 클립보드에 복사했습니다.'),
-                            ),
-                          );
-                        }
-                        break;
-                      }
-
-                    case 'delete':
-                      if (id.isEmpty) return;
-                      _removeLessonLink(id);
-                      break;
-                  }
-                },
-                itemBuilder: (_) => [
-                  PopupMenuItem(
-                    value: 'copy_id',
-                    child: Text(isNode ? '노드 ID 복사' : '경로 복사'),
-                  ),
-                  if (isAudio)
-                    const PopupMenuItem(
-                      value: 'open_mp3',
-                      child: Text('원본 mp3로 열기'),
-                    ),
-                  if (isNode)
-                    const PopupMenuItem(
-                      value: 'open_node',
-                      child: Text('커리큘럼에서 열기'),
-                    ),
-                  const PopupMenuDivider(),
-                  const PopupMenuItem(value: 'delete', child: Text('삭제')),
-                ],
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-
   String? _fmtLocalStamp(String? iso) {
     if (iso == null || iso.isEmpty) return null;
     final dt = DateTime.tryParse(iso);
@@ -1059,166 +1204,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     final hh = local.hour.toString().padLeft(2, '0');
     final mm = local.minute.toString().padLeft(2, '0');
     return '$y-$m-$d $hh:$mm';
-  }
-
-  bool _isAudioName(String name) {
-    final n = name.toLowerCase();
-    return n.endsWith('.mp3') ||
-        n.endsWith('.m4a') ||
-        n.endsWith('.wav') ||
-        n.endsWith('.aif') ||
-        n.endsWith('.aiff') ||
-        n.endsWith('.mp4') ||
-        n.endsWith('.mov');
-  }
-
-  Widget _attachmentDesktop() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            FilledButton.icon(
-              onPressed: _handleUploadAttachments,
-              icon: const Icon(Icons.upload_file),
-              label: const Text('리소스로 업로드(오늘레슨 링크)'),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '버튼으로 올리면 공용 리소스로 저장되고 오늘레슨에 자동 링크됩니다.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-
-        // v1.66: 구 첨부 버킷으로 올라가 혼선 → 임시 비활성
-        // DropUploadArea(
-        //   studentId: _studentId,
-        //   dateStr: _todayDateStr,
-        //   onUploaded: (list) { ... 구 첨부 경로 ... },
-        //   onError: (err) => _showError('드래그 업로드 실패: $err'),
-        // ),
-        if (_attachments.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text('이전 첨부(표시 전용):', style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: List.generate(_attachments.length, (i) {
-              final att = _attachments[i];
-              final name = (att['name'] ?? att['path'] ?? 'file').toString();
-
-              return FileClip(
-                name: name,
-                path: (att['path'] ?? '').toString().isNotEmpty
-                    ? att['path']
-                    : null,
-                url: (att['url'] ?? '').toString().isNotEmpty
-                    ? att['url']
-                    : null,
-                onDelete: () => _handleRemoveAttachment(i),
-
-                // ★ 첨부 클릭 시 XSC 플로우로 라우팅(원본 유지)
-                onOpen: (messenger, attachment) async {
-                  try {
-                    final item = LessonAttachmentItem(
-                      lessonId: _lessonId ?? '',
-                      type: 'file',
-                      createdAt: DateTime.now(),
-                      localPath:
-                          (attachment['localPath'] ?? '').toString().isNotEmpty
-                          ? attachment['localPath'].toString()
-                          : null,
-                      url: (attachment['url'] ?? '').toString().isNotEmpty
-                          ? attachment['url'].toString()
-                          : null,
-                      path: (attachment['path'] ?? '').toString().isNotEmpty
-                          ? attachment['path'].toString()
-                          : null,
-                      originalFilename:
-                          (attachment['name'] ?? '').toString().isNotEmpty
-                          ? attachment['name'].toString()
-                          : null,
-                      mediaName:
-                          (attachment['mediaName'] ?? '').toString().isNotEmpty
-                          ? attachment['mediaName'].toString()
-                          : null,
-                      xscStoragePath:
-                          (attachment['xscStoragePath'] ?? '')
-                              .toString()
-                              .isNotEmpty
-                          ? attachment['xscStoragePath'].toString()
-                          : null,
-                      xscUpdatedAt: DateTime.tryParse(
-                        (attachment['xscUpdatedAt'] ?? '').toString(),
-                      ),
-                    );
-
-                    await _links.openFromAttachment(
-                      item,
-                      studentId: _studentId,
-                    );
-                  } catch (e) {
-                    messenger.showSnackBar(
-                      SnackBar(content: Text('열기 실패: $e')),
-                    );
-                  }
-                },
-              );
-            }),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _platformNotice() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Text(
-        '⚠️ 모바일/Web에서는 첨부/실행 기능이 제한됩니다. 데스크탑에서 사용해주세요.',
-        style: Theme.of(
-          context,
-        ).textTheme.bodySmall?.copyWith(color: Colors.orange),
-      ),
-    );
-  }
-
-  Widget _buildExpandable({
-    required String title,
-    required _LocalSection section,
-    required Widget child,
-  }) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ExpansionTile(
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        children: [child],
-      ),
-    );
-  }
-
-  Widget _buildSaveBar() {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        child: SaveStatusIndicator(status: _status, lastSavedAt: _lastSavedAt),
-      ),
-    );
-  }
-
-  Widget _sectionTitle(String t) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        t,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-      ),
-    );
   }
 }
 

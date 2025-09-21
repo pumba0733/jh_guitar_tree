@@ -1,8 +1,9 @@
 // lib/screens/curriculum/student_curriculum_screen.dart
-// v1.66 | 오늘 수업 리소스 섹션 추가 + 기존 흐름 유지
-// - ensureTeacherLink → ensureStudentBinding(80ms 대기) → fetch + fetchReviewed + fetchToday
-// - ListView 상단에 '📘 오늘 수업 리소스' 섹션(기본 펼침)
-// - 링크/첨부 각각 개별 실행 버튼 연결(openFromLessonLink / openFromAttachment)
+// v1.67 | 오늘 수업 리소스 섹션 제거 → 히스토리 단일 출처로 통합
+// - '📘 오늘 수업 리소스' 카드/상태/로딩/에러 제거
+// - initState/refresh에서 오늘 섹션 로드 제거
+// - 지난 수업 섹션(Reviewed)만 유지: 오늘 레슨도 자연스럽게 포함됨
+// - sendToTodayLesson 등 전송 기능/서비스 의존성은 그대로 유지
 
 import 'package:flutter/material.dart';
 
@@ -74,11 +75,6 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
 
   Future<List<_ReviewedGroup>>? _reviewedLoad;
 
-  // ===== v1.66: 오늘 섹션 상태 =====
-  TodayResources? _today;
-  bool _loadingToday = false;
-  Object? _errToday;
-
   @override
   void initState() {
     super.initState();
@@ -95,8 +91,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
         _load = _fetch();
         _reviewedLoad = _fetchReviewed();
       });
-      // 오늘 섹션 로드
-      _fetchToday();
+      // v1.67: 오늘 섹션 로드 제거
     });
   }
 
@@ -123,33 +118,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
     return (assigns: assigns, nodeMap: nodeMap, doneMap: doneMap);
   }
 
-  // v1.66: 오늘 수업 리소스 수집
-  Future<void> _fetchToday() async {
-    setState(() {
-      _loadingToday = true;
-      _errToday = null;
-    });
-    try {
-      final t = await _links.fetchTodayResources(studentId: widget.studentId);
-      if (!mounted) return;
-      setState(() {
-        _today = t;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _errToday = e;
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loadingToday = false;
-        });
-      }
-    }
-  }
-
-  // 지난 수업 리소스 수집 (기존)
+  // 지난 수업 리소스 수집 (기존) — 오늘 레슨도 포함됨
   Future<List<_ReviewedGroup>> _fetchReviewed({int maxLessons = 20}) async {
     final lessons = await _lessonSvc.listByStudent(
       widget.studentId,
@@ -256,7 +225,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
       _reviewedLoad = f2;
     });
     await Future.wait([f1, f2]);
-    await _fetchToday();
+    // v1.67: 오늘 섹션 로드 제거
   }
 
   Future<void> _toggle(String nodeId) async {
@@ -320,7 +289,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(ok ? '오늘 레슨으로 보냈어요.' : '전송 실패 또는 미구현(SQL 보강 필요)')),
     );
-    if (ok) _fetchToday();
+    // v1.67: 오늘 섹션이 없으므로 별도 새로고침 없음
   }
 
   @override
@@ -400,150 +369,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                       ),
                     ],
 
-                    // ===== v1.66: 오늘 수업 리소스 섹션 =====
-                    Card(
-                      elevation: 0,
-                      margin: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: ExpansionTile(
-                        initiallyExpanded: true,
-                        title: const Text('📘 오늘 수업 리소스'),
-                        childrenPadding: const EdgeInsets.fromLTRB(
-                          12,
-                          0,
-                          12,
-                          12,
-                        ),
-                        trailing: IconButton(
-                          tooltip: '새로고침',
-                          icon: const Icon(Icons.refresh),
-                          onPressed: _fetchToday,
-                        ),
-                        children: [
-                          if (_loadingToday)
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 12),
-                              child: LinearProgressIndicator(minHeight: 2),
-                            )
-                          else if (_errToday != null)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('오늘 수업 리소스를 불러오지 못했어요.'),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    '$_errToday',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            )
-                          else if (_today == null ||
-                              (_today!.links.isEmpty && _today!.atts.isEmpty))
-                            const Padding(
-                              padding: EdgeInsets.only(bottom: 12),
-                              child: Text('아직 오늘 수업에 연결된 리소스가 없어요.'),
-                            )
-                          else
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                if (_today!.links.isNotEmpty) ...[
-                                  const Padding(
-                                    padding: EdgeInsets.fromLTRB(12, 4, 12, 4),
-                                    child: Text(
-                                      '링크',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
-                                  ..._today!.links.map(
-                                    (lk) => ListTile(
-                                      dense: true,
-                                      leading: const Icon(
-                                        Icons.insert_drive_file,
-                                      ),
-                                      title: Text(
-                                        (lk.title ?? lk.resourceFilename),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      subtitle: Text(
-                                        '${lk.resourceBucket}/${lk.resourcePath}',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      trailing: IconButton(
-                                        tooltip: '열기',
-                                        icon: const Icon(Icons.open_in_new),
-                                        onPressed: () =>
-                                            _links.openFromLessonLink(
-                                              lk,
-                                              studentId: widget.studentId,
-                                            ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                                if (_today!.atts.isNotEmpty) ...[
-                                  const Padding(
-                                    padding: EdgeInsets.fromLTRB(12, 8, 12, 4),
-                                    child: Text(
-                                      '첨부',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
-                                  ..._today!.atts.map(
-                                    (att) => ListTile(
-                                      dense: true,
-                                      leading: Icon(
-                                        att.type == 'xsc'
-                                            ? Icons.music_note
-                                            : Icons.attachment,
-                                      ),
-                                      title: Text(
-                                        att.mediaName ??
-                                            att.originalFilename ??
-                                            '첨부',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      subtitle: Text(
-                                        (att.localPath ??
-                                                att.url ??
-                                                att.path ??
-                                                '')
-                                            .toString(),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      trailing: IconButton(
-                                        tooltip: '열기',
-                                        icon: const Icon(Icons.open_in_new),
-                                        onPressed: () =>
-                                            _links.openFromAttachment(
-                                              att,
-                                              studentId: widget.studentId,
-                                            ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                                const SizedBox(height: 8),
-                              ],
-                            ),
-                        ],
-                      ),
-                    ),
-
-                    // ===== 📚 지난 수업 섹션 (기존) =====
+                    // ===== 📚 지난 수업 섹션 (유지) =====
                     Card(
                       elevation: 0,
                       margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),

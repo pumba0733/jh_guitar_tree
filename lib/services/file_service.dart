@@ -1,9 +1,8 @@
 // lib/services/file_service.dart
-// v1.66 | '첨부=리소스 업로드+오늘레슨 링크' 신규 API 추가 (기존 API는 유지)
-// - attachFileAsResourceForTodayLesson(...) 1건
-// - attachPlatformFilesAsResourcesForTodayLesson(...) 여러건
-// - pickAndAttachAsResourcesForTodayLesson(...) 피커 → 업로드+링크
-// - 기존 lesson_attachments 업로드 API는 남기되 사용 지양(주석)
+// v1.67 | 리소스 첨부 UX 정리
+// - NEW: attachXFilesAsResourcesForTodayLesson(...) 추가 (드래그&드롭 대응용)
+// - FIX: HttpClient close 처리로 리소스 릭 방지
+// - 기존 v1.66 API 호환 유지
 
 import 'dart:async';
 import 'dart:io';
@@ -35,6 +34,7 @@ class FileService {
 
   SupabaseClient get _sb => Supabase.instance.client;
 
+  // (구) 레슨 첨부 버킷 (드래그 구경로 유지용 – 새 플로우는 리소스 업로드)
   static const String _bucketName = SupabaseBuckets.lessonAttachments;
 
   // ========= Workspace =========
@@ -116,6 +116,7 @@ class FileService {
   static Future<void> _ensureDir(String dirPath) async {
     final d = Directory(dirPath);
     if (!await d.exists()) await d.create(recursive: true);
+    return;
   }
 
   // ===== 재시도 유틸 =====
@@ -234,8 +235,7 @@ class FileService {
   }
 
   // -----------------------------
-  // (구) lesson_attachments 업로드 API
-  //  👉 v1.66 이후 사용 지양: 새 API(attachFileAsResourceForTodayLesson) 사용
+  // (구) lesson_attachments 업로드 API (사용 지양)
   // -----------------------------
   Future<Map<String, dynamic>> uploadXFile({
     required XFile xfile,
@@ -366,7 +366,7 @@ class FileService {
     required String studentId,
     required String localPath,
     String? originalFilename,
-    String? nodeId, // 필요 시 특정 노드 귀속. 기본 null(학생 업로드)
+    String? nodeId,
   }) async {
     final resource = await ResourceService().uploadFromLocalPathAsResource(
       localPath: localPath,
@@ -393,7 +393,6 @@ class FileService {
       String tmpForStream = '';
 
       if (path == null) {
-        // readStream/bytes → 임시로 저장 후 경로화
         final tempDir = await getTemporaryDirectory();
         tmpForStream = p.join(
           tempDir.path,
@@ -420,7 +419,6 @@ class FileService {
       );
       results.add(res);
 
-      // 임시파일 정리
       if (tmpForStream.isNotEmpty) {
         try {
           await File(tmpForStream).delete();
@@ -433,17 +431,13 @@ class FileService {
   /// 파일 피커를 띄워 선택한 파일들을 리소스로 업로드 후 오늘레슨에 링크
   Future<List<ResourceFile>> pickAndAttachAsResourcesForTodayLesson({
     required String studentId,
-    String? nodeId, // null이면 업로드 전용 노드로 자동 귀속
+    String? nodeId,
   }) async {
-    // 데스크탑 전용 가드(필요시)
     final picked = await pickLocalFiles(
       allowMultiple: true,
-      allowedExtensions: null, // 확장자 제한 없으면 null
-    ); // ← List<PlatformFile> 반환
-
+      allowedExtensions: null,
+    );
     if (picked.isEmpty) return const [];
-
-    // 이미 있는 함수 재사용해서 깔끔하게 업로드+링크
     return await attachPlatformFilesAsResourcesForTodayLesson(
       studentId: studentId,
       files: picked,
@@ -451,6 +445,38 @@ class FileService {
     );
   }
 
+  /// (NEW) 드래그&드롭 XFile 리스트 → 리소스 업로드 + 오늘레슨 링크
+  Future<List<ResourceFile>> attachXFilesAsResourcesForTodayLesson({
+    required String studentId,
+    required List<XFile> xfiles,
+    String? nodeId,
+  }) async {
+    final results = <ResourceFile>[];
+    for (final xf in xfiles) {
+      final local = (xf.path.isNotEmpty)
+          ? xf.path
+          : await _writeTempFromXFile(xf);
+      final res = await attachFileAsResourceForTodayLesson(
+        studentId: studentId,
+        localPath: local,
+        originalFilename: (xf.name.isNotEmpty ? xf.name : p.basename(local)),
+        nodeId: nodeId,
+      );
+      results.add(res);
+    }
+    return results;
+  }
+
+  Future<String> _writeTempFromXFile(XFile xf) async {
+    final tempDir = await getTemporaryDirectory();
+    final tmpPath = p.join(
+      tempDir.path,
+      _displaySafeName(xf.name.isNotEmpty ? xf.name : 'file'),
+    );
+    final bytes = await xf.readAsBytes();
+    await File(tmpPath).writeAsBytes(bytes, flush: true);
+    return tmpPath;
+  }
 
   // -----------------------------
   // 열기(기본앱 고정)
@@ -515,14 +541,20 @@ class FileService {
       return await _retry(() => _sb.storage.from(_bucketName).download(key));
     }
     final client = HttpClient();
-    final res = await _retry<HttpClientResponse>(
-      () => client.getUrl(Uri.parse(url)).then((rq) => rq.close()),
-    );
-    if (res.statusCode != 200) {
-      throw StateError('파일 다운로드 실패(HTTP ${res.statusCode})');
+    try {
+      final res = await _retry<HttpClientResponse>(
+        () => client.getUrl(Uri.parse(url)).then((rq) => rq.close()),
+      );
+      if (res.statusCode != 200) {
+        throw StateError('파일 다운로드 실패(HTTP ${res.statusCode})');
+      }
+      final data = await consolidateHttpClientResponseBytes(res);
+      return Uint8List.fromList(data);
+    } finally {
+      try {
+        client.close(force: true);
+      } catch (_) {}
     }
-    final data = await consolidateHttpClientResponseBytes(res);
-    return Uint8List.fromList(data);
   }
 
   Future<String> _ensureLocalCopy(Map<String, dynamic> att) async {
@@ -542,16 +574,22 @@ class FileService {
         fallbackName = p.basename(key);
       } else {
         final client = HttpClient();
-        final res = await _retry<HttpClientResponse>(
-          () => client.getUrl(Uri.parse(url)).then((rq) => rq.close()),
-        );
-        if (res.statusCode != 200) {
-          throw StateError('파일 다운로드 실패(HTTP ${res.statusCode})');
+        try {
+          final res = await _retry<HttpClientResponse>(
+            () => client.getUrl(Uri.parse(url)).then((rq) => rq.close()),
+          );
+          if (res.statusCode != 200) {
+            throw StateError('파일 다운로드 실패(HTTP ${res.statusCode})');
+          }
+          bytes = Uint8List.fromList(
+            await consolidateHttpClientResponseBytes(res),
+          );
+          fallbackName = p.basename(Uri.parse(url).path);
+        } finally {
+          try {
+            client.close(force: true);
+          } catch (_) {}
         }
-        bytes = Uint8List.fromList(
-          await consolidateHttpClientResponseBytes(res),
-        );
-        fallbackName = p.basename(Uri.parse(url).path);
       }
     } else {
       final path = (att['path'] ?? '').toString();
@@ -675,7 +713,6 @@ class FileService {
     return outPath;
   }
 
-  // ===== Helpers =====
   String _avoidNameClash(String dirPath, String fileName) {
     String candidate = p.join(dirPath, fileName);
     if (!File(candidate).existsSync()) return candidate;
@@ -693,7 +730,4 @@ class FileService {
       }
     }
   }
-
-    // v1.66: 파일 선택 -> 리소스 업로드 -> 오늘레슨 링크
-  
 }
