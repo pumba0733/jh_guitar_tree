@@ -730,4 +730,22 @@ class FileService {
       }
     }
   }
+
+  // [ADD] 리소스 한 건을 바로 기본앱으로 여는 헬퍼 (리소스 → signed URL → 워크스페이스 저장 → 기본앱 실행)
+  Future<String> openResourceWithDefaultApp({
+    required String studentId,
+    required ResourceFile resource,
+  }) async {
+    final url = await ResourceService().signedUrl(resource);
+    // PDF/이미지/SIB 등은 전부 로컬 저장 → 기본앱
+    return await saveUrlToWorkspaceAndOpen(
+      studentId: studentId,
+      filename: resource.filename,
+      url: url,
+    );
+  }
+
+  // [OPT] 시벨리우스 확장자를 “오디오/비디오”가 아닌 일반 문서로 취급 (기본앱으로 열리게 그대로 둠)
+  // 현재 _isAudioName은 mp3/m4a/wav/aif/aiff/mp4/mov 만 true.
+  // .sib는 여기에 안 걸리므로 이미 “기본앱” 경로가 맞음. (추가 수정 불필요)
 }

@@ -7,7 +7,8 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import './file_service.dart';
+import './resource_service.dart';
 import '../models/resource.dart';
 import '../supabase/supabase_tables.dart';
 import './xsc_sync_service.dart';
@@ -468,43 +469,50 @@ class LessonLinksService {
   }
 
   // ---------- 실행 유틸 ----------
+  // 기존 openFromLessonLink(...) 전체 교체
   Future<void> openFromLessonLink(
     LessonLinkItem link, {
     required String studentId,
   }) async {
-    final map = {
-      'id': link.id,
-      'lesson_id': link.lessonId,
-      'kind': 'resource',
-      'resource_title': link.title,
-      'resource_bucket': link.resourceBucket,
-      'resource_path': link.resourcePath,
-      'resource_filename': link.resourceFilename,
+    // LessonLinkItem → ResourceFile로 변환
+    final rf = ResourceFile.fromMap({
+      'id': '', // 필요없음
+      'curriculum_node_id': null,
+      'title': link.title,
+      'filename': link.resourceFilename,
+      'mime_type': null,
+      'size_bytes': null,
+      'storage_bucket': link.resourceBucket,
+      'storage_path': link.resourcePath,
       'created_at': link.createdAt.toIso8601String(),
-    };
-    await XscSyncService().openFromLessonLinkMap(
-      link: map,
+    });
+
+    // ✅ “브라우저” 대신: 서명 URL → 로컬 워크스페이스 저장 → 기본앱(OpenFilex) 실행
+    final url = await ResourceService().signedUrl(rf);
+    await FileService().saveUrlToWorkspaceAndOpen(
       studentId: studentId,
+      filename: rf.filename,
+      url: url,
     );
   }
 
+  // ---------- 실행 유틸 ----------
   Future<void> openFromAttachment(
     LessonAttachmentItem att, {
     required String studentId,
   }) async {
+    // 레거시 첨부는 lessons.attachments 버킷에 저장되어 있음.
+    // FileService.openAttachment(...)는 url/path 둘 다 처리하며,
+    // 내부에서 Supabase Storage에서 로컬(임시)로 내려받고 OpenFilex로 기본앱 실행을 보장한다.
     final map = <String, dynamic>{
       if ((att.url ?? '').isNotEmpty) 'url': att.url,
-      if ((att.path ?? '').isNotEmpty) 'path': att.path,
+      if ((att.path ?? '').isNotEmpty) 'path': att.path, // storage key 지원
       if ((att.originalFilename ?? '').isNotEmpty) 'name': att.originalFilename,
       if ((att.mediaName ?? '').isNotEmpty) 'mediaName': att.mediaName,
-      if ((att.xscStoragePath ?? '').isNotEmpty)
-        'xscStoragePath': att.xscStoragePath,
     };
-    await XscSyncService().openFromAttachment(
-      attachment: map,
-      studentId: studentId,
-      mimeType: null,
-    );
+
+    // ✅ 브라우저 경로(XscSyncService) 대신: 로컬 저장 → OS 기본앱으로 열기
+    await FileService().openAttachment(map);
   }
 
   // ---------- 메타 보조 ----------
