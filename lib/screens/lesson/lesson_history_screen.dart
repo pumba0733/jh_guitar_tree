@@ -11,7 +11,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/resource_service.dart';
 import '../../routes/app_routes.dart';
 import '../../services/lesson_service.dart';
@@ -713,8 +712,10 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                                   try {
                                     // 원본(사본 저장 후 기본앱)으로 열기
                                     final bucket =
-                                        (l['resource_bucket'] ?? 'resources')
+                                        (l['resource_bucket'] ??
+                                                ResourceService.bucket)
                                             .toString();
+
                                     final path = (l['resource_path'] ?? '')
                                         .toString();
                                     final name =

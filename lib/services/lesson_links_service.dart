@@ -362,7 +362,10 @@ class LessonLinksService {
       final rows = await _retry(
         () => _c
             .from(table)
-            .select()
+            .select(
+              'id, lesson_id, kind, curriculum_node_id, '
+              'resource_bucket, resource_path, resource_filename, resource_title, created_at',
+            )
             .eq('lesson_id', lessonId)
             .order('created_at', ascending: false),
       );
@@ -493,8 +496,7 @@ class LessonLinksService {
       'created_at': link.createdAt.toIso8601String(),
     });
 
-    // ✅ 변경점: XSC 대상 미디어면 XscSyncService 경로(로컬 기본앱 + 동기화),
-    //          그 외 파일은 기존 로컬 저장 후 기본앱(브라우저 아님)으로 열기 유지
+    // ✅ XSC 대상 미디어면 XscSyncService 경로, 아니면 워크스페이스 저장 후 기본앱
     final xsc = XscSyncService();
     if (xsc.isMediaEligibleForXsc(rf)) {
       await xsc.open(resource: rf, studentId: studentId);
@@ -536,27 +538,19 @@ class LessonLinksService {
     final existing = await listByLesson(lessonId);
     final existingKeys = existing
         .where((e) => (e['kind'] ?? '') == 'resource')
-        .map(
-          (e) =>
-              '${(e['resource_bucket'] ?? '').toString()}::${(e['resource_path'] ?? '').toString()}',
-        )
+        .map((e) => _linkKeyFrom(e))
+        .where((k) => k.isNotEmpty)
         .toSet();
 
     int added = 0, dup = 0, failed = 0;
 
     for (final l in linkRows) {
       final m = Map<String, dynamic>.from(l);
-      final bucket = (m['resource_bucket'] ?? '').toString();
-      final path = (m['resource_path'] ?? '').toString();
-      final filename = (m['resource_filename'] ?? 'resource').toString();
-      final title = (m['resource_title'] ?? '').toString();
-
-      if (bucket.isEmpty || path.isEmpty) {
+      final key = _linkKeyFrom(m);
+      if (key.isEmpty) {
         failed++;
         continue;
       }
-
-      final key = '$bucket::$path';
       if (existingKeys.contains(key)) {
         dup++;
         continue;
@@ -565,12 +559,16 @@ class LessonLinksService {
       final rf = ResourceFile.fromMap({
         'id': (m['id'] ?? '').toString(),
         'curriculum_node_id': m['curriculum_node_id'],
-        'title': title.isEmpty ? null : title,
-        'filename': filename,
+        'title': (() {
+          final t = (m['resource_title'] ?? '').toString();
+          return t.isEmpty ? null : t;
+        })(),
+        'filename': (m['resource_filename'] ?? 'resource').toString(),
         'mime_type': null,
         'size_bytes': null,
-        'storage_bucket': bucket,
-        'storage_path': path,
+        'storage_bucket': (m['resource_bucket'] ?? ResourceService.bucket)
+            .toString(),
+        'storage_path': (m['resource_path'] ?? '').toString(),
         'created_at': m['created_at'],
       });
 
@@ -681,6 +679,17 @@ class LessonLinksService {
     final name = (m['name'] ?? '').toString();
     if (name.isNotEmpty) return 'name::$name';
     return '';
+  }
+
+  // 링크 중복판정 키(버킷+경로)
+  String _linkKeyFrom(Map<String, dynamic> m) {
+    final bucket = ((m['resource_bucket'] ?? ResourceService.bucket)
+        .toString()
+        .trim()
+        .toLowerCase());
+    final path = ((m['resource_path'] ?? '').toString().trim());
+    if (bucket.isEmpty || path.isEmpty) return '';
+    return '$bucket::$path';
   }
 
   // ---------- 메타 보조 ----------

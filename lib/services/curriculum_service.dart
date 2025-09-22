@@ -384,7 +384,7 @@ class CurriculumService {
   Future<List<Map<String, dynamic>>> fetchAssignedResourcesForStudent(
     String studentId,
   ) async {
-    // ⬇️ 추가
+    // ⬇️ 세션/바인딩 보장
     await _ensureAuthSession();
     await ensureStudentBinding(studentId);
 
@@ -402,15 +402,25 @@ class CurriculumService {
     };
     if (nodeIds.isEmpty) return const [];
 
-    // 2) 해당 노드의 리소스
+    // 2) 해당 노드의 '파일' 리소스만 조회 (필요 컬럼만 select + 안전 필터)
     final data = await _retry(() async {
       return await _c
           .from(_tRes)
-          .select()
+          .select(
+            'id,title,filename,storage_bucket,storage_path,'
+            'curriculum_node_id,mime_type,size_bytes,created_at',
+          )
           .inFilter('curriculum_node_id', nodeIds.toList())
           .order('created_at', ascending: false);
     });
-    return _mapList(data);
-  }
 
+    // 클라이언트 측 이중 방어(널/공백 제거)
+    return _mapList(data)
+        .where(
+          (m) =>
+              (m['storage_path'] ?? '').toString().trim().isNotEmpty &&
+              (m['filename'] ?? '').toString().trim().isNotEmpty,
+        )
+        .toList(growable: false);
+  }
 }
