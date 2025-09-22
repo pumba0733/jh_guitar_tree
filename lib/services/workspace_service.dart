@@ -15,7 +15,8 @@ import 'dart:typed_data';
 import 'file_key_util.dart';
 import '../supabase/supabase_tables.dart';
 import '../models/resource.dart';
-import 'lesson_links_service.dart';
+import 'lesson_links_service.dart' hide FileKeyUtil;
+
 import 'package:path_provider/path_provider.dart' as pp;
 
 class WorkspaceService {

@@ -1,9 +1,9 @@
 // lib/screens/lesson/lesson_history_screen.dart
-// v1.60.0-ui | 히스토리 링크: ‘열기’ 단일화(동기화 포함), XSC 동기화 버튼 제거
-// - links 로딩: resource_bucket/resource_path/resource_filename/resource_title 선택
-// - 리소스 조인 제거(불필요). 링크 메타로 바로 표시/실행
-// - XSC 동기화/기본앱 열기: 링크 메타로 ResourceFile 구성
-// - 이전 fix 유지: select 제네릭 제거, inFilter 사용 제거, FileService.openLocal/OpenUrl 사용
+// v1.70 | 히스토리 화면: 링크/첨부를 '오늘 레슨에 담기' 추가 + 스낵바 결과 표시
+// - 링크 카드에 OutlinedButton.icon('오늘 레슨에 담기') 추가 → addResourceLinkMapToToday 호출
+// - 첨부 섹션 각 항목에 '오늘 레슨에 담기' 버튼 추가 → addAttachmentMapToToday 호출
+// - 스낵바 포맷: "✅ {added}개 추가됨 (중복 {duplicated}, 실패 {failed})"
+// - 나머지 동작(열기/원본열기/CSV 등)은 기존 유지
 
 import 'dart:async';
 import 'dart:convert';
@@ -60,6 +60,9 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
 
   final DateFormat _date = DateFormat('yyyy.MM.dd');
   final DateFormat _month = DateFormat('yyyy.MM');
+
+  // v1.70: 담기 서비스 인스턴스
+  final LessonLinksService _linksSvc = LessonLinksService();
 
   @override
   void initState() {
@@ -267,7 +270,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
     }
     return '';
   }
-  
+
   String? _fmtLocalStamp(String? iso) {
     if (iso == null || iso.isEmpty) return null;
     final dt = DateTime.tryParse(iso);
@@ -289,10 +292,9 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
         n.endsWith('.wav') ||
         n.endsWith('.aif') ||
         n.endsWith('.aiff') ||
-        n.endsWith('.mp4') || // 영상도 오디오 추출 케이스
+        n.endsWith('.mp4') ||
         n.endsWith('.mov');
   }
-
 
   Future<void> _exportCsv() async {
     final headers = ['date', 'subject', 'memo', 'next_plan', 'keywords'];
@@ -456,7 +458,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
   }
 
   // ---------- lesson_links lazy load ----------
-  // ---------- lesson_links lazy load ----------
   Future<void> _ensureLinksLoaded(String lessonId) async {
     if (_linksCache.containsKey(lessonId) || _linksLoading.contains(lessonId)) {
       return;
@@ -481,9 +482,13 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
     }
   }
 
+  // v1.70: 스낵바 포맷 공통
+  void _showAddResultSnack(AddResult r) {
+    final msg = '✅ ${r.added}개 추가됨 (중복 ${r.duplicated}, 실패 ${r.failed})';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
 
-  // ---------- 기본앱 열기 ----------
-  
+  // ---------- UI ----------
 
   Widget _sectionHeader(String month) {
     final bg = Theme.of(context).colorScheme.surfaceContainerHighest;
@@ -678,7 +683,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                           ],
                         ),
                         const SizedBox(height: 8),
-                        // 기존 Wrap의 버튼들 교체
+                        // 버튼들: 열기 / 원본열기 / 오늘 레슨에 담기
                         Wrap(
                           spacing: 8,
                           runSpacing: 8,
@@ -700,7 +705,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                               icon: const Icon(Icons.open_in_new),
                               label: const Text('열기'),
                             ),
-                                if (_isAudioName(
+                            if (_isAudioName(
                               (l['resource_filename'] ?? '').toString(),
                             ))
                               OutlinedButton.icon(
@@ -748,18 +753,29 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                                 icon: const Icon(Icons.audiotrack),
                                 label: const Text('원본 mp3로 열기'),
                               ),
-
-
-
-                            // (선택) 고급: 읽기전용 즉시열기 - 임시파일로만 열고 워처/동기화 안 걸림
-                            // OutlinedButton.icon(
-                            //   onPressed: () => _openQuickViewReadOnly(l),
-                            //   icon: const Icon(Icons.visibility),
-                            //   label: const Text('읽기 전용으로 보기'),
-                            // ),
+                            // v1.70: 오늘 레슨에 담기
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                try {
+                                  final r = await _linksSvc
+                                      .addResourceLinkMapToToday(
+                                        studentId: _studentId,
+                                        linkRow: l,
+                                      );
+                                  if (!mounted) return;
+                                  _showAddResultSnack(r);
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('담기 실패: $e')),
+                                  );
+                                }
+                              },
+                              icon: const Icon(Icons.playlist_add),
+                              label: const Text('오늘 레슨에 담기'),
+                            ),
                           ],
                         ),
-
                       ],
                     ),
                   ),
@@ -833,25 +849,54 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                     spacing: 8,
                     runSpacing: 8,
                     children: attachments.map<Widget>((a) {
-                      if (a is Map) {
-                        final m = Map<String, dynamic>.from(a);
-                        return FileClip(
-                          name: (m['name'] ?? m['path'] ?? m['url'] ?? '첨부')
-                              .toString(),
-                          path: (m['localPath'] ?? '').toString().isNotEmpty
-                              ? (m['localPath'] as String)
-                              : null,
-                          url: (m['url'] ?? '').toString(),
-                        );
-                      } else {
-                        final s = a.toString();
-                        return FileClip(
-                          name: s.split('/').isNotEmpty
-                              ? s.split('/').last
-                              : '첨부',
-                          url: s,
-                        );
-                      }
+                      // a가 문자열이면 최소 맵으로 승격하여 동일 경로 사용
+                      final map = (a is Map)
+                          ? Map<String, dynamic>.from(a)
+                          : <String, dynamic>{
+                              'url': a.toString(),
+                              'path': a.toString(),
+                              'name': a.toString().split('/').last,
+                            };
+                      final name =
+                          (map['name'] ?? map['path'] ?? map['url'] ?? '첨부')
+                              .toString();
+                      final localPath = (map['localPath'] ?? '').toString();
+                      final url = (map['url'] ?? '').toString();
+                      final path = (map['path'] ?? '').toString();
+
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          FileClip(
+                            name: name,
+                            path: localPath.isNotEmpty ? localPath : null,
+                            url: url,
+                          ),
+                          const SizedBox(height: 4),
+                          // v1.70: 오늘 레슨에 담기(첨부)
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              try {
+                                final r = await _linksSvc
+                                    .addAttachmentMapToToday(
+                                      studentId: _studentId,
+                                      attachment: map,
+                                    );
+                                if (!mounted) return;
+                                _showAddResultSnack(r);
+                              } catch (e) {
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('담기 실패: $e')),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.playlist_add),
+                            label: const Text('오늘 레슨에 담기'),
+                          ),
+                        ],
+                      );
                     }).toList(),
                   ),
                 ],

@@ -1,8 +1,8 @@
 // lib/services/lesson_links_service.dart
-// v1.66-ensure-only | 오늘 레슨 ID 확보 경로를 ensure로 일원화
-// - getTodayLessonId(...) 는 deprecated 처리 + 내부적으로 항상 ensure 경로 사용
-// - listTodayByStudent(...ensure) 파라미터는 유지하되, 내부적으로 항상 ensure 호출
-// - 나머지 공개 API 시그니처 변경 없음(호출부 수정 불필요)
+// v1.70 | 오늘 레슨에 '담기' 일괄 추가 API (링크·첨부) + 중복 방지 머지
+// - AddItem/AddResult 도입
+// - addResourceLinkMapsToToday / addAttachmentsToTodayLesson / 단건 헬퍼 추가
+// - 기존 ensureTodayLessonAndLinkResource 등 시그니처/동작 유지
 
 import 'dart:async';
 import 'dart:io';
@@ -63,6 +63,28 @@ class LessonAttachmentItem {
   });
 }
 
+// ===== v1.70 추가: 담기 API용 모델 =====
+class AddItem {
+  final Map<String, dynamic> src; // link row(map) 또는 attachment map
+  final String kind; // 'link' | 'attachment'
+  const AddItem.link(this.src) : kind = 'link';
+  const AddItem.attachment(this.src) : kind = 'attachment';
+}
+
+class AddResult {
+  final int added;
+  final int duplicated;
+  final int failed;
+  const AddResult({
+    required this.added,
+    required this.duplicated,
+    required this.failed,
+  });
+  @override
+  String toString() =>
+      'AddResult(added=$added, duplicated=$duplicated, failed=$failed)';
+}
+
 class LessonLinksService {
   final SupabaseClient _c = Supabase.instance.client;
 
@@ -117,7 +139,6 @@ class LessonLinksService {
   }
 
   // ---------- 내부: 오늘 레슨 ID 조회/보장 ----------
-  // 단순 SELECT (fallback 용도로만 사용)
   Future<String?> _findTodayLessonId(String studentId) async {
     try {
       final today = DateTime.now();
@@ -143,39 +164,28 @@ class LessonLinksService {
     }
   }
 
-  // ensure RPC
   Future<String?> _ensureTodayLessonId(String studentId) async {
     return _rpcString('ensure_today_lesson', {'p_student_id': studentId});
   }
 
-  /// ✅ 항상 ensure 경로만 사용하도록 일원화
+  /// ✅ 항상 ensure 경로만 사용
   Future<String?> getTodayLessonIdEnsure(String studentId) async {
-    // 1) ensure로 생성/확보
     final ensured = await _ensureTodayLessonId(studentId);
     if ((ensured ?? '').isNotEmpty) return ensured;
-
-    // 2) 예외 상황: ensure 응답이 비정상일 때 다시 SELECT로 확인
     final found = await _findTodayLessonId(studentId);
     if ((found ?? '').isNotEmpty) return found;
-
     return null;
   }
 
-  @Deprecated(
-    '항상 getTodayLessonIdEnsure(studentId)를 사용하세요. '
-    '이 메서드는 내부적으로도 ensure 경로를 탑니다.',
-  )
+  @Deprecated('getTodayLessonIdEnsure(studentId)를 사용하세요(내부 ensure).')
   Future<String?> getTodayLessonId(
     String studentId, {
-    bool ensure = false, // <- 무시됨(호환용)
+    bool ensure = false,
   }) async {
-    // 호환성 유지: 항상 ensure 호출
     if (!ensure) {
-      // 로그만 남겨 혼선을 방지
       // ignore: avoid_print
       print(
-        '[LLS][DEPRECATED] getTodayLessonId(..., ensure:$ensure) '
-        '→ ensure 경로로 강제 전환',
+        '[LLS][DEPRECATED] getTodayLessonId(..., ensure:$ensure) → ensure 강제',
       );
     }
     return getTodayLessonIdEnsure(studentId);
@@ -201,7 +211,6 @@ class LessonLinksService {
           () => _c.from(table).insert(payload).select('id').single(),
         );
         final id = (row['id'] ?? '').toString();
-        // 계측
         // ignore: avoid_print
         print('[LLS] insert into $table ok id=$id payload=$payload');
         return id.isNotEmpty ? id : null;
@@ -335,7 +344,7 @@ class LessonLinksService {
     return id != null;
   }
 
-  /// ✅ v1.66: 오늘레슨 보장 + 리소스 링크 1-shot
+  /// ✅ 유지: 오늘레슨 보장 + 단건 링크
   Future<String?> ensureTodayLessonAndLinkResource({
     required String studentId,
     required ResourceFile resource,
@@ -362,7 +371,6 @@ class LessonLinksService {
           .toList(growable: false);
     }
 
-    // 테이블 우선 → 실패/빈결과면 뷰 시도
     try {
       final viaTable = await selectFrom(SupabaseTables.lessonResourceLinks);
       if (viaTable.isNotEmpty) return viaTable;
@@ -375,7 +383,7 @@ class LessonLinksService {
     }
   }
 
-  // ---------- v1.66: 오늘 수업 리소스 묶어서 반환 ----------
+  // ---------- 오늘 수업 리소스 묶음 ----------
   Future<TodayResources> fetchTodayResources({
     required String studentId,
   }) async {
@@ -411,7 +419,6 @@ class LessonLinksService {
       );
     }
 
-    // lessons.attachments 배열(null-safe)
     try {
       final row = await _retry<Map<String, dynamic>?>(
         () => _c
@@ -469,14 +476,13 @@ class LessonLinksService {
   }
 
   // ---------- 실행 유틸 ----------
-  // 기존 openFromLessonLink(...) 전체 교체
   Future<void> openFromLessonLink(
     LessonLinkItem link, {
     required String studentId,
   }) async {
-    // LessonLinkItem → ResourceFile로 변환
+    // 리소스 모델 구성
     final rf = ResourceFile.fromMap({
-      'id': '', // 필요없음
+      'id': '',
       'curriculum_node_id': null,
       'title': link.title,
       'filename': link.resourceFilename,
@@ -487,32 +493,194 @@ class LessonLinksService {
       'created_at': link.createdAt.toIso8601String(),
     });
 
-    // ✅ “브라우저” 대신: 서명 URL → 로컬 워크스페이스 저장 → 기본앱(OpenFilex) 실행
-    final url = await ResourceService().signedUrl(rf);
-    await FileService().saveUrlToWorkspaceAndOpen(
-      studentId: studentId,
-      filename: rf.filename,
-      url: url,
-    );
+    // ✅ 변경점: XSC 대상 미디어면 XscSyncService 경로(로컬 기본앱 + 동기화),
+    //          그 외 파일은 기존 로컬 저장 후 기본앱(브라우저 아님)으로 열기 유지
+    final xsc = XscSyncService();
+    if (xsc.isMediaEligibleForXsc(rf)) {
+      await xsc.open(resource: rf, studentId: studentId);
+    } else {
+      final url = await ResourceService().signedUrl(rf);
+      await FileService().saveUrlToWorkspaceAndOpen(
+        studentId: studentId,
+        filename: rf.filename,
+        url: url,
+      );
+    }
   }
 
-  // ---------- 실행 유틸 ----------
   Future<void> openFromAttachment(
     LessonAttachmentItem att, {
     required String studentId,
   }) async {
-    // 레거시 첨부는 lessons.attachments 버킷에 저장되어 있음.
-    // FileService.openAttachment(...)는 url/path 둘 다 처리하며,
-    // 내부에서 Supabase Storage에서 로컬(임시)로 내려받고 OpenFilex로 기본앱 실행을 보장한다.
     final map = <String, dynamic>{
       if ((att.url ?? '').isNotEmpty) 'url': att.url,
-      if ((att.path ?? '').isNotEmpty) 'path': att.path, // storage key 지원
+      if ((att.path ?? '').isNotEmpty) 'path': att.path,
       if ((att.originalFilename ?? '').isNotEmpty) 'name': att.originalFilename,
       if ((att.mediaName ?? '').isNotEmpty) 'mediaName': att.mediaName,
     };
-
-    // ✅ 브라우저 경로(XscSyncService) 대신: 로컬 저장 → OS 기본앱으로 열기
     await FileService().openAttachment(map);
+  }
+
+  // ---------- v1.70: 오늘 레슨에 '담기' 일괄 추가 ----------
+  // 링크(lesson_links) 다건 추가 - 중복 방지
+  Future<AddResult> addResourceLinkMapsToToday({
+    required String studentId,
+    required List<Map<String, dynamic>> linkRows,
+  }) async {
+    final lessonId = await getTodayLessonIdEnsure(studentId);
+    if (lessonId == null) {
+      return const AddResult(added: 0, duplicated: 0, failed: 1);
+    }
+
+    // 기존 링크 세트 로드(중복 방지)
+    final existing = await listByLesson(lessonId);
+    final existingKeys = existing
+        .where((e) => (e['kind'] ?? '') == 'resource')
+        .map(
+          (e) =>
+              '${(e['resource_bucket'] ?? '').toString()}::${(e['resource_path'] ?? '').toString()}',
+        )
+        .toSet();
+
+    int added = 0, dup = 0, failed = 0;
+
+    for (final l in linkRows) {
+      final m = Map<String, dynamic>.from(l);
+      final bucket = (m['resource_bucket'] ?? '').toString();
+      final path = (m['resource_path'] ?? '').toString();
+      final filename = (m['resource_filename'] ?? 'resource').toString();
+      final title = (m['resource_title'] ?? '').toString();
+
+      if (bucket.isEmpty || path.isEmpty) {
+        failed++;
+        continue;
+      }
+
+      final key = '$bucket::$path';
+      if (existingKeys.contains(key)) {
+        dup++;
+        continue;
+      }
+
+      final rf = ResourceFile.fromMap({
+        'id': (m['id'] ?? '').toString(),
+        'curriculum_node_id': m['curriculum_node_id'],
+        'title': title.isEmpty ? null : title,
+        'filename': filename,
+        'mime_type': null,
+        'size_bytes': null,
+        'storage_bucket': bucket,
+        'storage_path': path,
+        'created_at': m['created_at'],
+      });
+
+      try {
+        final id = await _insertResourceLinkDirect(
+          lessonId: lessonId,
+          resource: rf,
+        );
+        if (id != null) {
+          existingKeys.add(key);
+          added++;
+        } else {
+          failed++;
+        }
+      } catch (_) {
+        failed++;
+      }
+    }
+
+    return AddResult(added: added, duplicated: dup, failed: failed);
+  }
+
+  // 첨부(lessons.attachments JSONB) 다건 추가 - 중복 방지 병합
+  Future<AddResult> addAttachmentsToTodayLesson({
+    required String studentId,
+    required List<Map<String, dynamic>> attachments,
+  }) async {
+    final lessonId = await getTodayLessonIdEnsure(studentId);
+    if (lessonId == null) {
+      return const AddResult(added: 0, duplicated: 0, failed: 1);
+    }
+
+    // 현재 attachments 로드
+    final row = await _retry<Map<String, dynamic>?>(
+      () => _c
+          .from(SupabaseTables.lessons)
+          .select('attachments')
+          .eq('id', lessonId)
+          .maybeSingle(),
+    );
+    final current = <Map<String, dynamic>>[];
+    final keys = <String>{};
+
+    if (row != null && row['attachments'] is List) {
+      for (final e in (row['attachments'] as List)) {
+        final m = (e is Map)
+            ? Map<String, dynamic>.from(e)
+            : <String, dynamic>{'url': e.toString(), 'name': e.toString()};
+        current.add(m);
+        keys.add(_attachmentKeyOf(m));
+      }
+    }
+
+    int added = 0, dup = 0, failed = 0;
+
+    for (final a in attachments) {
+      final m = Map<String, dynamic>.from(a);
+      final k = _attachmentKeyOf(m);
+      if (k.isEmpty) {
+        failed++;
+        continue;
+      }
+      if (keys.contains(k)) {
+        dup++;
+        continue;
+      }
+      current.add(m);
+      keys.add(k);
+      added++;
+    }
+
+    try {
+      await _retry(
+        () => _c
+            .from(SupabaseTables.lessons)
+            .update({'attachments': current})
+            .eq('id', lessonId),
+      );
+    } catch (_) {
+      // 업데이트 실패 시 전체를 실패로 되돌리지 않음(낙관적)
+    }
+
+    return AddResult(added: added, duplicated: dup, failed: failed);
+  }
+
+  // 단건 헬퍼
+  Future<AddResult> addResourceLinkMapToToday({
+    required String studentId,
+    required Map<String, dynamic> linkRow,
+  }) => addResourceLinkMapsToToday(studentId: studentId, linkRows: [linkRow]);
+
+  Future<AddResult> addAttachmentMapToToday({
+    required String studentId,
+    required Map<String, dynamic> attachment,
+  }) => addAttachmentsToTodayLesson(
+    studentId: studentId,
+    attachments: [attachment],
+  );
+
+  // 첨부 중복판정 키
+  String _attachmentKeyOf(Map<String, dynamic> m) {
+    final lp = (m['localPath'] ?? '').toString();
+    if (lp.isNotEmpty) return 'local::$lp';
+    final url = (m['url'] ?? '').toString();
+    if (url.isNotEmpty) return 'url::$url';
+    final path = (m['path'] ?? '').toString();
+    if (path.isNotEmpty) return 'path::$path';
+    final name = (m['name'] ?? '').toString();
+    if (name.isNotEmpty) return 'name::$name';
+    return '';
   }
 
   // ---------- 메타 보조 ----------
@@ -545,20 +713,17 @@ class LessonLinksService {
     } catch (_) {}
   }
 
-  /// 오늘 레슨의 리소스/노드 링크 목록
+  /// 오늘 레슨 링크 목록(ensure 강제)
   Future<List<Map<String, dynamic>>> listTodayByStudent(
     String studentId, {
-    bool ensure = false, // <- 호환용(무시)
+    bool ensure = false, // 호환용
   }) async {
-    // 항상 ensure로 lesson_id 확보
     final lessonId = await getTodayLessonIdEnsure(studentId);
     // ignore: avoid_print
     print(
       '[LLS] listTodayByStudent student=$studentId lessonId=$lessonId (ensure=forced)',
     );
     if (lessonId == null) return const [];
-
-    // 테이블 우선 → 비면 뷰 한번 더 시도
     final viaTableOrView = await listByLesson(lessonId);
     if (viaTableOrView.isNotEmpty) return viaTableOrView;
 
@@ -570,12 +735,38 @@ class LessonLinksService {
           )
           .eq('lesson_id', lessonId)
           .order('created_at', ascending: false);
-
       return (rows as List)
           .map((e) => Map<String, dynamic>.from(e))
           .toList(growable: false);
     } catch (_) {
       return const [];
     }
+  }
+}
+
+// v1.61 | Storage Key ASCII-safe 유틸 + 표준 경로
+class FileKeyUtil {
+  // 영문/숫자/._- 만 허용, 나머지는 '_'
+  static String keySafe(String input) {
+    final buf = StringBuffer();
+    for (final ch in input.runes) {
+      final c = String.fromCharCode(ch);
+      final ok = RegExp(r'[A-Za-z0-9._-]').hasMatch(c);
+      buf.write(ok ? c : '_');
+    }
+    var s = buf.toString();
+    s = s.replaceAll(RegExp(r'_+'), '_');
+    s = s.replaceAll(RegExp(r'^[._]+|[._]+$'), '');
+    return s.isEmpty ? '_' : s;
+  }
+
+  /// 표준 첨부 경로: lesson/{lessonId}/{uuid}.ext  (ext는 ".xsc" 형태)
+  static String lessonAttachmentKey({
+    required String lessonId,
+    required String uuid,
+    required String ext, // ".xsc" 같은 형태(점 포함/미포함 허용)
+  }) {
+    final e = ext.startsWith('.') ? ext : '.$ext';
+    return 'lesson/$lessonId/$uuid${e.toLowerCase()}';
   }
 }

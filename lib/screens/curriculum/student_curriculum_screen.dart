@@ -1,9 +1,8 @@
 // lib/screens/curriculum/student_curriculum_screen.dart
-// v1.67 | 오늘 수업 리소스 섹션 제거 → 히스토리 단일 출처로 통합
-// - '📘 오늘 수업 리소스' 카드/상태/로딩/에러 제거
-// - initState/refresh에서 오늘 섹션 로드 제거
-// - 지난 수업 섹션(Reviewed)만 유지: 오늘 레슨도 자연스럽게 포함됨
-// - sendToTodayLesson 등 전송 기능/서비스 의존성은 그대로 유지
+// v1.70 | 지난 수업 리소스/첨부에 '오늘 레슨에 담기' 버튼 추가 (개별)
+// - _ReviewedItem에 src(Map) 추가하여 원본 전달
+// - LessonLinksService.addResourceLinkMapToToday / addAttachmentMapToToday 호출
+// - 스낵바: "✅ N개 추가됨 (중복 M, 실패 K)"
 
 import 'package:flutter/material.dart';
 
@@ -19,7 +18,7 @@ import '../../models/curriculum.dart';
 import '../../models/resource.dart';
 import '../../services/xsc_sync_service.dart';
 
-// 표시 공통 모델 (기존)
+// 표시 공통 모델
 enum _ReviewedItemKind { linkResource, attachment }
 
 class _ReviewedItem {
@@ -27,16 +26,18 @@ class _ReviewedItem {
   final String label; // 파일/리소스/노드 표기
   final String sub; // 경로/출처
   final Future<void> Function() onOpen;
+  final Map<String, dynamic>? src; // v1.70: 오늘 레슨에 담기용 원본 map
 
   _ReviewedItem({
     required this.kind,
     required this.label,
     required this.sub,
     required this.onOpen,
+    this.src,
   });
 }
 
-// 레슨별 그룹 (기존)
+// 레슨별 그룹
 class _ReviewedGroup {
   final String lessonId;
   final String dateStr; // YYYY-MM-DD
@@ -80,7 +81,6 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
     super.initState();
     AuthService().ensureTeacherLink();
 
-    // ensureStudentBinding 완료 후에 fetch 시작
     Future.microtask(() async {
       try {
         await _svc.ensureStudentBinding(widget.studentId);
@@ -91,7 +91,6 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
         _load = _fetch();
         _reviewedLoad = _fetchReviewed();
       });
-      // v1.67: 오늘 섹션 로드 제거
     });
   }
 
@@ -118,7 +117,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
     return (assigns: assigns, nodeMap: nodeMap, doneMap: doneMap);
   }
 
-  // 지난 수업 리소스 수집 (기존) — 오늘 레슨도 포함됨
+  // 지난 수업 리소스 수집 — 오늘 레슨도 포함
   Future<List<_ReviewedGroup>> _fetchReviewed({int maxLessons = 20}) async {
     final lessons = await _lessonSvc.listByStudent(
       widget.studentId,
@@ -161,6 +160,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
               link: mm,
               studentId: widget.studentId,
             ),
+            src: mm, // v1.70 추가
           ),
         );
       }
@@ -201,6 +201,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                   await FileService().openUrl(path);
                 }
               },
+              src: map, // v1.70 추가
             ),
           );
         }
@@ -225,7 +226,6 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
       _reviewedLoad = f2;
     });
     await Future.wait([f1, f2]);
-    // v1.67: 오늘 섹션 로드 제거
   }
 
   Future<void> _toggle(String nodeId) async {
@@ -289,7 +289,12 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(ok ? '오늘 레슨으로 보냈어요.' : '전송 실패 또는 미구현(SQL 보강 필요)')),
     );
-    // v1.67: 오늘 섹션이 없으므로 별도 새로고침 없음
+  }
+
+  // v1.70: 개별 담기 공통 스낵바
+  void _showAddResultSnack(AddResult r) {
+    final msg = '✅ ${r.added}개 추가됨 (중복 ${r.duplicated}, 실패 ${r.failed})';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
@@ -369,7 +374,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                       ),
                     ],
 
-                    // ===== 📚 지난 수업 섹션 (유지) =====
+                    // ===== 📚 지난 수업 섹션 =====
                     Card(
                       elevation: 0,
                       margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -474,12 +479,39 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                               ),
-                                              trailing: IconButton(
-                                                tooltip: '열기',
-                                                icon: const Icon(
-                                                  Icons.open_in_new,
-                                                ),
-                                                onPressed: it.onOpen,
+                                              trailing: Wrap(
+                                                spacing: 8,
+                                                children: [
+                                                  OutlinedButton.icon(
+                                                    icon: const Icon(Icons.add),
+                                                    label: const Text(
+                                                      '오늘 레슨에 담기',
+                                                    ),
+                                                    onPressed: it.src == null
+                                                        ? null
+                                                        : () async {
+                                                            final r = await _links
+                                                                .addResourceLinkMapToToday(
+                                                                  studentId: widget
+                                                                      .studentId,
+                                                                  linkRow:
+                                                                      it.src!,
+                                                                );
+                                                            if (!mounted)
+                                                              return;
+                                                            _showAddResultSnack(
+                                                              r,
+                                                            );
+                                                          },
+                                                  ),
+                                                  IconButton(
+                                                    tooltip: '열기',
+                                                    icon: const Icon(
+                                                      Icons.open_in_new,
+                                                    ),
+                                                    onPressed: it.onOpen,
+                                                  ),
+                                                ],
                                               ),
                                             ),
                                           ),
@@ -515,12 +547,39 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                               ),
-                                              trailing: IconButton(
-                                                tooltip: '열기',
-                                                icon: const Icon(
-                                                  Icons.open_in_new,
-                                                ),
-                                                onPressed: it.onOpen,
+                                              trailing: Wrap(
+                                                spacing: 8,
+                                                children: [
+                                                  OutlinedButton.icon(
+                                                    icon: const Icon(Icons.add),
+                                                    label: const Text(
+                                                      '오늘 레슨에 담기',
+                                                    ),
+                                                    onPressed: it.src == null
+                                                        ? null
+                                                        : () async {
+                                                            final r = await _links
+                                                                .addAttachmentMapToToday(
+                                                                  studentId: widget
+                                                                      .studentId,
+                                                                  attachment:
+                                                                      it.src!,
+                                                                );
+                                                            if (!mounted)
+                                                              return;
+                                                            _showAddResultSnack(
+                                                              r,
+                                                            );
+                                                          },
+                                                  ),
+                                                  IconButton(
+                                                    tooltip: '열기',
+                                                    icon: const Icon(
+                                                      Icons.open_in_new,
+                                                    ),
+                                                    onPressed: it.onOpen,
+                                                  ),
+                                                ],
                                               ),
                                             ),
                                           ),
@@ -536,7 +595,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                       ),
                     ),
 
-                    // ===== 배정 목록 (기존) =====
+                    // ===== 배정 목록 =====
                     for (final a in data.assigns)
                       _AssignmentTile(
                         title:
@@ -563,7 +622,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
   }
 }
 
-// ====== 전송 선택 바텀시트 (기존) ======
+// ====== 전송 선택 바텀시트 (기존 유지) ======
 
 enum _SendKind { node, resource }
 
@@ -669,7 +728,7 @@ class _SendChooserSheet extends StatelessWidget {
   }
 }
 
-// ====== 개별 항목 타일 (기존) ======
+// ====== 개별 항목 타일 (기존 유지) ======
 
 class _AssignmentTile extends StatefulWidget {
   final String title;
