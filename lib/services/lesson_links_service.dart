@@ -483,20 +483,21 @@ class LessonLinksService {
     LessonLinkItem link, {
     required String studentId,
   }) async {
-    // 리소스 모델 구성
+    // DB의 storage_path는 이미 '완전한 키'(파일명 포함)임
     final rf = ResourceFile.fromMap({
       'id': '',
       'curriculum_node_id': null,
       'title': link.title,
-      'filename': link.resourceFilename,
+      'filename': (link.resourceFilename.isNotEmpty
+          ? link.resourceFilename
+          : 'resource'),
       'mime_type': null,
       'size_bytes': null,
       'storage_bucket': link.resourceBucket,
-      'storage_path': link.resourcePath,
+      'storage_path': link.resourcePath, // 그대로 사용
       'created_at': link.createdAt.toIso8601String(),
     });
 
-    // ✅ XSC 대상 미디어면 XscSyncService 경로, 아니면 워크스페이스 저장 후 기본앱
     final xsc = XscSyncService();
     if (xsc.isMediaEligibleForXsc(rf)) {
       await xsc.open(resource: rf, studentId: studentId);
@@ -504,11 +505,15 @@ class LessonLinksService {
       final url = await ResourceService().signedUrl(rf);
       await FileService().saveUrlToWorkspaceAndOpen(
         studentId: studentId,
-        filename: rf.filename,
+        filename: rf.filename, // 표시용 이름
         url: url,
+        bucket: rf.storageBucket, // ← 고유화에 사용
+        storagePath: rf.storagePath, // ← 고유화에 사용
       );
     }
   }
+
+
 
   Future<void> openFromAttachment(
     LessonAttachmentItem att, {
@@ -681,7 +686,7 @@ class LessonLinksService {
     return '';
   }
 
-  // 링크 중복판정 키(버킷+경로)
+  // 링크 중복판정 키(버킷+경로[=완전한 파일키])
   String _linkKeyFrom(Map<String, dynamic> m) {
     final bucket = ((m['resource_bucket'] ?? ResourceService.bucket)
         .toString()
@@ -691,6 +696,8 @@ class LessonLinksService {
     if (bucket.isEmpty || path.isEmpty) return '';
     return '$bucket::$path';
   }
+
+  
 
   // ---------- 메타 보조 ----------
   Future<void> touchXscUpdatedAt({

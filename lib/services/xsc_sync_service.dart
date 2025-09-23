@@ -100,8 +100,7 @@ class XscSyncService {
     required Map<String, dynamic> link,
     required String studentId,
   }) async {
-    final kind = (link['kind'] ?? '').toString();
-    if (kind != 'resource') {
+    if ((link['kind'] ?? '').toString() != 'resource') {
       throw ArgumentError('resource 링크가 아닙니다.');
     }
     final contentHash =
@@ -109,20 +108,23 @@ class XscSyncService {
             ?.toString();
 
     final rf = ResourceFile.fromMap({
-      'id': link['id'],
+      'id': (link['id'] ?? '').toString(),
       'curriculum_node_id': link['curriculum_node_id'],
       'title': link['resource_title'],
-      'filename': link['resource_filename'],
+      'filename': (link['resource_filename'] ?? 'resource').toString(),
       'mime_type': link['resource_mime_type'],
       'size_bytes': link['resource_size'],
-      'storage_bucket': link['resource_bucket'] ?? curriculumBucket,
-      'storage_path': link['resource_path'] ?? '',
+      'storage_bucket': (link['resource_bucket'] ?? curriculumBucket)
+          .toString(),
+      'storage_path': (link['resource_path'] ?? '').toString(), // ← 그대로 사용
       'created_at': link['created_at'],
       if (contentHash != null) 'content_hash': contentHash,
     });
 
     await open(resource: rf, studentId: studentId);
   }
+
+
 
   // [ADD] 첨부(lessons.attachments의 item)에서 열기: URL/경로 기반
   Future<void> openFromAttachment({

@@ -40,7 +40,9 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
   Future<void> _refresh() async {
     final future = _svc.listNodes();
     if (!mounted) return;
-    setState(() => _load = future);
+    setState(() {
+      _load = future;
+    });
     await future;
   }
 
@@ -427,7 +429,9 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
   Future<void> _refresh() async {
     final f = widget.svc.listByNode(widget.node.id);
     if (!mounted) return;
-    setState(() => _load = f);
+    setState(() {
+      _load = f;
+    }); 
     await f;
   }
 

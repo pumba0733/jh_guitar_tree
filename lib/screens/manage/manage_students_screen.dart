@@ -1,15 +1,16 @@
 // lib/screens/manage/manage_students_screen.dart
-// v1.36.3 | 학생 관리(관리자 전용) – '학생 화면' 진입 버튼 추가
+// v1.36.4 | 학생 관리(관리자 전용) – 가나다 정렬 + 실시간 검색(debounce)
 // 변경점 요약
-// 1) 각 학생 항목 trailing에 '학생 화면' 버튼 추가(수정 앞)
-// 2) pushNamed('/student/home', { studentId, studentName, adminDrive })로 이동
+// 1) 목록 정렬: name ASC 로 서버 정렬 요청 + 클라이언트 보정 정렬(가나다/대소문자/공백 무시)
+// 2) 검색: 입력 중 300ms debounce로 자동 검색(엔터 불필요), Clear 시 즉시 재조회
 //
 // 의존:
 // - services: AuthService, StudentService, TeacherService
 // - models: Student, Teacher
 // - supabase: SupabaseTables
-// - pub: intl (날짜표시용; pubspec에 intl 포함되어 있음)
+// - pub: intl
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -38,10 +39,15 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
   final _sp = Supabase.instance.client;
 
   final _searchCtl = TextEditingController();
+  Timer? _searchDebounce;
+  static const _searchDebounceMs = 300;
+
   bool _loading = true;
   bool _guarding = true;
   bool _isAdmin = false;
   String? _error;
+
+  int _loadSeq = 0; // 응답 경합 방지용 시퀀스
 
   List<Student> _list = const [];
   List<Teacher> _teachers = const [];
@@ -52,7 +58,26 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
   @override
   void initState() {
     super.initState();
+    _searchCtl.addListener(_onSearchChanged);
     _guardAndLoad();
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchCtl.removeListener(_onSearchChanged);
+    _searchCtl.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(
+      const Duration(milliseconds: _searchDebounceMs),
+      () {
+        if (mounted) _load();
+      },
+    );
   }
 
   Future<void> _guardAndLoad() async {
@@ -88,26 +113,48 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
 
   Future<void> _load() async {
     if (!mounted) return;
+    final mySeq = ++_loadSeq;
+
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final q = _searchCtl.text.trim();
+      // ✅ 1) 서버 정렬: 이름 오름차순
       final data = await _svc.list(
         query: q,
         limit: 200,
-        orderBy: 'created_at',
-        ascending: false,
+        orderBy: 'name',
+        ascending: true,
       );
-      if (!mounted) return;
-      setState(() => _list = data);
+
+      // ✅ 2) 클라이언트 보정 정렬(가나다/대소문자/공백 무시)
+      final sorted = [...data]
+        ..sort((a, b) {
+          int c = _koreanKey(a.name).compareTo(_koreanKey(b.name));
+          if (c != 0) return c;
+          // 보조키: created_at (오래된 순)
+          final atA = a.createdAt?.millisecondsSinceEpoch ?? 0;
+          final atB = b.createdAt?.millisecondsSinceEpoch ?? 0;
+          return atA.compareTo(atB);
+        });
+
+      if (!mounted || mySeq != _loadSeq) return; // 오래된 응답 무시
+      setState(() => _list = sorted);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || mySeq != _loadSeq) return;
       setState(() => _error = _friendlyError(e));
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && mySeq == _loadSeq) setState(() => _loading = false);
     }
+  }
+
+  /// 한글/영문 정렬 키 생성: 공백 제거 + 소문자 변환
+  String _koreanKey(String v) {
+    final t = v.trim().toLowerCase();
+    // 필요 시 추가 전처리: 특수문자 제거 등
+    return t.replaceAll(RegExp(r'\s+'), '');
   }
 
   // ---- 오류 핸들링 유틸 ----
@@ -175,8 +222,6 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
 
   // ---- 학생 화면 진입 ----
   Future<void> _openAsStudent(Student s) async {
-    // ⚠️ 라우터에 '/student/home' 가 등록되어 있어야 함.
-    // arguments: studentId, studentName, adminDrive(true)
     await AppRoutes.pushStudentHome(
       context,
       studentId: s.id,
@@ -563,15 +608,15 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
             child: TextField(
               controller: _searchCtl,
               textInputAction: TextInputAction.search,
-              onSubmitted: (_) => _load(),
+              onSubmitted: (_) => _load(), // 엔터 검색도 그대로 지원
               decoration: InputDecoration(
-                hintText: '이름으로 검색',
+                hintText: '이름으로 검색 (입력 시 자동 검색)',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: IconButton(
                   onPressed: () {
                     _searchCtl.clear();
                     FocusScope.of(context).unfocus();
-                    _load();
+                    _load(); // 즉시 재조회
                   },
                   icon: const Icon(Icons.clear),
                   tooltip: '초기화',
@@ -625,7 +670,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                         trailing: Wrap(
                           spacing: 4,
                           children: [
-                            // ✅ 새로 추가된 버튼: 학생 화면 열기
+                            // 학생 화면 열기
                             IconButton(
                               tooltip: '학생 화면',
                               icon: const Icon(Icons.switch_account),

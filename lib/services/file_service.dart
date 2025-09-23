@@ -663,27 +663,59 @@ class FileService {
         n.endsWith('.mov');
   }
 
+  /// WORKSPACE에 저장 후 기본앱으로 연다.
+  /// - filename: 화면/로컬 표시명(확장자 유지)
+  /// - bucket/storagePath 제공 시, 로컬 저장 파일명을 bucket+storagePath로 고유화
+  // REPLACE THIS FUNCTION
   Future<String> saveUrlToWorkspaceAndOpen({
     required String studentId,
     required String filename,
     required String url,
+    String? bucket,
+    String? storagePath,
   }) async {
-    if (_isAudioName(filename)) {
-      await openUrl(url);
-      return '';
+    // 로컬 파일명 생성(버킷+스토리지 경로로 고유화)
+    String safeLocalName({
+      required String displayName,
+      String? bkt,
+      String? key,
+    }) {
+      final ext = p.extension(displayName);
+      final base = p.basenameWithoutExtension(displayName);
+      if ((bkt ?? '').isEmpty || (key ?? '').isEmpty) {
+        return '${base.isEmpty ? "file" : base}$ext';
+      }
+      String norm(String s) => s
+          .replaceAll(RegExp(r'^/+|/+$'), '')
+          .replaceAll('/', '_')
+          .replaceAll(r'\', '_');
+      final stem = '${norm(bkt!)}__${norm(key!)}';
+      final trimmed = (stem.length > 120)
+          ? stem.substring(stem.length - 120)
+          : stem;
+      return '$trimmed$ext';
     }
 
-    if (!_isDesktop) {
-      await openUrl(url);
-      return '';
-    }
-    final bytes = await _downloadUrlToBytes(url);
-    return await saveBytesToWorkspaceAndOpen(
-      studentId: studentId,
-      filename: filename,
-      bytes: bytes,
+    final localName = safeLocalName(
+      displayName: filename,
+      bkt: bucket,
+      key: storagePath,
     );
+
+    final dir = await _studentWorkspaceDir(studentId);
+    final dst = File(p.join(dir.path, localName));
+
+    // 다운로드 & 저장 (내부 헬퍼 활용)
+    final bytes = await _downloadUrlToBytes(url);
+    await dst.writeAsBytes(bytes, flush: true);
+
+    final r = await OpenFilex.open(dst.path);
+    if (r.type != ResultType.done) {
+      throw StateError('기본 앱으로 열 수 없습니다: ${r.message}');
+    }
+    return dst.path; // ← 로컬 경로 반환
   }
+
 
   Future<String> saveBytesToWorkspaceAndOpen({
     required String studentId,
@@ -732,18 +764,21 @@ class FileService {
   }
 
   // [ADD] 리소스 한 건을 바로 기본앱으로 여는 헬퍼 (리소스 → signed URL → 워크스페이스 저장 → 기본앱 실행)
+  // ↓↓↓ REPLACE: file_service.dart 의 openResourceWithDefaultApp 전체 교체
   Future<String> openResourceWithDefaultApp({
     required String studentId,
     required ResourceFile resource,
   }) async {
     final url = await ResourceService().signedUrl(resource);
-    // PDF/이미지/SIB 등은 전부 로컬 저장 → 기본앱
     return await saveUrlToWorkspaceAndOpen(
       studentId: studentId,
       filename: resource.filename,
       url: url,
+      bucket: resource.storageBucket, // ← 동일 파일명이라도 경로로 고유화
+      storagePath: resource.storagePath,
     );
   }
+
 
   // [OPT] 시벨리우스 확장자를 “오디오/비디오”가 아닌 일반 문서로 취급 (기본앱으로 열리게 그대로 둠)
   // 현재 _isAudioName은 mp3/m4a/wav/aif/aiff/mp4/mov 만 true.

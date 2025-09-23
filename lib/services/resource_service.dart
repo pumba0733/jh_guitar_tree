@@ -1,12 +1,12 @@
 // lib/services/resource_service.dart
-// v1.66 | '첨부=리소스' 전환용 최소 확장
-// - insertRowGeneric(nodeId?) 추가 (노드 없이도 리소스 insert)
-// - findDuplicateByNameAndSize(filename,size)로 간단 중복 방지
-// - uploadGeneric(...) / uploadFromLocalPathAsResource(...) 추가
-// - 기존 API(uploadForNode/insertRow)는 그대로 유지
+// v1.66.4 | 리소스 키 유니크화 + 레거시 경로 폴백 + 누락 메서드 유지
+// - storagePath: yyyy-MM/{nodeSeg}/{shortId}_{safeName} (항상 유니크)
+// - FileOptions.upsert=false (덮어쓰기 방지)
+// - signedUrl(): 레거시(…/{safe}/{filename}) 폴백 시도
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:mime/mime.dart';
@@ -99,6 +99,14 @@ class ResourceService {
     return '$finalBase$ext';
   }
 
+  // 충돌 방지를 위한 짧은 ID (가독성+유니크)
+  String _shortId() {
+    final ts = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+    final rnd = Random().nextInt(1 << 32).toRadixString(36);
+    final s = ts + rnd;
+    return s.substring(s.length - 10); // 10자
+  }
+
   // ===== Helpers (DB 매핑) =====
   List<Map<String, dynamic>> _asList(dynamic d) =>
       (d as List<dynamic>? ?? const [])
@@ -122,7 +130,7 @@ class ResourceService {
     }
   }
 
-    Future<String> ensureUploadsNode() async {
+  Future<String> ensureUploadsNode() async {
     // 1) code='uploads_auto' 조회
     try {
       final sel = await _retry(
@@ -168,7 +176,6 @@ class ResourceService {
       rethrow;
     }
   }
-
 
   // ===== Queries (기존) =====
   Future<List<ResourceFile>> listByNode(String nodeId) async {
@@ -283,14 +290,14 @@ class ResourceService {
     final displayName = _displaySafeName(baseOriginal);
 
     final nodeSeg = nodeId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-    final storagePath = '$y-$m/$nodeSeg/$safeKeyName';
+    final storagePath = '$y-$m/$nodeSeg/${_shortId()}_$safeKeyName';
 
     final resolvedMime =
         mimeType ?? lookupMimeType(baseOriginal) ?? 'application/octet-stream';
 
     final store = _c.storage.from(storageBucket);
     final opts = FileOptions(
-      upsert: true,
+      upsert: false, // 덮어쓰기 방지
       contentType: resolvedMime,
       cacheControl: '3600',
     );
@@ -359,15 +366,14 @@ class ResourceService {
     final displayName = _displaySafeName(baseOriginal);
 
     final nodeSeg = effectiveNodeId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-    final storagePath = '$y-$m/$nodeSeg/$safeKeyName';
-
+    final storagePath = '$y-$m/$nodeSeg/${_shortId()}_$safeKeyName';
 
     final resolvedMime =
         mimeType ?? lookupMimeType(baseOriginal) ?? 'application/octet-stream';
 
     final store = _c.storage.from(storageBucket);
     final opts = FileOptions(
-      upsert: true,
+      upsert: false, // 덮어쓰기 방지
       contentType: resolvedMime,
       cacheControl: '3600',
     );
@@ -416,6 +422,7 @@ class ResourceService {
     );
   }
 
+  /// 로컬 경로에서 리소스로 업로드 (nodeId 옵션) — file_service.dart가 사용
   Future<ResourceFile> uploadFromLocalPathAsResource({
     required String localPath,
     String? originalFilename,
@@ -454,15 +461,24 @@ class ResourceService {
     ResourceFile r, {
     Duration ttl = const Duration(hours: 24),
   }) async {
+    final store = _c.storage.from(r.storageBucket);
+    final primary = r.storagePath;
+
+    // 1차: 현재 storage_path 그대로 서명
     try {
-      final url = await _retry(
-        () => _c.storage
-            .from(r.storageBucket)
-            .createSignedUrl(r.storagePath, ttl.inSeconds),
-      );
-      return url;
+      return await _retry(() => store.createSignedUrl(primary, ttl.inSeconds));
     } catch (e) {
-      throw StateError('서명 URL 생성 실패: ${r.storageBucket}/${r.storagePath}\n$e');
+      // 404/키없음 같은 경우에만 레거시 폴백 시도
+      if (!_isNotFound(e)) {
+        rethrow;
+      }
+      // 2차(레거시): storage_path + '/' + filename 시도
+      final legacy = '$primary/${r.filename}';
+      try {
+        return await _retry(() => store.createSignedUrl(legacy, ttl.inSeconds));
+      } catch (_) {
+        rethrow;
+      }
     }
   }
 }

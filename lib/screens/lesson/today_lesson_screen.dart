@@ -1,10 +1,11 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.68-ux2 | 업로드 버튼=패널 토글 전용, 패널 내부에 [파일 선택]+드래그 업로드, 레거시 첨부 UI 제거, 메모 10줄
-// - '업로드' 버튼은 열기/접기만 처리(파일 선택창 자동 실행 제거)
-// - 업로드 패널 내부에 실제 [파일 선택] 버튼(Finder/탐색기)과 DropUploadArea 배치
-// - 업로드/링크 동작 시 '오늘 레슨 링크' 자동 갱신
-// - 수업 메모 TextField maxLines: 10
-// - onUploaded 시그니처(List<ResourceFile>) 유지
+// v1.68-ux3 | 배정리소스 다이얼로그: 루트 카테고리 필터(실DB 트리), 가나다 정렬, 원본제목 검색, 널안전/경고해결
+// - CurriculumService.listNodes()로 루트 타이틀 역추적(Map: node_id -> root_title)
+// - 다이얼로그가 nodeRootTitleMap(옵션)을 받아 루트 필터/표시에 사용
+// - 정렬: 원본 제목(없으면 title/filename) 기준 가나다
+// - 검색: 원본 제목 우선 매칭(한글 포함), 보조로 title/filename/path 포함
+// - withOpacity() -> withValues(alpha: …)로 교체
+// - parentId/title 널 안전 처리로 unchecked_use_of_nullable_value 해결
 
 import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
@@ -89,7 +90,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   // 상단 업로드 패널 표시 여부
   bool _showUploadPanel = false;
 
-  // ✅ 추가: 링크 hover 상태
+  // 링크 hover 상태
   String? _hoveredLinkId;
 
   bool get _isDesktop =>
@@ -434,7 +435,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
     int ok = 0, dup = 0, fail = 0;
     for (final picked in pickedList) {
-      
       final rmap = {
         'resource_bucket': picked['bucket'] ?? _defaultResourceBucket,
         'resource_path': picked['path'],
@@ -463,12 +463,47 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   }
 
   Future<List<Map<String, dynamic>>?> _pickAssignedResourceDialog() async {
+    // 1) 학생에게 배정된 리소스 목록
     final assigned = await _curr.fetchAssignedResourcesForStudent(_studentId);
     if (!mounted) return null;
     if (assigned.isEmpty) {
       _showError('배정된 리소스가 없습니다.');
       return null;
     }
+
+    // 2) curriculum_nodes 트리에서 node_id -> 루트 타이틀 맵 생성 (널 안전)
+    final nodesRaw = await _curr.listNodes(); // List<Map>
+    final Map<String, Map<String, dynamic>> byId = {
+      for (final m in nodesRaw)
+        if ((m['id'] ?? '').toString().isNotEmpty)
+          (m['id'] as Object).toString(): Map<String, dynamic>.from(m),
+    };
+
+    String rootTitleOf(String nodeId) {
+      if (nodeId.isEmpty) return '(루트 미지정)';
+      var cur = byId[nodeId];
+      int guard = 0;
+      while (cur != null &&
+          cur['parent_id'] != null &&
+          ((cur['parent_id'] ?? '').toString().isNotEmpty) &&
+          guard < 128) {
+        final pid = (cur['parent_id'] ?? '').toString();
+        cur = byId[pid];
+        guard++;
+      }
+      final t = (cur != null ? (cur['title'] ?? '').toString().trim() : '');
+      return t.isEmpty ? '(루트 미지정)' : t;
+    }
+
+    // assigned 안의 node_id들만 미리 계산
+    final Map<String, String> nodeRootTitleMap = {};
+    for (final r in assigned) {
+      final nid = (r['curriculum_node_id'] ?? '').toString();
+      if (nid.isEmpty || nodeRootTitleMap.containsKey(nid)) continue;
+      nodeRootTitleMap[nid] = rootTitleOf(nid);
+    }
+
+    // 3) 다이얼로그 표시
     return showDialog<List<Map<String, dynamic>>>(
       context: context,
       builder: (_) => _AssignedResourcesPickerDialog(
@@ -476,6 +511,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
             .map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e))
             .toList(),
         defaultBucket: _defaultResourceBucket,
+        nodeRootTitleMap: nodeRootTitleMap, // ← 루트 타이틀 맵 주입
       ),
     );
   }
@@ -539,23 +575,30 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
   Future<void> _openOriginalAudio(Map<String, dynamic> link) async {
     try {
-      final filename = (link['resource_filename'] ?? '').toString();
+      final bucket = (link['resource_bucket'] ?? _defaultResourceBucket)
+          .toString();
+      final storagePath = (link['resource_path'] ?? '').toString(); // 그대로
+      final displayName = (link['resource_filename'] ?? 'resource').toString();
+
       final rf = ResourceFile.fromMap({
         'id': link['id'],
         'curriculum_node_id': link['curriculum_node_id'],
         'title': link['resource_title'],
-        'filename': filename,
+        'filename': displayName,
         'mime_type': null,
         'size_bytes': null,
-        'storage_bucket': link['resource_bucket'] ?? _defaultResourceBucket,
-        'storage_path': link['resource_path'] ?? '',
+        'storage_bucket': bucket,
+        'storage_path': storagePath,
         'created_at': link['created_at'],
       });
+
       final url = await _res.signedUrl(rf);
       await _file.saveUrlToWorkspaceAndOpen(
         studentId: _studentId,
         filename: rf.filename,
         url: url,
+        bucket: bucket, // ← 고유화에 사용
+        storagePath: storagePath, // ← 고유화에 사용
       );
     } catch (e) {
       _showError('원본 미디어 열기 실패: $e');
@@ -610,7 +653,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       _showError('업로드 실패: $e');
     }
   }
-
 
   void _setStatus(SaveStatus s) {
     if (!mounted) return;
@@ -676,7 +718,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                           ),
                           label: const Text('업로드'),
                         ),
-                        // ❌ 링크 새로고침 버튼 제거됨 (업로드/링크 시 자동 갱신)
                       ],
                     ),
 
@@ -845,8 +886,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
               ),
               maxLines: 10, // ← 6 → 10 으로 확장
             ),
-
-            // ✅ 레거시 첨부 섹션 UI는 완전히 제거됨
           ],
         ),
       ),
@@ -927,7 +966,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
           final isHover = _hoveredLinkId == id;
           final base = Theme.of(context).colorScheme.surfaceContainerHighest;
-          final hoverBg = base.withOpacity(0.22);
+          final hoverBg = base.withValues(alpha: 0.22); // ← deprecated 교체
 
           final bucket = (m['resource_bucket'] ?? _defaultResourceBucket)
               .toString();
@@ -935,15 +974,14 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           final filename = (m['resource_filename'] ?? '').toString();
           final tip = isNode
               ? '노드: ${(m['curriculum_node_id'] ?? '').toString()}'
-              : '$bucket/$path/$filename'; // ← filename 포함
-
+              : '$bucket/$path/$filename';
 
           return MouseRegion(
             cursor: SystemMouseCursors.click,
             onEnter: (_) => setState(() => _hoveredLinkId = id),
             onExit: (_) => setState(() => _hoveredLinkId = null),
             child: Tooltip(
-              message: tip, // 아래 tip도 filename까지 표기하도록 수정
+              message: tip,
               waitDuration: const Duration(milliseconds: 300),
               child: Container(
                 decoration: BoxDecoration(
@@ -1196,14 +1234,17 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   }
 }
 
-// ======================= 배정 리소스 다중 선택 다이얼로그 =======================
+// ======================= 배정 리소스 다중 선택 다이얼로그 (패치본) =======================
 
 class _AssignedResourcesPickerDialog extends StatefulWidget {
   final List<Map<String, dynamic>> assigned;
   final String defaultBucket;
+  final Map<String, String>? nodeRootTitleMap; // ← 옵션: node_id -> root_title
+
   const _AssignedResourcesPickerDialog({
     required this.assigned,
     required this.defaultBucket,
+    this.nodeRootTitleMap,
   });
 
   @override
@@ -1214,8 +1255,19 @@ class _AssignedResourcesPickerDialog extends StatefulWidget {
 class _AssignedResourcesPickerDialogState
     extends State<_AssignedResourcesPickerDialog> {
   final _queryCtl = TextEditingController();
-  final Map<String, Map<String, dynamic>> _selected = {}; // key: bucket::path
+  final Map<String, Map<String, dynamic>> _selected =
+      {}; // key: bucket::path::filename
   bool _selectAll = false;
+
+  // 루트 카테고리 목록/선택 상태
+  late final List<String> _roots;
+  String _selectedRoot = '전체';
+
+  @override
+  void initState() {
+    super.initState();
+    _roots = _collectRoots(widget.assigned);
+  }
 
   @override
   void dispose() {
@@ -1223,34 +1275,123 @@ class _AssignedResourcesPickerDialogState
     super.dispose();
   }
 
+  // ====== 유틸: 루트 카테고리 추출 ======
+  String _extractRoot(Map<String, dynamic> r) {
+    String pickNonEmpty(List<String?> cands) {
+      for (final c in cands) {
+        final v = (c ?? '').toString().trim();
+        if (v.isNotEmpty) return v;
+      }
+      return '';
+    }
+
+    // 1) 주입된 맵이 있고 node_id가 있으면 그걸 최우선 사용
+    final nid = (r['curriculum_node_id'] ?? '').toString();
+    if (nid.isNotEmpty &&
+        (widget.nodeRootTitleMap?.containsKey(nid) ?? false)) {
+      final t = widget.nodeRootTitleMap![nid] ?? '';
+      if (t.trim().isNotEmpty) return t.trim();
+    }
+
+    // 2) 행 자체에 힌트가 있다면 활용(폴백)
+    final nodeFull = (r['node_full_title'] ?? r['node_path'] ?? '').toString();
+    final guessedFromChain = nodeFull.contains('/')
+        ? nodeFull.split('/').first.trim()
+        : (nodeFull.contains(' > ') ? nodeFull.split(' > ').first.trim() : '');
+
+    final root = pickNonEmpty([
+      r['root_title']?.toString(),
+      r['node_root_title']?.toString(),
+      r['category']?.toString(),
+      guessedFromChain,
+    ]);
+
+    return root.isEmpty ? '(루트 미지정)' : root;
+  }
+
+  List<String> _collectRoots(List<Map<String, dynamic>> rows) {
+    final s = <String>{};
+    for (final r in rows) {
+      s.add(_extractRoot(r));
+    }
+    final list = s.toList()..sort((a, b) => a.compareTo(b)); // 가나다/알파벳 정렬
+    return ['전체', ...list];
+  }
+
+  // ====== 유틸: 표시/검색용 원본 제목 ======
+  String _originalTitleOf(Map<String, dynamic> r) {
+    return (r['original_title'] ??
+            r['original_filename'] ??
+            r['filename'] ??
+            r['title'] ??
+            '')
+        .toString()
+        .trim();
+  }
+
+  // 목록 필터(루트/검색/파일형만 통과) + 정렬 + 중복 제거
   List<Map<String, dynamic>> _filtered() {
     final q = _queryCtl.text.trim().toLowerCase();
 
-    // 1) 파일만 통과: storage_path(or path)가 비어있지 않고, filename도 있어야 함.
+    // 1) 파일만 통과: storage_path(or path) & filename 필요
     List<Map<String, dynamic>> base = widget.assigned.where((r) {
       final path = (r['storage_path'] ?? r['path'] ?? '').toString().trim();
       final filename = (r['filename'] ?? '').toString().trim();
       return path.isNotEmpty && filename.isNotEmpty;
     }).toList();
 
-    if (q.isEmpty) return base;
+    // 2) 루트 카테고리 필터
+    if (_selectedRoot != '전체') {
+      base = base.where((r) => _extractRoot(r) == _selectedRoot).toList();
+    }
 
-    // 2) 검색 필터
-    return base.where((r) {
-      final title = (r['title'] ?? '').toString().toLowerCase();
-      final filename = (r['filename'] ?? '').toString().toLowerCase();
-      final path = (r['storage_path'] ?? r['path'] ?? '')
-          .toString()
-          .toLowerCase();
-      return title.contains(q) || filename.contains(q) || path.contains(q);
-    }).toList();
+    // 3) 검색 (원본 제목 우선, 보조로 title/filename/path 포함)
+    if (q.isNotEmpty) {
+      base = base.where((r) {
+        final orig = _originalTitleOf(r).toLowerCase();
+        final title = (r['title'] ?? '').toString().toLowerCase();
+        final filename = (r['filename'] ?? '').toString().toLowerCase();
+        final path = (r['storage_path'] ?? r['path'] ?? '')
+            .toString()
+            .toLowerCase();
+        if (orig.contains(q)) return true; // 원본 제목 우선 매칭
+        return title.contains(q) || filename.contains(q) || path.contains(q);
+      }).toList();
+    }
+
+    // 4) 정렬 (가나다/알파벳): 원본 제목 → 없으면 타이틀/파일명
+    base.sort((a, b) {
+      String displayA = _originalTitleOf(a);
+      if (displayA.isEmpty) {
+        displayA = (a['title'] ?? a['filename'] ?? '').toString();
+      }
+      String displayB = _originalTitleOf(b);
+      if (displayB.isEmpty) {
+        displayB = (b['title'] ?? b['filename'] ?? '').toString();
+      }
+      return displayA.compareTo(displayB);
+    });
+
+    // 5) 중복 제거: bucket::path::filename
+    final seen = <String>{};
+    final items = <Map<String, dynamic>>[];
+    for (final r in base) {
+      final bucket = (r['storage_bucket'] ?? widget.defaultBucket).toString();
+      final path = (r['storage_path'] ?? r['path'] ?? '').toString();
+      final filename = (r['filename'] ?? '').toString();
+      if (path.isEmpty || filename.isEmpty) continue;
+      final key = '$bucket::$path::$filename';
+      if (seen.add(key)) items.add(r);
+    }
+
+    return items;
   }
 
   String _keyOf(Map<String, dynamic> r) {
     final bucket = (r['storage_bucket'] ?? widget.defaultBucket).toString();
     final path = (r['storage_path'] ?? r['path'] ?? '').toString();
-    final filename = (r['filename'] ?? '').toString(); // ← 추가
-    return '$bucket::$path::$filename'; // ← filename 포함
+    final filename = (r['filename'] ?? '').toString();
+    return '$bucket::$path::$filename';
   }
 
   void _toggleAll(List<Map<String, dynamic>> list, bool v) {
@@ -1260,7 +1401,11 @@ class _AssignedResourcesPickerDialogState
         for (final r in list) {
           final k = _keyOf(r);
           _selected[k] = {
-            'title': (r['title'] ?? r['filename'] ?? '리소스').toString(),
+            'title':
+                (_originalTitleOf(r).isNotEmpty
+                        ? _originalTitleOf(r)
+                        : (r['title'] ?? r['filename'] ?? '리소스'))
+                    .toString(),
             'filename': (r['filename'] ?? r['title'] ?? 'file').toString(),
             'bucket': (r['storage_bucket'] ?? widget.defaultBucket).toString(),
             'path': (r['storage_path'] ?? r['path'] ?? '').toString(),
@@ -1293,7 +1438,11 @@ class _AssignedResourcesPickerDialogState
         _selected.remove(k);
       } else {
         _selected[k] = {
-          'title': (r['title'] ?? r['filename'] ?? '리소스').toString(),
+          'title':
+              (_originalTitleOf(r).isNotEmpty
+                      ? _originalTitleOf(r)
+                      : (r['title'] ?? r['filename'] ?? '리소스'))
+                  .toString(),
           'filename': filename,
           'bucket': (r['storage_bucket'] ?? widget.defaultBucket).toString(),
           'path': path,
@@ -1312,26 +1461,61 @@ class _AssignedResourcesPickerDialogState
     return AlertDialog(
       title: const Text('배정 리소스 선택'),
       content: SizedBox(
-        width: 640,
-        height: 480,
+        width: 680,
+        height: 520,
         child: Column(
           children: [
-            TextField(
-              controller: _queryCtl,
-              decoration: InputDecoration(
-                hintText: '파일명/제목/경로 검색…',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _queryCtl.text.isEmpty
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () => setState(() {
-                          _queryCtl.clear();
-                        }),
+            // 루트 카테고리 선택 + 검색
+            Row(
+              children: [
+                Expanded(
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: '루트 카테고리',
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
                       ),
-                border: const OutlineInputBorder(),
-              ),
-              onChanged: (_) => setState(() {}),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: _selectedRoot,
+                        items: _roots
+                            .map(
+                              (c) => DropdownMenuItem(value: c, child: Text(c)),
+                            )
+                            .toList(),
+                        onChanged: (v) {
+                          if (v == null) return;
+                          setState(() => _selectedRoot = v);
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _queryCtl,
+                    decoration: InputDecoration(
+                      hintText: '원본 제목/파일명/경로 검색… (원본 우선)',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _queryCtl.text.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () => setState(() {
+                                _queryCtl.clear();
+                              }),
+                            ),
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Row(
@@ -1354,31 +1538,39 @@ class _AssignedResourcesPickerDialogState
                       separatorBuilder: (_, __) => const Divider(height: 1),
                       itemBuilder: (_, i) {
                         final r = items[i];
-                        final title = (r['title'] ?? r['filename'] ?? '리소스')
-                            .toString();
+
+                        final displayTitle = (() {
+                          final o = _originalTitleOf(r);
+                          if (o.isNotEmpty) return o;
+                          return (r['title'] ?? r['filename'] ?? '리소스')
+                              .toString();
+                        })();
+
                         final bucket =
                             (r['storage_bucket'] ?? widget.defaultBucket)
                                 .toString();
                         final path = (r['storage_path'] ?? r['path'] ?? '')
                             .toString();
+                        final filename = (r['filename'] ?? '').toString();
+                        final root = _extractRoot(r);
                         final k = _keyOf(r);
                         final checked = _selected.containsKey(k);
 
                         return ListTile(
-                          key: ValueKey(_keyOf(r)),
+                          key: ValueKey(k),
                           dense: true,
                           leading: Checkbox(
                             value: checked,
                             onChanged: (_) => _toggleOne(r),
                           ),
                           title: Text(
-                            title,
+                            displayTitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                           subtitle: Text(
-                            '$bucket/$path • ${(r['filename'] ?? '').toString()}',
-                            maxLines: 1,
+                            '$root • $bucket/$path • $filename',
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
                           onTap: () => _toggleOne(r),

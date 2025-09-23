@@ -379,8 +379,7 @@ class CurriculumService {
     await _retry(() => _c.from(_tNodes).delete().eq('id', id));
   }
 
-  // ---------- NEW: 학생 기준 배정 리소스 조회 (FIX: inFilter 사용) ----------
-  // 학생에게 배정된 노드들의 id를 얻고 → resources.curriculum_node_id IN (...) 조회
+  // ---------- NEW: 학생 기준 배정 리소스 조회 (서비스단 dedupe 포함) ----------
   Future<List<Map<String, dynamic>>> fetchAssignedResourcesForStudent(
     String studentId,
   ) async {
@@ -402,7 +401,7 @@ class CurriculumService {
     };
     if (nodeIds.isEmpty) return const [];
 
-    // 2) 해당 노드의 '파일' 리소스만 조회 (필요 컬럼만 select + 안전 필터)
+    // 2) 해당 노드의 파일 리소스
     final data = await _retry(() async {
       return await _c
           .from(_tRes)
@@ -414,13 +413,26 @@ class CurriculumService {
           .order('created_at', ascending: false);
     });
 
-    // 클라이언트 측 이중 방어(널/공백 제거)
-    return _mapList(data)
-        .where(
-          (m) =>
-              (m['storage_path'] ?? '').toString().trim().isNotEmpty &&
-              (m['filename'] ?? '').toString().trim().isNotEmpty,
-        )
-        .toList(growable: false);
+    // 3) 클라이언트 이중 방어(널/공백 제거) + dedupe(bucket::path::filename)
+    final seen = <String>{};
+    final out = <Map<String, dynamic>>[];
+
+    String _trimSlashes(String s) => s.replaceAll(RegExp(r'^/+|/+$'), '');
+
+    for (final m in _mapList(data)) {
+      final path = _trimSlashes((m['storage_path'] ?? '').toString().trim());
+      final filename = (m['filename'] ?? '').toString().trim();
+      final bucket = (m['storage_bucket'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+
+      if (path.isEmpty || filename.isEmpty || bucket.isEmpty) continue;
+
+      final key = '$bucket::$path::$filename';
+      if (seen.add(key)) out.add(m);
+    }
+    return out;
   }
+
 }
