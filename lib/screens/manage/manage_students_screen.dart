@@ -1,14 +1,7 @@
 // lib/screens/manage/manage_students_screen.dart
-// v1.36.4 | 학생 관리(관리자 전용) – 가나다 정렬 + 실시간 검색(debounce)
-// 변경점 요약
-// 1) 목록 정렬: name ASC 로 서버 정렬 요청 + 클라이언트 보정 정렬(가나다/대소문자/공백 무시)
-// 2) 검색: 입력 중 300ms debounce로 자동 검색(엔터 불필요), Clear 시 즉시 재조회
-//
-// 의존:
-// - services: AuthService, StudentService, TeacherService
-// - models: Student, Teacher
-// - supabase: SupabaseTables
-// - pub: intl
+// v1.36.5 | 라우트 인자(focusStudentId, autoOpenEdit) 처리 추가
+// - TeacherHomeBody 등에서 관리 화면으로 이동 시 즉시 해당 학생 수정 다이얼로그 열 수 있음.
+// - 기존 목록/검색/CRUD 기능은 동일.
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -55,11 +48,35 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
 
   final _dateFmt = DateFormat('yyyy-MM-dd');
 
+  // 🔹 라우트 인자 처리용
+  String? _routeFocusStudentId;
+  bool _routeAutoOpenEdit = false;
+  bool _routeArgsHandled = false;
+
   @override
   void initState() {
     super.initState();
     _searchCtl.addListener(_onSearchChanged);
     _guardAndLoad();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 최초 1회만 라우트 인자 파싱
+    if (!_routeArgsHandled) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map) {
+        final fid = _asStr(args['focusStudentId']).trim();
+        if (fid.isNotEmpty) _routeFocusStudentId = fid;
+        _routeAutoOpenEdit = (args['autoOpenEdit'] == true);
+      }
+      // prefill은 검색창에 반영(선택)
+      final prefill = (args is Map) ? _asStr(args['prefill']).trim() : '';
+      if (prefill.isNotEmpty) {
+        _searchCtl.text = prefill;
+      }
+    }
   }
 
   @override
@@ -142,11 +159,39 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
 
       if (!mounted || mySeq != _loadSeq) return; // 오래된 응답 무시
       setState(() => _list = sorted);
+
+      // 🔹 리스트 로드 후, 필요 시 자동으로 해당 학생 수정 다이얼로그 열기
+      _maybeFocusAndOpenEdit();
     } catch (e) {
       if (!mounted || mySeq != _loadSeq) return;
       setState(() => _error = _friendlyError(e));
     } finally {
       if (mounted && mySeq == _loadSeq) setState(() => _loading = false);
+    }
+  }
+
+  void _maybeFocusAndOpenEdit() {
+    if (_routeArgsHandled) return;
+    if ((_routeFocusStudentId ?? '').isEmpty) return;
+    final targetId = _routeFocusStudentId!;
+    Student? target;
+    for (final s in _list) {
+      if (s.id == targetId) {
+        target = s;
+        break;
+      }
+    }
+    if (target == null) return;
+
+    _routeArgsHandled = true;
+
+    if (_routeAutoOpenEdit) {
+      // 프레임 이후 다이얼로그 오픈(빌드 충돌 방지)
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _onEdit(target!);
+      });
+    } else {
+      // 필요 시 스크롤 포커싱 등을 여기에 추가 가능
     }
   }
 
