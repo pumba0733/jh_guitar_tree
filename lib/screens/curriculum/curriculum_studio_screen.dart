@@ -1,7 +1,8 @@
 // lib/screens/curriculum/curriculum_studio_screen.dart
-// v1.74.1 | 이동 로직: service.moveNode() 사용(루트 이동 지원) + siblings 계산 정리
-// - 루트 이동(newParentId=null) 시 parent_id=NULL 제대로 반영
-// - 불필요한 toMap()/fromMap() 왕복 제거
+// v1.74.2 | 리소스 '매핑 변경' 기능 추가 (파일을 다른 카테고리로 이동)
+// - ResourceService.moveResourceToNode(...) 호출
+// - 후보는 category 타입 노드만 (경로 표시)
+// - 기존 노드 이동/형제정렬/업로드/삭제 로직은 그대로 유지
 
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -172,7 +173,6 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     required CurriculumNode target,
     required List<CurriculumNode> allNodes,
   }) async {
-    // 후보: category 타입만, 자기 자신 및 자신의 하위는 제외
     final byId = {for (final n in allNodes) n.id: n};
     bool isDescendant(String? candidateId, String nodeId) {
       var cursor = candidateId;
@@ -185,16 +185,14 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
 
     final allowed = <_MoveCandidate>[];
 
-    // 루트(최상위) 후보: 파일은 금지(스키마 제약), 카테고리는 허용
     if (target.type == 'category') {
       allowed.add(_MoveCandidate(id: null, pathText: '루트(최상위)', isRoot: true));
     }
 
-    // 카테고리들 중에서 유효한 목적지만 추출
     for (final n in allNodes) {
       if (n.type != 'category') continue;
-      if (n.id == target.id) continue; // 자기 자신 금지
-      if (isDescendant(n.id, target.id)) continue; // 자손 밑으로 금지
+      if (n.id == target.id) continue;
+      if (isDescendant(n.id, target.id)) continue;
       final path = _buildPathText(n, byId);
       allowed.add(_MoveCandidate(id: n.id, pathText: path));
     }
@@ -222,19 +220,16 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     required List<CurriculumNode> allNodes,
   }) async {
     try {
-      // 제약 재확인: 파일 → 루트 금지
       if (target.type == 'file' && newParentId == null) {
         throw '파일 노드는 루트(최상위)로 이동할 수 없습니다.';
       }
-      // 도착지 형제들 (간소화)
       final siblings = allNodes.where((x) => x.parentId == newParentId).toList()
         ..sort((a, b) => a.order.compareTo(b.order));
       final newOrder = siblings.isEmpty ? 0 : (siblings.last.order + 1);
 
-      // ✅ 핵심: moveNode 사용 (루트 이동 시 parent_id=NULL 반영)
       await _svc.moveNode(
         id: target.id,
-        newParentId: newParentId, // null이면 루트
+        newParentId: newParentId,
         newOrder: newOrder,
       );
 
@@ -331,7 +326,6 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
                       trailing: Wrap(
                         spacing: 4,
                         children: [
-                          // ✅ 유지: 형제 정렬
                           IconButton(
                             tooltip: '형제 정렬',
                             onPressed: () => _openSiblingReorderDialog(
@@ -342,20 +336,17 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
                             ),
                             icon: const Icon(Icons.swap_vert),
                           ),
-                          // ✅ 이동
                           IconButton(
                             tooltip: '이동',
                             onPressed: () =>
                                 _openMoveDialog(target: n, allNodes: nodes),
                             icon: const Icon(Icons.drive_file_move),
                           ),
-                          // ✅ 제목 수정
                           IconButton(
                             tooltip: '제목',
                             onPressed: () => _editNode(n),
                             icon: const Icon(Icons.edit),
                           ),
-                          // ✅ 삭제
                           IconButton(
                             tooltip: '삭제',
                             onPressed: () => _deleteNode(n),
@@ -363,6 +354,11 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
                               Icons.delete_forever,
                               color: Colors.redAccent,
                             ),
+                          ),
+                          IconButton(
+                            tooltip: '리소스',
+                            onPressed: () => _openResourceManager(n),
+                            icon: const Icon(Icons.folder_open),
                           ),
                         ],
                       ),
@@ -590,7 +586,7 @@ class _ResourceManagerSheet extends StatefulWidget {
 class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
   late Future<List<ResourceFile>> _load;
   bool _dragging = false;
-  bool _busy = false; // 업로드/삭제 중 UI 잠금
+  bool _busy = false; // 업로드/삭제/매핑중 UI 잠금
 
   @override
   void initState() {
@@ -726,6 +722,83 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
     }
   }
 
+  // ====== (NEW) 리소스 매핑 변경 ======
+  Future<void> _remapResource(ResourceFile r) async {
+    if (_busy) return;
+
+    // 모든 노드 로드(카테고리 후보만)
+    final svc = CurriculumService();
+    final raw = await svc.listNodes();
+    final all = raw
+        .map((e) => CurriculumNode.fromMap(Map<String, dynamic>.from(e)))
+        .toList();
+
+    final byId = {for (final n in all) n.id: n};
+
+    String pathText(CurriculumNode n) {
+      final parts = <String>[];
+      var cur = n;
+      while (true) {
+        parts.add(cur.title);
+        if (cur.parentId == null) break;
+        final p = byId[cur.parentId];
+        if (p == null) break;
+        cur = p;
+      }
+      return parts.reversed.join(' / ');
+    }
+
+    final candidates =
+        all
+            .where((n) => n.type == 'category')
+            .map((n) => _MoveCandidate(id: n.id, pathText: pathText(n)))
+            .toList()
+          ..sort((a, b) => a.pathText.compareTo(b.pathText));
+
+    if (!mounted) return;
+    final dest = await showDialog<_MoveCandidate>(
+      context: context,
+      builder: (_) => _MoveNodeDialog(
+        target: CurriculumNode(
+          id: r.id,
+          parentId: null,
+          type: 'file',
+          title: r.title ?? r.filename,
+          order: 0,
+        ),
+        candidates: candidates,
+      ),
+    );
+    if (dest == null || dest.id == null) return;
+
+    await _applyRemap(resource: r, newNodeId: dest.id!);
+  }
+
+  Future<void> _applyRemap({
+    required ResourceFile resource,
+    required String newNodeId,
+  }) async {
+    setState(() => _busy = true);
+    try {
+      await widget.svc.moveResourceToNode(
+        resourceId: resource.id,
+        newNodeId: newNodeId,
+      );
+      await _refresh();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('이동 완료: ${resource.filename}')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('이동 실패: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
@@ -837,6 +910,15 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
                                     tooltip: '열기',
                                     onPressed: _busy ? null : () => _open(r),
                                     icon: const Icon(Icons.open_in_new),
+                                  ),
+                                  IconButton(
+                                    tooltip: '매핑 변경',
+                                    onPressed: _busy
+                                        ? null
+                                        : () => _remapResource(r),
+                                    icon: const Icon(
+                                      Icons.drive_file_move_outline,
+                                    ),
                                   ),
                                   IconButton(
                                     tooltip: '삭제',

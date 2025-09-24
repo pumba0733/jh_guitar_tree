@@ -1,16 +1,8 @@
 // lib/services/resource_service.dart
-// v1.66.6 | ASCII-safe storage key 도입(+ 내용해시)로 InvalidKey(400) 해결 + 레거시 폴백/동작 유지
-// - storagePath: yyyy-MM/{nodeSeg}/{safeBase}__{sha1-12}{ext}   // safeBase는 ASCII-only
-// - DB에는 filename/original_filename(UTF-8), content_hash 저장
-// - FileOptions.upsert=false 유지 (덮어쓰기 방지)
-// - signedUrl(): 레거시(…/{safe}/{filename}) 폴백 시도 유지
-//
-// 의존:
-//   - package:crypto, mime, path, supabase_flutter
-//   - ../models/resource.dart (ResourceFile)
-// 변경 영향:
-//   - v1.66.5에서 UTF-8 원본명을 키로 쓰던 부분을 ASCII-safe 키로 교체하여 400 InvalidKey 방지
-//   - UI 표시는 그대로 한글 파일명 사용( DB 컬럼 ), 스토리지 키만 안전 문자로 관리
+// v1.67.0 | ASCII-safe key + (NEW) moveResourceToNode() 추가
+// - storagePath: yyyy-MM/{nodeSeg}/{safeBase}__{sha1-12}{ext}
+// - signedUrl 레거시 폴백 유지
+// - NEW: moveResourceToNode(resourceId, newNodeId)
 
 import 'dart:async';
 import 'dart:io';
@@ -105,25 +97,22 @@ class ResourceService {
 
   // ---------- ASCII-safe 키 생성기 ----------
   String _toAsciiSafe(String s) {
-    // 공백 → '_', 경로 구분자는 '-'로, 비 ASCII는 '_'로 치환
     final replaced = s
-        .replaceAll(RegExp(r'[\/\\]'), '-') // 경로 구분자 방지
-        .replaceAll(RegExp(r'\s+'), '_'); // 공백 통일
+        .replaceAll(RegExp(r'[\/\\]'), '-')
+        .replaceAll(RegExp(r'\s+'), '_');
     final buf = StringBuffer();
     for (final ch in replaced.runes) {
-      if ((ch >= 0x30 && ch <= 0x39) || // 0-9
-          (ch >= 0x41 && ch <= 0x5A) || // A-Z
-          (ch >= 0x61 && ch <= 0x7A) || // a-z
+      if ((ch >= 0x30 && ch <= 0x39) ||
+          (ch >= 0x41 && ch <= 0x5A) ||
+          (ch >= 0x61 && ch <= 0x7A) ||
           ch == 0x2D ||
           ch == 0x5F ||
           ch == 0x2E) {
-        // - _ .
         buf.writeCharCode(ch);
       } else {
         buf.write('_');
       }
     }
-    // 연속 '_' 압축 + 앞뒤 트림
     final compact = buf
         .toString()
         .replaceAll(RegExp(r'_+'), '_')
@@ -141,20 +130,16 @@ class ResourceService {
     final y = dt.year.toString().padLeft(4, '0');
     final m = dt.month.toString().padLeft(2, '0');
 
-    final ext = p.extension(originalFilename); // ".mp3"
-    final base = p.basenameWithoutExtension(
-      originalFilename,
-    ); // ex) "몽니 - 울지 말아요"
-    final safeBase = _toAsciiSafe(base); // ex) "___-__" → 정규화
+    final ext = p.extension(originalFilename);
+    final base = p.basenameWithoutExtension(originalFilename);
+    final safeBase = _toAsciiSafe(base);
     final h12 = crypto.sha1.convert(bytes).toString().substring(0, 12);
 
-    // 최종 키: yyyy-MM/{nodeSeg}/{safeBase}__{sha1-12}{ext}
     return '$y-$m/$nodeSeg/${safeBase}__${h12}${ext}';
   }
 
   // ---------- 업로드용 기본 노드 보장 ----------
   Future<String> ensureUploadsNode() async {
-    // 1) code='uploads_auto' 조회
     try {
       final sel = await _retry(
         () => _c
@@ -165,11 +150,8 @@ class ResourceService {
       );
       final list = _asList(sel);
       if (list.isNotEmpty) return list.first['id'].toString();
-    } catch (_) {
-      // 컬럼/뷰 준비 전 등 예외는 아래 insert 시도로 폴백
-    }
+    } catch (_) {}
 
-    // 2) 없으면 생성 (루트 category, order=9999)
     try {
       final ins = await _retry(
         () => _c
@@ -178,7 +160,7 @@ class ResourceService {
               'parent_id': null,
               'type': 'category',
               'title': '📥 업로드(자동)',
-              '"order"': 9999, // 컬럼명이 "order"
+              '"order"': 9999,
               'code': 'uploads_auto',
             })
             .select('id')
@@ -186,7 +168,6 @@ class ResourceService {
       );
       return _one(ins)['id'].toString();
     } catch (e) {
-      // 경합 등으로 실패 시 재조회
       final sel = await _retry(
         () => _c
             .from('curriculum_nodes')
@@ -251,7 +232,7 @@ class ResourceService {
     final payload = <String, dynamic>{
       'curriculum_node_id': nodeId,
       if (title != null) 'title': title,
-      'filename': filename, // 표시명(UTF-8)
+      'filename': filename,
       if (mimeType != null) 'mime_type': mimeType,
       if (sizeBytes != null) 'size_bytes': sizeBytes,
       'storage_bucket': storageBucket,
@@ -311,11 +292,10 @@ class ResourceService {
       throw StateError('resources 테이블이 아직 준비되지 않았습니다. SQL Δ 필요.');
     }
 
-    final baseOriginal = p.basename(filename); // UTF-8 표시명
+    final baseOriginal = p.basename(filename);
     final resolvedMime =
         mimeType ?? lookupMimeType(baseOriginal) ?? 'application/octet-stream';
 
-    // 바이트/크기 확보 + 내용해시
     Uint8List fileBytes;
     int? finalSize = sizeBytes;
     if (bytes != null && bytes.isNotEmpty) {
@@ -326,9 +306,8 @@ class ResourceService {
       fileBytes = await f.readAsBytes();
       finalSize ??= fileBytes.lengthInBytes;
     }
-    final contentHash = crypto.sha1.convert(fileBytes).toString(); // 40자
+    final contentHash = crypto.sha1.convert(fileBytes).toString();
 
-    // 🔐 ASCII-safe 스토리지 키 (결정적)
     final nodeSeg = nodeId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
     final storagePath = _buildAsciiStorageKey(
       originalFilename: baseOriginal,
@@ -338,12 +317,11 @@ class ResourceService {
 
     final store = _c.storage.from(storageBucket);
     final opts = FileOptions(
-      upsert: false, // 덮어쓰기 방지
+      upsert: false,
       contentType: resolvedMime,
       cacheControl: '3600',
     );
 
-    // 1) 업로드 시도
     try {
       if (bytes != null && bytes.isNotEmpty) {
         final tmpDir = await Directory.systemTemp.createTemp('gt_upload_');
@@ -367,7 +345,6 @@ class ResourceService {
         );
       }
     } catch (e) {
-      // 2) 409(이미 존재) → 기존 리소스 재사용
       final s = e.toString().toLowerCase();
       final is409 =
           s.contains('409') ||
@@ -381,7 +358,6 @@ class ResourceService {
       );
       if (existed != null) return existed;
 
-      // (b) DB에 없으면 새 row만 insert
       return insertRow(
         nodeId: nodeId,
         filename: baseOriginal,
@@ -394,7 +370,6 @@ class ResourceService {
       );
     }
 
-    // 3) 정상 업로드 → DB insert
     return insertRow(
       nodeId: nodeId,
       filename: baseOriginal,
@@ -427,11 +402,10 @@ class ResourceService {
       throw StateError('resources 테이블이 아직 준비되지 않았습니다.');
     }
 
-    final baseOriginal = p.basename(filename); // UTF-8 표시명
+    final baseOriginal = p.basename(filename);
     final resolvedMime =
         mimeType ?? lookupMimeType(baseOriginal) ?? 'application/octet-stream';
 
-    // 바이트/크기 확보 + 내용해시
     Uint8List fileBytes;
     int? finalSize = sizeBytes;
     if (bytes != null && bytes.isNotEmpty) {
@@ -442,9 +416,8 @@ class ResourceService {
       fileBytes = await f.readAsBytes();
       finalSize ??= fileBytes.lengthInBytes;
     }
-    final contentHash = crypto.sha1.convert(fileBytes).toString(); // 40자
+    final contentHash = crypto.sha1.convert(fileBytes).toString();
 
-    // 🔐 ASCII-safe 스토리지 키
     final nodeSeg = effectiveNodeId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
     final storagePath = _buildAsciiStorageKey(
       originalFilename: baseOriginal,
@@ -459,7 +432,6 @@ class ResourceService {
       cacheControl: '3600',
     );
 
-    // (선택) 파일명+크기 중복 체크 (표시명 기준의 빠른 재사용)
     if (finalSize != null) {
       final dup = await findDuplicateByNameAndSize(
         filename: baseOriginal,
@@ -468,7 +440,6 @@ class ResourceService {
       if (dup != null) return dup;
     }
 
-    // 1) 업로드 시도
     try {
       if (bytes != null && bytes.isNotEmpty) {
         final tmpDir = await Directory.systemTemp.createTemp('gt_upload_');
@@ -492,7 +463,6 @@ class ResourceService {
         );
       }
     } catch (e) {
-      // 2) 409(이미 존재) → 기존 리소스 재사용
       final s = e.toString().toLowerCase();
       final is409 =
           s.contains('409') ||
@@ -506,7 +476,6 @@ class ResourceService {
       );
       if (existed != null) return existed;
 
-      // (b) DB에 없으면 새 row만 insert
       return insertRowGeneric(
         nodeId: effectiveNodeId,
         filename: baseOriginal,
@@ -519,7 +488,6 @@ class ResourceService {
       );
     }
 
-    // 3) 정상 업로드 → DB insert
     return insertRowGeneric(
       nodeId: effectiveNodeId,
       filename: baseOriginal,
@@ -536,7 +504,7 @@ class ResourceService {
   Future<ResourceFile> uploadFromLocalPathAsResource({
     required String localPath,
     String? originalFilename,
-    String? nodeId, // null 허용
+    String? nodeId,
   }) async {
     final f = File(localPath);
     final exists = await f.exists();
@@ -547,8 +515,8 @@ class ResourceService {
     final name = originalFilename ?? p.basename(localPath);
     return uploadGeneric(
       nodeId: nodeId,
-      filename: name, // UTF-8 표시명 그대로
-      filePath: localPath, // 내부에서 bytes/hash 계산
+      filename: name,
+      filePath: localPath,
       sizeBytes: size,
       storageBucket: bucket,
     );
@@ -561,7 +529,7 @@ class ResourceService {
         () => _c.storage.from(r.storageBucket).remove([r.storagePath]),
       );
     } catch (e) {
-      if (!_isNotFound(e)) rethrow; // 이미 없는 건 무시
+      if (!_isNotFound(e)) rethrow;
     }
     await _retry(() => _c.from(_tResources).delete().eq('id', r.id));
   }
@@ -578,7 +546,6 @@ class ResourceService {
       return await _retry(() => store.createSignedUrl(primary, ttl.inSeconds));
     } catch (e) {
       if (!_isNotFound(e)) rethrow;
-      // 레거시: storage_path + '/' + filename 시도
       final legacy = '$primary/${r.filename}';
       return await _retry(() => store.createSignedUrl(legacy, ttl.inSeconds));
     }
@@ -605,5 +572,38 @@ class ResourceService {
     } catch (_) {
       return null;
     }
+  }
+
+  // ---------- (NEW) 매핑 변경 ----------
+  Future<void> moveResourceToNode({
+    required String resourceId,
+    required String newNodeId,
+  }) async {
+    if (!await _tableExists()) {
+      throw StateError('resources 테이블이 아직 준비되지 않았습니다.');
+    }
+    await _retry(
+      () => _c
+          .from(_tResources)
+          .update({'curriculum_node_id': newNodeId})
+          .eq('id', resourceId),
+    );
+  }
+
+  // (옵션) 여러 개 한번에 이동
+  Future<void> moveManyResourcesToNode({
+    required List<String> resourceIds,
+    required String newNodeId,
+  }) async {
+    if (resourceIds.isEmpty) return;
+    if (!await _tableExists()) {
+      throw StateError('resources 테이블이 아직 준비되지 않았습니다.');
+    }
+    await _retry(
+      () => _c
+          .from(_tResources)
+          .update({'curriculum_node_id': newNodeId})
+          .inFilter('id', resourceIds),
+    );
   }
 }
