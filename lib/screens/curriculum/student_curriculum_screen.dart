@@ -1,8 +1,9 @@
 // lib/screens/curriculum/student_curriculum_screen.dart
-// v1.70 | 지난 수업 리소스/첨부에 '오늘 레슨에 담기' 버튼 추가 (개별)
-// - _ReviewedItem에 src(Map) 추가하여 원본 전달
-// - LessonLinksService.addResourceLinkMapToToday / addAttachmentMapToToday 호출
-// - 스낵바: "✅ N개 추가됨 (중복 M, 실패 K)"
+// v1.71 | 지난 수업 리소스: 전역 중복 제거 + 최신순 보장
+// - _fetchReviewed(): 레슨 목록을 날짜 내림차순 정렬 후 순회(최신 → 과거)
+// - globalSeenRes / globalSeenAtt로 전 레슨 범위 중복 제거(가장 최신만 노출)
+// - 그룹이 비게 되면 스킵
+// - 기존 '오늘 레슨에 담기' 동작/스낵바 그대로 유지
 
 import 'package:flutter/material.dart';
 
@@ -118,34 +119,75 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
   }
 
   // 지난 수업 리소스 수집 — 오늘 레슨도 포함
+  // ✅ 전역 중복 제거(가장 최신만 보이도록), 최신 레슨부터 정렬
   Future<List<_ReviewedGroup>> _fetchReviewed({int maxLessons = 20}) async {
     final lessons = await _lessonSvc.listByStudent(
       widget.studentId,
       limit: maxLessons,
     );
 
+    // 날짜 파싱 유틸
+    DateTime _parseDate(dynamic v) {
+      if (v == null) return DateTime.fromMillisecondsSinceEpoch(0);
+      if (v is DateTime) return v;
+      final s = v.toString();
+      // YYYY-MM-DD... 형태 우선 처리
+      final normalized = s.replaceAll('.', '-').replaceAll('/', '-');
+      return DateTime.tryParse(normalized) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+    }
+
+    // 1) 최신순 정렬 보장
+    final sorted = lessons.map((e) => Map<String, dynamic>.from(e)).toList()
+      ..sort((a, b) => _parseDate(b['date']).compareTo(_parseDate(a['date'])));
+
+    // 2) 전역 중복 제거 키 셋 (레슨 전체 범위)
+    // 리소스: bucket::path[::filename] (filename 까지 포함해 더 보수적으로)
+    final globalSeenRes = <String>{};
+    // 첨부: localPath / url / path 중 우선순위로 구성
+    final globalSeenAtt = <String>{};
+
+    String _resKey(Map<String, dynamic> mm) {
+      final bucket = (mm['resource_bucket'] ?? ResourceService.bucket)
+          .toString()
+          .trim();
+      final path = (mm['resource_path'] ?? '').toString().trim();
+      final fname = (mm['resource_filename'] ?? '').toString().trim();
+      return '$bucket::$path::${fname.isEmpty ? '(nofile)' : fname}';
+    }
+
+    String _attKey(Map<String, dynamic> m) {
+      final localPath = (m['localPath'] ?? '').toString().trim();
+      final url = (m['url'] ?? '').toString().trim();
+      final path = (m['path'] ?? '').toString().trim();
+      if (localPath.isNotEmpty) return 'local::$localPath';
+      if (url.isNotEmpty) return 'url::$url';
+      return 'path::$path';
+    }
+
     final groups = <_ReviewedGroup>[];
-    for (final raw in lessons) {
-      final row = Map<String, dynamic>.from(raw);
+
+    for (final row in sorted) {
       final id = (row['id'] ?? '').toString();
       final dateStr = (row['date'] ?? '').toString();
       if (id.isEmpty || dateStr.isEmpty) continue;
 
       final items = <_ReviewedItem>[];
-      final seen = <String>{};
+      final seen = <String>{}; // 레슨 내부 중복 방지(보조)
 
       // 1) lesson_links (resource)
       final links = await _links.listByLesson(id);
       for (final m in links) {
         final mm = Map<String, dynamic>.from(m);
-
         final bucket = (mm['resource_bucket'] ?? ResourceService.bucket)
             .toString();
         final path = (mm['resource_path'] ?? '').toString();
         if (path.isEmpty) continue;
 
-        final key = '$bucket::$path';
-        if (!seen.add(key)) continue;
+        final gkey = _resKey(mm);
+        if (!globalSeenRes.add(gkey)) continue; // ✅ 전역 중복 제거
+        final lkey = '$bucket::$path';
+        if (!seen.add(lkey)) continue; // 레슨 내부 보조 중복 제거
 
         final filename = (mm['resource_filename'] ?? 'resource').toString();
         final title = (mm['resource_title'] ?? '').toString();
@@ -160,7 +202,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
               link: mm,
               studentId: widget.studentId,
             ),
-            src: mm, // v1.70 추가
+            src: mm, // v1.70 유지
           ),
         );
       }
@@ -182,8 +224,11 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
           final path = (map['path'] ?? '').toString();
           final name = (map['name'] ?? path.split('/').last).toString();
 
-          final key = localPath.isNotEmpty ? 'local::$localPath' : 'url::$url';
-          if (!seen.add(key)) continue;
+          final gkey = _attKey(map);
+          if (!globalSeenAtt.add(gkey)) continue; // ✅ 전역 중복 제거
+
+          final lkey = localPath.isNotEmpty ? 'local::$localPath' : 'url::$url';
+          if (!seen.add(lkey)) continue; // 레슨 내부 보조 중복 제거
 
           items.add(
             _ReviewedItem(
@@ -201,12 +246,13 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                   await FileService().openUrl(path);
                 }
               },
-              src: map, // v1.70 추가
+              src: map, // v1.70 유지
             ),
           );
         }
       }
 
+      // 이 레슨에서 보여줄 항목이 남아있을 때만 그룹 추가
       if (items.isNotEmpty) {
         groups.add(
           _ReviewedGroup(lessonId: id, dateStr: dateStr, items: items),
@@ -214,6 +260,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
       }
     }
 
+    // 상단 최신순 유지(이미 최신→과거 순으로 만들었지만 안전하게 한 번 더)
     groups.sort((a, b) => b.dateStr.compareTo(a.dateStr));
     return groups;
   }

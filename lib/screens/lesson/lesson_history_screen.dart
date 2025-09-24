@@ -1,9 +1,8 @@
 // lib/screens/lesson/lesson_history_screen.dart
-// v1.70 | 히스토리 화면: 링크/첨부를 '오늘 레슨에 담기' 추가 + 스낵바 결과 표시
-// - 링크 카드에 OutlinedButton.icon('오늘 레슨에 담기') 추가 → addResourceLinkMapToToday 호출
-// - 첨부 섹션 각 항목에 '오늘 레슨에 담기' 버튼 추가 → addAttachmentMapToToday 호출
+// v1.70+patch | 히스토리 화면: '이 내용 복습하기' 시 연결된 파일/첨부를 오늘 레슨에 자동 담기 + 스낵바 결과 표시
+// - '이 내용 복습하기' 버튼: 링크/첨부 수집 → 오늘 레슨 담기(중복 머지) → 단일 스낵바 → 오늘 수업 화면 이동
+// - 기존 각 항목의 '오늘 레슨에 담기' 버튼 동작은 그대로 유지
 // - 스낵바 포맷: "✅ {added}개 추가됨 (중복 {duplicated}, 실패 {failed})"
-// - 나머지 동작(열기/원본열기/CSV 등)은 기존 유지
 
 import 'dart:async';
 import 'dart:convert';
@@ -487,6 +486,60 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  // v1.70+patch: 단일 스낵바(숫자 합산) 표시용
+  void _showCombinedAddResultSnack({
+    required int added,
+    required int duplicated,
+    required int failed,
+  }) {
+    final msg = '✅ $added개 추가됨 (중복 $duplicated, 실패 $failed)';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  // v1.70+patch: 첨부 Map 정규화
+  Map<String, dynamic> _normalizeAttachment(dynamic a) {
+    if (a is Map) return Map<String, dynamic>.from(a);
+    final s = a?.toString() ?? '';
+    return <String, dynamic>{'url': s, 'path': s, 'name': s.split('/').last};
+  }
+
+  // v1.70+patch: 특정 레슨의 링크/첨부를 모두 오늘 레슨에 담기
+  // - links: lesson_resource_links rows
+  // - attachments: lessons.attachments (jsonb[]) rows
+  // 반환: (added, duplicated, failed)
+  Future<({int added, int duplicated, int failed})> _addLessonItemsToToday({
+    required String lessonId,
+    required Map<String, dynamic> lessonRow,
+  }) async {
+    // 1) 링크 로드 (캐시 or 서비스)
+    List<Map<String, dynamic>> links =
+        _linksCache[lessonId] ?? await _linksSvc.listByLesson(lessonId);
+
+    // 2) 첨부 로드/정규화
+    final List rawAtt = (lessonRow['attachments'] is List)
+        ? (lessonRow['attachments'] as List)
+        : const [];
+    final List<Map<String, dynamic>> attachments = rawAtt
+        .map(_normalizeAttachment)
+        .toList();
+
+    // 3) 오늘 레슨 담기(중복 머지)
+    final rLinks = await _linksSvc.addResourceLinkMapsToToday(
+      studentId: _studentId,
+      linkRows: links,
+    );
+    final rAtts = await _linksSvc.addAttachmentsToTodayLesson(
+      studentId: _studentId,
+      attachments: attachments,
+    );
+
+    // 4) 합산 결과 반환
+    final added = rLinks.added + rAtts.added;
+    final dup = rLinks.duplicated + rAtts.duplicated;
+    final failed = rLinks.failed + rAtts.failed;
+    return (added: added, duplicated: dup, failed: failed);
+  }
+
   // ---------- UI ----------
 
   Widget _sectionHeader(String month) {
@@ -930,12 +983,70 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                   onPressed: isDeleting
                       ? null
                       : () async {
-                          final id = m['id'];
-                          final args = {
-                            'studentId': _studentId,
-                            'fromHistoryId': id,
-                          };
-                          await _navigateToTodayLesson(args);
+                          final lessonId = (m['id'] ?? '').toString();
+                          if (lessonId.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('레슨 식별자가 없습니다.')),
+                            );
+                            return;
+                          }
+
+                          // v1.70+patch: 담기 진행 다이얼로그
+                          showDialog<void>(
+                            context: context,
+                            barrierDismissible: false,
+                            builder: (_) => const Dialog(
+                              insetPadding: EdgeInsets.symmetric(
+                                horizontal: 48,
+                              ),
+                              child: Padding(
+                                padding: EdgeInsets.all(20),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                    SizedBox(width: 12),
+                                    Text('오늘 레슨에 담는 중…'),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+
+                          try {
+                            // 링크/첨부 모두 담기 → 합산 결과 스낵바
+                            final result = await _addLessonItemsToToday(
+                              lessonId: lessonId,
+                              lessonRow: m,
+                            );
+
+                            if (!mounted) return;
+                            Navigator.of(context).pop(); // progress 닫기
+                            _showCombinedAddResultSnack(
+                              added: result.added,
+                              duplicated: result.duplicated,
+                              failed: result.failed,
+                            );
+
+                            // 오늘 수업 화면으로 이동
+                            final args = {
+                              'studentId': _studentId,
+                              'fromHistoryId': lessonId,
+                            };
+                            await _navigateToTodayLesson(args);
+                          } catch (e) {
+                            if (!mounted) return;
+                            Navigator.of(context).pop(); // progress 닫기
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('담기/이동 실패: $e')),
+                            );
+                          }
                         },
                   icon: const Icon(Icons.replay),
                   label: const Text('이 내용 복습하기'),

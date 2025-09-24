@@ -143,7 +143,6 @@ class CurriculumService {
     return _mapList(data);
   }
 
-
   Future<List<Map<String, dynamic>>> listReviewedResourcesByStudent(
     String studentId, {
     int limit = 100,
@@ -157,7 +156,6 @@ class CurriculumService {
     return _mapList(data);
   }
 
-
   Future<void> ensureStudentBinding(String studentId) async {
     try {
       await Supabase.instance.client.rpc(
@@ -168,7 +166,6 @@ class CurriculumService {
       // 조용히 무시 (권한/상태에 따라 실패할 수 있음)
     }
   }
-
 
   Future<List<Map<String, dynamic>>> listNodesByParent(String? parentId) async {
     final base = _c.from(_tNodes).select();
@@ -192,7 +189,7 @@ class CurriculumService {
   }
 
   // ---------- Assignments ----------
-    // ---------- Assignments ----------
+  // ---------- Assignments ----------
   Future<List<Map<String, dynamic>>> listAssignmentsByStudent(
     String studentId,
   ) async {
@@ -227,8 +224,6 @@ class CurriculumService {
     );
     return _mapList(data);
   }
-
-
 
   Future<List<Map<String, dynamic>>> listAssignmentsByNode(
     String nodeId,
@@ -406,8 +401,9 @@ class CurriculumService {
       return await _c
           .from(_tRes)
           .select(
-            'id,title,filename,storage_bucket,storage_path,'
-            'curriculum_node_id,mime_type,size_bytes,created_at',
+            'id,title,filename,original_filename,content_hash,'
+            'storage_bucket,storage_path,curriculum_node_id,'
+            'mime_type,size_bytes,created_at',
           )
           .inFilter('curriculum_node_id', nodeIds.toList())
           .order('created_at', ascending: false);
@@ -433,6 +429,71 @@ class CurriculumService {
       if (seen.add(key)) out.add(m);
     }
     return out;
+  }
+
+  /// 학생 배정 리소스 검색 (제목/파일명 기준)
+  Future<List<Map<String, dynamic>>> searchAssignedResourcesForStudent(
+    String studentId,
+    String query,
+  ) async {
+    await _ensureAuthSession();
+    await ensureStudentBinding(studentId);
+
+    // 0) 검색어 전처리
+    final raw = (query).trim();
+    if (raw.isEmpty) return const [];
+    // PostgREST .or() 안정화를 위해 콤마/괄호 제거
+    final safe = raw.replaceAll(RegExp(r'[,\(\)]'), ' ').trim();
+    if (safe.isEmpty) return const [];
+
+    // 1) 배정된 노드 확보
+    final assigns = await _retry(() async {
+      return await _c
+          .from(_tAssign)
+          .select('curriculum_node_id')
+          .eq('student_id', studentId);
+    });
+    final nodeIds = <String>{
+      for (final r in (assigns as List))
+        if ((r as Map)['curriculum_node_id']?.toString().isNotEmpty ?? false)
+          r['curriculum_node_id'].toString(),
+    };
+    if (nodeIds.isEmpty) return const [];
+
+    // 2) 서버 검색: original_filename / filename / title
+    //    Supabase(PostgREST)에서는 ilike.*foo* 패턴이 안전함
+    // 2) 서버 검색: original_filename / filename / title
+    // PostgREST의 .or() 안에서는 ilike.*...* 패턴을 사용
+    final pat = '*$safe*';
+
+    final data = await _retry(() async {
+      final sel = _c
+          .from(_tRes)
+          .select(
+            'id,title,filename,original_filename,content_hash,'
+            'storage_bucket,storage_path,curriculum_node_id,'
+            'mime_type,size_bytes,created_at',
+          )
+          .inFilter('curriculum_node_id', nodeIds.toList());
+
+      final q = sel
+          .or(
+            'filename.ilike.$pat,' // resources.filename
+            'title.ilike.$pat,' // resources.title
+            'resource_filename.ilike.$pat,' // lesson_resource_links.resource_filename
+            'resource_title.ilike.$pat,' // lesson_resource_links.resource_title
+            'original_filename.ilike.$pat', // lesson_attachments.original_filename
+          )
+          .order('original_filename', ascending: true, nullsFirst: false)
+          .order('filename', ascending: true, nullsFirst: false)
+          .order('created_at', ascending: false)
+          .limit(300);
+
+      return await q;
+    });
+
+
+    return _mapList(data);
   }
 
 }

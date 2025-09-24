@@ -41,6 +41,7 @@ dependencies:
   mime: ^1.0.5               # ⬅️ 리소스 업로드 시 MIME 판별용 (신규 추가)
 
   uuid: ^4.5.1
+  unorm_dart: ^0.3.0
 
 dev_dependencies:
   flutter_test:

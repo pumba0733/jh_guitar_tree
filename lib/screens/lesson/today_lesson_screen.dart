@@ -1,11 +1,11 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.68-ux3 | 배정리소스 다이얼로그: 루트 카테고리 필터(실DB 트리), 가나다 정렬, 원본제목 검색, 널안전/경고해결
-// - CurriculumService.listNodes()로 루트 타이틀 역추적(Map: node_id -> root_title)
-// - 다이얼로그가 nodeRootTitleMap(옵션)을 받아 루트 필터/표시에 사용
-// - 정렬: 원본 제목(없으면 title/filename) 기준 가나다
-// - 검색: 원본 제목 우선 매칭(한글 포함), 보조로 title/filename/path 포함
-// - withOpacity() -> withValues(alpha: …)로 교체
-// - parentId/title 널 안전 처리로 unchecked_use_of_nullable_value 해결
+// v1.68-ux3+auto | 오늘 수업 자동 복습 프리필
+// - 최초 진입 시 오늘 링크가 비어 있고 fromHistoryId 미지정이면:
+//   1) 가장 최근 과거 레슨 1건 조회
+//   2) 제목/메모/유튜브/키워드 프리필
+//   3) 그 레슨의 연결된 파일/첨부를 오늘 레슨에 자동 담기(중복 머지)
+//   4) 스낵바: "✅ {added}개 추가됨 (중복 {duplicated}, 실패 {failed})"
+// - 기존 흐름(과거 없거나 이미 오늘 링크 존재 시) 유지
 
 import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
@@ -13,6 +13,8 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:unorm_dart/unorm_dart.dart' as unorm;
+
 
 import '../../ui/components/drop_upload_area.dart';
 import '../../ui/components/save_status_indicator.dart';
@@ -66,6 +68,9 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
   // 진입 프리필용
   String? _fromHistoryId;
+
+  // 자동 복습 1회 수행 보호
+  bool _autoPrefillTried = false;
 
   // 오늘 날짜 (YYYY-MM-DD)
   late String _todayDateStr;
@@ -153,12 +158,20 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
     await _ensureTodayRow();
 
+    // 히스토리에서 넘어온 명시 복습
     if (((_fromHistoryId ?? '')).isNotEmpty) {
       await _prefillFromHistory(_fromHistoryId!);
     }
 
     await _loadKeywordData();
+
+    // 오늘 링크 로드
     await _reloadLessonLinks(ensure: true);
+
+    // 자동 복습: 오늘 링크 비어 있고(fromHistoryId 없음)일 때 1회만
+    if ((_fromHistoryId ?? '').isEmpty) {
+      await _maybeAutoPrefillFromLatestPast();
+    }
   }
 
   void _bindListeners() {
@@ -277,6 +290,83 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     } catch (e) {
       if (!mounted) return;
       _showError('복습 프리필 중 오류가 발생했어요: $e');
+    }
+  }
+
+  // ===== 자동 복습 본체 =====
+  Future<void> _maybeAutoPrefillFromLatestPast() async {
+    if (_autoPrefillTried) return;
+    _autoPrefillTried = true;
+
+    try {
+      // 오늘 링크가 이미 있으면 자동 복습 생략
+      if (_todayLinks.isNotEmpty) return;
+
+      // 가장 최근 과거 레슨 1건
+      final now = DateTime.now();
+      final startToday = DateTime(now.year, now.month, now.day);
+      final to = startToday.subtract(const Duration(seconds: 1));
+
+      final pastList = await _service.listByStudent(
+        _studentId,
+        to: to,
+        limit: 1,
+        asc: false,
+      );
+      if (pastList.isEmpty) return; // 과거 수업 없음 → 그대로 빈 흐름 유지
+
+      final latest = Map<String, dynamic>.from(pastList.first);
+      final historyId = (latest['id'] ?? '').toString();
+      if (historyId.isEmpty) return;
+
+      // 1) 텍스트류 프리필
+      await _prefillFromHistory(historyId);
+
+      // 2) 연결된 파일/첨부를 오늘 레슨에 담기
+      final links = await _links.listByLesson(historyId);
+      final List attachmentsRaw = (latest['attachments'] is List)
+          ? latest['attachments'] as List
+          : [];
+
+      Map<String, dynamic> _normalizeAttachment(dynamic a) {
+        if (a is Map) return Map<String, dynamic>.from(a);
+        final s = a?.toString() ?? '';
+        return <String, dynamic>{
+          'url': s,
+          'path': s,
+          'name': s.split('/').last,
+        };
+      }
+
+      final atts = attachmentsRaw.map(_normalizeAttachment).toList();
+
+      final r1 = await _links.addResourceLinkMapsToToday(
+        studentId: _studentId,
+        linkRows: links,
+      );
+      final r2 = await _links.addAttachmentsToTodayLesson(
+        studentId: _studentId,
+        attachments: atts,
+      );
+
+      final added = r1.added + r2.added;
+      final dup = r1.duplicated + r2.duplicated;
+      final failed = r1.failed + r2.failed;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '✅ $added개 추가됨 (중복 $dup, 실패 $failed) — 지난 수업을 자동으로 불러왔어요.',
+            ),
+          ),
+        );
+      }
+
+      // 3) 오늘 링크 갱신
+      await _reloadLessonLinks(ensure: true);
+    } catch (e) {
+      _showError('자동 복습 적용 중 오류: $e');
     }
   }
 
@@ -512,6 +602,8 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
             .toList(),
         defaultBucket: _defaultResourceBucket,
         nodeRootTitleMap: nodeRootTitleMap, // ← 루트 타이틀 맵 주입
+        studentId: _studentId,
+        curr: _curr,
       ),
     );
   }
@@ -1052,32 +1144,44 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                               );
                               if (!mounted) return;
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('복사했습니다.')),
+                                const SnackBar(content: Text('경로 복사됨')),
                               );
                               break;
-                            case 'open_mp3':
-                              await _openOriginalAudio(m);
+
+                            case 'copy_filename':
+                              final raw = (m['resource_filename'] ?? '')
+                                  .toString();
+                              final withoutExt = raw.contains('.')
+                                  ? raw.substring(0, raw.lastIndexOf('.'))
+                                  : raw;
+                              await Clipboard.setData(
+                                ClipboardData(text: withoutExt),
+                              );
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('파일명 복사됨: $withoutExt')),
+                              );
                               break;
+
                             case 'open_node':
-                              {
-                                final nodeId = (m['curriculum_node_id'] ?? '')
-                                    .toString();
-                                if (nodeId.isEmpty) break;
-                                try {
-                                  await _curr.openInBrowser(nodeId);
-                                } catch (_) {
-                                  await Clipboard.setData(
-                                    ClipboardData(text: nodeId),
-                                  );
-                                  if (!mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('노드 ID를 복사했습니다.'),
-                                    ),
-                                  );
-                                }
-                                break;
+                              final nodeId = (m['curriculum_node_id'] ?? '')
+                                  .toString();
+                              if (nodeId.isEmpty) break;
+                              try {
+                                await _curr.openInBrowser(nodeId);
+                              } catch (_) {
+                                await Clipboard.setData(
+                                  ClipboardData(text: nodeId),
+                                );
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('노드 ID를 복사했습니다.'),
+                                  ),
+                                );
                               }
+                              break;
+
                             case 'delete':
                               if (id.isEmpty) return;
                               _removeLessonLink(id);
@@ -1089,10 +1193,10 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                             value: 'copy_id',
                             child: Text(isNode ? '노드 ID 복사' : '경로 복사'),
                           ),
-                          if (isAudio)
+                          if (!isNode)
                             const PopupMenuItem(
-                              value: 'open_mp3',
-                              child: Text('원본 mp3로 열기'),
+                              value: 'copy_filename',
+                              child: Text('파일명 복사'),
                             ),
                           if (isNode)
                             const PopupMenuItem(
@@ -1240,11 +1344,15 @@ class _AssignedResourcesPickerDialog extends StatefulWidget {
   final List<Map<String, dynamic>> assigned;
   final String defaultBucket;
   final Map<String, String>? nodeRootTitleMap; // ← 옵션: node_id -> root_title
+  final String studentId;
+  final CurriculumService curr;
 
   const _AssignedResourcesPickerDialog({
     required this.assigned,
     required this.defaultBucket,
     this.nodeRootTitleMap,
+    required this.studentId,
+    required this.curr,
   });
 
   @override
@@ -1255,27 +1363,111 @@ class _AssignedResourcesPickerDialog extends StatefulWidget {
 class _AssignedResourcesPickerDialogState
     extends State<_AssignedResourcesPickerDialog> {
   final _queryCtl = TextEditingController();
-  final Map<String, Map<String, dynamic>> _selected =
-      {}; // key: bucket::path::filename
+
+  // 선택 상태 (key: bucket::path::filename)
+  final Map<String, Map<String, dynamic>> _selected = {};
+
   bool _selectAll = false;
 
   // 루트 카테고리 목록/선택 상태
   late final List<String> _roots;
   String _selectedRoot = '전체';
 
+  // 서버 검색 상태
+  List<Map<String, dynamic>> _list = const []; // 현재 표시 리스트(초기: assigned)
+  Timer? _searchDebounce;
+  bool _loading = false;
+
   @override
   void initState() {
     super.initState();
     _roots = _collectRoots(widget.assigned);
+    _list = widget.assigned;
+    _queryCtl.addListener(() {
+      _searchDebounce?.cancel();
+      _searchDebounce = Timer(
+        const Duration(milliseconds: 250),
+        _runSearch,
+      ); // 서버검색 디바운스
+      if (mounted) setState(() {}); // suffixIcon 즉시 갱신용
+    });
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _queryCtl.dispose();
     super.dispose();
   }
 
-  // ====== 유틸: 루트 카테고리 추출 ======
+  String _basename(String s) {
+    final i = s.lastIndexOf('.');
+    return (i > 0) ? s.substring(0, i) : s;
+  }
+
+  String _normKo(String s) {
+    final nfc = s.isEmpty ? s : unorm.nfc(s);
+    return nfc.toLowerCase().replaceAll(
+      RegExp(r'[\s\-\_\.\(\)\[\]\{\},/]+'),
+      '',
+    );
+  }
+
+  String _lastSegment(String s) {
+    final t = s.split('/').where((e) => e.isNotEmpty).toList();
+    return t.isEmpty ? s : t.last;
+  }
+
+  Future<void> _runSearch() async {
+    if (!mounted) return;
+    final q = _queryCtl.text.trim();
+
+    if (q.isEmpty) {
+      setState(() {
+        _loading = false;
+        _list = widget.assigned;
+      });
+      return;
+    }
+
+    setState(() => _loading = true);
+
+    final needle = _normKo(q);
+
+    bool hit(Map<String, dynamic> r) {
+      String v(String k) => (r[k] ?? '').toString();
+
+      final filename = v('filename');
+      final original = v('original_filename');
+      final path = v('storage_path'); // 전체 경로
+      final last = _lastSegment(path); // 마지막 세그먼트
+
+      final bag =
+          <String>[
+                filename,
+                _basename(filename), // 확장자 제거본
+                original,
+                _basename(original),
+                path, // ✅ 전체 경로도 통째로 검색
+                last,
+                _basename(last),
+                v('title'),
+              ]
+              .where((e) => e.trim().isNotEmpty)
+              .map(_normKo) // ✅ NFC 정규화 + 소문자 + 구분자 제거
+              .toList();
+
+      return bag.any((h) => h.contains(needle));
+    }
+
+    setState(() {
+      _list = widget.assigned.where(hit).toList();
+      _loading = false;
+    });
+  }
+
+
+  // ====== 루트 카테고리 추출 ======
   String _extractRoot(Map<String, dynamic> r) {
     String pickNonEmpty(List<String?> cands) {
       for (final c in cands) {
@@ -1285,7 +1477,7 @@ class _AssignedResourcesPickerDialogState
       return '';
     }
 
-    // 1) 주입된 맵이 있고 node_id가 있으면 그걸 최우선 사용
+    // 1) 주입된 맵(node_id -> root_title)이 있으면 최우선 사용
     final nid = (r['curriculum_node_id'] ?? '').toString();
     if (nid.isNotEmpty &&
         (widget.nodeRootTitleMap?.containsKey(nid) ?? false)) {
@@ -1293,7 +1485,7 @@ class _AssignedResourcesPickerDialogState
       if (t.trim().isNotEmpty) return t.trim();
     }
 
-    // 2) 행 자체에 힌트가 있다면 활용(폴백)
+    // 2) 행 자체의 힌트 활용 (폴백)
     final nodeFull = (r['node_full_title'] ?? r['node_path'] ?? '').toString();
     final guessedFromChain = nodeFull.contains('/')
         ? nodeFull.split('/').first.trim()
@@ -1318,7 +1510,7 @@ class _AssignedResourcesPickerDialogState
     return ['전체', ...list];
   }
 
-  // ====== 유틸: 표시/검색용 원본 제목 ======
+  // ====== 표시/검색용 원본 제목 ======
   String _originalTitleOf(Map<String, dynamic> r) {
     return (r['original_title'] ??
             r['original_filename'] ??
@@ -1329,12 +1521,12 @@ class _AssignedResourcesPickerDialogState
         .trim();
   }
 
-  // 목록 필터(루트/검색/파일형만 통과) + 정렬 + 중복 제거
+  // 목록 필터(루트/검색) + 정렬 + 중복 제거
   List<Map<String, dynamic>> _filtered() {
-    final q = _queryCtl.text.trim().toLowerCase();
+    final q = _queryCtl.text.trim();
 
     // 1) 파일만 통과: storage_path(or path) & filename 필요
-    List<Map<String, dynamic>> base = widget.assigned.where((r) {
+    List<Map<String, dynamic>> base = _list.where((r) {
       final path = (r['storage_path'] ?? r['path'] ?? '').toString().trim();
       final filename = (r['filename'] ?? '').toString().trim();
       return path.isNotEmpty && filename.isNotEmpty;
@@ -1345,19 +1537,32 @@ class _AssignedResourcesPickerDialogState
       base = base.where((r) => _extractRoot(r) == _selectedRoot).toList();
     }
 
-    // 3) 검색 (원본 제목 우선, 보조로 title/filename/path 포함)
+    // 3) 추가 클라이언트 검색(서버검색 결과 위에 보조 필터)
     if (q.isNotEmpty) {
-      base = base.where((r) {
-        final orig = _originalTitleOf(r).toLowerCase();
-        final title = (r['title'] ?? '').toString().toLowerCase();
-        final filename = (r['filename'] ?? '').toString().toLowerCase();
-        final path = (r['storage_path'] ?? r['path'] ?? '')
-            .toString()
-            .toLowerCase();
-        if (orig.contains(q)) return true; // 원본 제목 우선 매칭
-        return title.contains(q) || filename.contains(q) || path.contains(q);
-      }).toList();
+      final needle = _normKo(q);
+      bool hit(Map<String, dynamic> r) {
+        String v(String k) => (r[k] ?? '').toString();
+        final filename = v('filename');
+        final original = v('original_filename');
+        final path = v('storage_path');
+        final last = _lastSegment(path);
+
+        final bag = <String>[
+          filename,
+          _basename(filename),
+          original,
+          _basename(original),
+          last,
+          _basename(last),
+          v('title'),
+        ].where((e) => e.trim().isNotEmpty).map(_normKo).toList();
+
+        return bag.any((h) => h.contains(needle));
+      }
+
+      base = base.where(hit).toList();
     }
+
 
     // 4) 정렬 (가나다/알파벳): 원본 제목 → 없으면 타이틀/파일명
     base.sort((a, b) {
@@ -1465,7 +1670,7 @@ class _AssignedResourcesPickerDialogState
         height: 520,
         child: Column(
           children: [
-            // 루트 카테고리 선택 + 검색
+            // 루트 카테고리 + 검색
             Row(
               children: [
                 Expanded(
@@ -1512,7 +1717,7 @@ class _AssignedResourcesPickerDialogState
                             ),
                       border: const OutlineInputBorder(),
                     ),
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => setState(() {}), // 즉시 UI 반영
                   ),
                 ),
               ],
@@ -1529,6 +1734,11 @@ class _AssignedResourcesPickerDialogState
                 Text('선택: ${_selected.length}개'),
               ],
             ),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: LinearProgressIndicator(minHeight: 2),
+              ),
             const SizedBox(height: 4),
             Expanded(
               child: items.isEmpty
