@@ -6,7 +6,6 @@ import '../models/lesson.dart';
 import '../supabase/supabase_tables.dart';
 import '../../services/xsc_sync_service.dart';
 
-
 class LessonService {
   final SupabaseClient _client = Supabase.instance.client;
 
@@ -377,6 +376,104 @@ class LessonService {
         .maybeSingle();
     if (data == null) throw StateError('레슨 upsert 실패');
     return Map<String, dynamic>.from(data as Map);
+  }
+
+  // ========= 업데이트(단일 행) =========
+
+  /// id 기준 부분 업데이트.
+  /// patch는 subject/memo/youtube_url/keywords/attachments/date 등을 포함할 수 있음.
+  /// - keywords/attachments는 서비스 표준 정규화 적용
+  /// - date는 DateTime | String 모두 허용 (String은 'yyyy-MM-dd' 권장)
+  /// 반환: 성공 여부
+  Future<bool> updateById(String id, Map<String, dynamic> patch) async {
+    if (id.isEmpty) {
+      throw ArgumentError('updateById: id가 비어 있습니다.');
+    }
+
+    final payload = Map<String, dynamic>.from(patch);
+
+    // 후방 호환: next_plan 키가 들어와도 무시
+    payload.remove('next_plan');
+
+    // date 정규화
+    if (payload.containsKey('date')) {
+      final v = payload['date'];
+      if (v is DateTime) {
+        payload['date'] = _dateKey(v);
+      } else if (v is String) {
+        // 빈 값이면 제거, 아니면 그대로 사용 (권장 포맷: yyyy-MM-dd)
+        if (v.trim().isEmpty) payload.remove('date');
+      } else {
+        // 알 수 없는 타입이면 제거
+        payload.remove('date');
+      }
+    }
+
+    // keywords/attachments 정규화
+    if (payload.containsKey('keywords')) {
+      payload['keywords'] = _normalizeKeywords(payload['keywords']);
+    }
+    if (payload.containsKey('attachments')) {
+      payload['attachments'] = _normalizeAttachments(payload['attachments']);
+    }
+
+    final data = await _client
+        .from(SupabaseTables.lessons)
+        .update(payload)
+        .eq('id', id)
+        .select('id')
+        .maybeSingle();
+
+    return data != null;
+  }
+
+  /// 날짜 변경 시 (student_id, date) 유니크 제약 안전 체크 포함 업데이트
+  /// - 다른 레슨이 동일 (student_id, newDate)에 존재하면 예외
+  Future<bool> updateByIdSafeDate(String id, Map<String, dynamic> patch) async {
+    if (!patch.containsKey('date')) {
+      // 날짜 변경이 아닌 경우는 일반 업데이트 수행
+      return updateById(id, patch);
+    }
+
+    // 현재 행 조회 (student_id 필요)
+    final cur = await getById(id);
+    if (cur == null) {
+      throw StateError('updateByIdSafeDate: 대상 레슨을 찾을 수 없습니다.');
+    }
+    final studentId = (cur['student_id'] ?? '').toString();
+    if (studentId.isEmpty) {
+      throw StateError('updateByIdSafeDate: student_id가 비어 있습니다.');
+    }
+
+    // 새 날짜 정규화
+    DateTime? newDate;
+    final v = patch['date'];
+    if (v is DateTime) {
+      newDate = v;
+    } else if (v is String) {
+      final parsed = DateTime.tryParse(
+        v.replaceAll('.', '-').replaceAll('/', '-'),
+      );
+      if (parsed != null) {
+        newDate = parsed;
+      }
+    }
+    if (newDate == null) {
+      // 포맷 불명일 경우 일반 업데이트로 위임
+      return updateById(id, patch);
+    }
+
+    // (student_id, newDate)에 이미 다른 행이 있는지 검사
+    final dup = await _getRowByStudentAndDate(studentId, newDate);
+    if (dup != null && (dup['id'] ?? '').toString() != id) {
+      // 충돌: 화면에서 안내하고 취소하도록 예외 처리
+      throw StateError('같은 학생의 동일 날짜 레슨이 이미 존재합니다.');
+    }
+
+    // 안전하므로 업데이트 실행
+    final payload = Map<String, dynamic>.from(patch);
+    payload['date'] = _dateKey(newDate);
+    return updateById(id, payload);
   }
 
   // ========= 첨부 헬퍼 =========

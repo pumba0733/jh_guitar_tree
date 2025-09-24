@@ -1,8 +1,8 @@
 // lib/services/curriculum_service.dart
-// v1.46.6 | 배정 리소스 조회 경로 수정 (inFilter 사용) + 미사용 상수 정리
-// - FIX: .in_() → .inFilter('col', values)
-// - CHORE: 미사용 _tNodeRes 제거
-// - 나머지 기존 기능 유지
+// v1.46.7 | 루트 이동 지원: parent_id=NULL 명시 패치 (forceParentNull)
+// - updateNode(..., forceParentNull) 추가
+// - moveNode(...)가 루트 이동 시 forceParentNull 자동 설정
+// - 기타 기존 동작/시그니처 유지
 
 import 'dart:async' show TimeoutException;
 import 'dart:io' show SocketException, HttpException;
@@ -162,9 +162,7 @@ class CurriculumService {
         'attach_me_to_student',
         params: {'p_student_id': studentId},
       );
-    } catch (_) {
-      // 조용히 무시 (권한/상태에 따라 실패할 수 있음)
-    }
+    } catch (_) {}
   }
 
   Future<List<Map<String, dynamic>>> listNodesByParent(String? parentId) async {
@@ -189,11 +187,9 @@ class CurriculumService {
   }
 
   // ---------- Assignments ----------
-  // ---------- Assignments ----------
   Future<List<Map<String, dynamic>>> listAssignmentsByStudent(
     String studentId,
   ) async {
-    // 0) 학생-세션 연결이 안되어 있으면 붙여둔다(무해, 실패시 무시)
     try {
       await Supabase.instance.client.rpc(
         'attach_me_to_student',
@@ -201,24 +197,18 @@ class CurriculumService {
       );
     } catch (_) {}
 
-    // 1) SECURITY DEFINER RPC 우선 (RLS 우회 X, 서버에서 권한 체크)
     try {
       final data = await _retry(
         () => _c.rpc(
           'list_assignments_by_student',
           params: {'p_student_id': studentId},
         ),
-        // attach 직후 반영 지연 대비 재시도 허용
         shouldRetry: (_) => true,
       );
       final list = _mapList(data);
       if (list.isNotEmpty) return list;
-      // 비어있으면 아래 폴백으로 시도
-    } catch (_) {
-      /* 폴백 */
-    }
+    } catch (_) {}
 
-    // 2) 폴백: 직접 테이블 조회(교사/관리자 세션에서만 통과될 수 있음)
     final data = await _retry(
       () => _c.from(_tAssign).select().eq('student_id', studentId),
     );
@@ -326,6 +316,7 @@ class CurriculumService {
     String? fileUrl,
     int? order,
     Map<String, dynamic>? extra,
+    bool forceParentNull = false, // ★ 추가: 루트 이동 명시
   }) async {
     if (id.trim().isEmpty) {
       throw ArgumentError('updateNode: id 누락');
@@ -334,18 +325,28 @@ class CurriculumService {
     if (before == null) {
       throw StateError('updateNode: 대상 노드를 찾을 수 없습니다. id=$id');
     }
-    final newParentId = parentId ?? before['parent_id'];
-    final newType = (type ?? before['type'] ?? '').toString();
-    _ensureNotRootFile(parentId: newParentId, type: newType);
 
+    // 최종 parent/type 계산 (검증용)
+    final String? finalParentId = forceParentNull
+        ? null
+        : (parentId ?? before['parent_id']);
+    final String finalType = (type ?? before['type'] ?? '').toString();
+
+    _ensureNotRootFile(parentId: finalParentId, type: finalType);
+
+    // Patch 구성: parent_id는
+    // - forceParentNull=true 이면 명시적으로 null 포함
+    // - 그렇지 않으면 parentId가 non-null일 때만 포함(기존 호환)
     final payload = <String, dynamic>{
-      if (parentId != null) 'parent_id': parentId,
+      if (forceParentNull) 'parent_id': null,
+      if (!forceParentNull && parentId != null) 'parent_id': parentId,
       if (type != null) 'type': type,
       if (title != null) 'title': title.trim(),
       if (fileUrl != null) 'file_url': fileUrl,
       if (order != null) 'order': order,
       if (extra != null) ...extra,
     };
+
     final updated = await _retry(
       () => _c.from(_tNodes).update(payload).eq('id', id).select().single(),
     );
@@ -354,10 +355,15 @@ class CurriculumService {
 
   Future<Map<String, dynamic>> moveNode({
     required String id,
-    String? newParentId,
+    String? newParentId, // null = 루트
     int? newOrder,
   }) {
-    return updateNode(id: id, parentId: newParentId, order: newOrder);
+    return updateNode(
+      id: id,
+      parentId: newParentId,
+      order: newOrder,
+      forceParentNull: newParentId == null, // ★ 루트 이동 시 명시 null
+    );
   }
 
   Future<void> deleteNode(String id, {bool recursive = false}) async {
@@ -378,11 +384,9 @@ class CurriculumService {
   Future<List<Map<String, dynamic>>> fetchAssignedResourcesForStudent(
     String studentId,
   ) async {
-    // ⬇️ 세션/바인딩 보장
     await _ensureAuthSession();
     await ensureStudentBinding(studentId);
 
-    // 1) 배정된 노드 목록
     final assigns = await _retry(() async {
       return await _c
           .from(_tAssign)
@@ -396,7 +400,6 @@ class CurriculumService {
     };
     if (nodeIds.isEmpty) return const [];
 
-    // 2) 해당 노드의 파일 리소스
     final data = await _retry(() async {
       return await _c
           .from(_tRes)
@@ -409,7 +412,6 @@ class CurriculumService {
           .order('created_at', ascending: false);
     });
 
-    // 3) 클라이언트 이중 방어(널/공백 제거) + dedupe(bucket::path::filename)
     final seen = <String>{};
     final out = <Map<String, dynamic>>[];
 
@@ -439,14 +441,11 @@ class CurriculumService {
     await _ensureAuthSession();
     await ensureStudentBinding(studentId);
 
-    // 0) 검색어 전처리
     final raw = (query).trim();
     if (raw.isEmpty) return const [];
-    // PostgREST .or() 안정화를 위해 콤마/괄호 제거
     final safe = raw.replaceAll(RegExp(r'[,\(\)]'), ' ').trim();
     if (safe.isEmpty) return const [];
 
-    // 1) 배정된 노드 확보
     final assigns = await _retry(() async {
       return await _c
           .from(_tAssign)
@@ -460,10 +459,6 @@ class CurriculumService {
     };
     if (nodeIds.isEmpty) return const [];
 
-    // 2) 서버 검색: original_filename / filename / title
-    //    Supabase(PostgREST)에서는 ilike.*foo* 패턴이 안전함
-    // 2) 서버 검색: original_filename / filename / title
-    // PostgREST의 .or() 안에서는 ilike.*...* 패턴을 사용
     final pat = '*$safe*';
 
     final data = await _retry(() async {
@@ -478,11 +473,11 @@ class CurriculumService {
 
       final q = sel
           .or(
-            'filename.ilike.$pat,' // resources.filename
-            'title.ilike.$pat,' // resources.title
-            'resource_filename.ilike.$pat,' // lesson_resource_links.resource_filename
-            'resource_title.ilike.$pat,' // lesson_resource_links.resource_title
-            'original_filename.ilike.$pat', // lesson_attachments.original_filename
+            'filename.ilike.$pat,'
+            'title.ilike.$pat,'
+            'resource_filename.ilike.$pat,'
+            'resource_title.ilike.$pat,'
+            'original_filename.ilike.$pat',
           )
           .order('original_filename', ascending: true, nullsFirst: false)
           .order('filename', ascending: true, nullsFirst: false)
@@ -492,8 +487,6 @@ class CurriculumService {
       return await q;
     });
 
-
     return _mapList(data);
   }
-
 }

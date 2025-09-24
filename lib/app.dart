@@ -1,13 +1,15 @@
 // lib/app.dart
-// v1.58.1 | 앱 레벨 보정 + 세션 복원 + 멀티학생 워크스페이스
-// - 부팅/세션변경 시 AuthService.restoreLinkedIdentities() 호출 추가
-// - 기존 ensureTeacherLink()는 유지 (교사 이메일-레코드 링크 보강)
-// - WORKSPACE_ENABLED/WORKSPACE_DIR 조건에 맞을 때만 macOS 루트 감시
+// v1.58.2 | 앱 레벨 보정 + 세션 복원 + 멀티학생 워크스페이스 + 로컬라이제이션 적용
+// - 부팅/세션변경 시 AuthService.restoreLinkedIdentities() 호출
+// - ensureTeacherLink() 유지
+// - WORKSPACE_ENABLED/WORKSPACE_DIR 조건에서만 macOS 루트 감시
+// - MaterialLocalizations 제공을 위해 Localizations delegates/supportedLocales 추가
 
 import 'dart:async' show StreamSubscription, unawaited;
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'routes/app_routes.dart';
 import 'services/retry_queue_service.dart';
@@ -126,6 +128,19 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         builder: (_) =>
             const Scaffold(body: Center(child: Text('알 수 없는 경로입니다.'))),
       ),
+
+      // ===== 🌐 Localizations (DatePicker 등 Material 위젯에 필수) =====
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('ko'), // 한국어
+        Locale('en'), // 영어
+      ],
+      // 필요 시 기본 언어 고정
+      // locale: const Locale('ko'),
     );
   }
 }

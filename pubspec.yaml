@@ -1,45 +1,37 @@
 name: guitartree
-description: "🎸 JH_GuitarTree - Guitar Lesson Management (Supabase 기반)"
-publish_to: 'none'
+description: JH_GuitarTree - Guitar Lesson Management (Supabase)
+publish_to: "none"
 
 version: 1.0.0+1
 
 environment:
-  # 로컬 스펙: Flutter 3.35.1 / Dart 3.8.1
   sdk: ">=3.8.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
   meta: ^1.11.0
   cupertino_icons: ^1.0.8
   provider: ^6.1.5
 
-  # Supabase & Auth
-  supabase_flutter: ^2.6.0   # (2.6.0 사용 OK)
-
-  # 🔽 추가/유지
+  supabase_flutter: ^2.6.0
   crypto: ^3.0.3
-  shared_preferences: ^2.3.2  # 실제 미사용이면 제거 가능
-
-  # Local Storage
+  shared_preferences: ^2.3.2
   hive: ^2.2.3
   hive_flutter: ^1.1.0
-
-  # File / Open
-  file_picker: ^8.1.2        # ⬅️ 업로드/스트림 옵션 호환 위해 마이너 업
+  file_picker: ^8.1.2
   open_filex: ^4.3.2
   desktop_drop: ^0.4.4
   cross_file: ^0.3.4+2
-
-  # Utils
-  intl: ^0.19.0
+  intl: ^0.20.2
   path_provider: ^2.1.4
   path: ^1.9.0
   http: ^1.2.2
   url_launcher: ^6.3.0
-  mime: ^1.0.5               # ⬅️ 리소스 업로드 시 MIME 판별용 (신규 추가)
-
+  mime: ^1.0.5
   uuid: ^4.5.1
   unorm_dart: ^0.3.0
 
@@ -52,13 +44,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
   assets:
     - assets/images/
     - assets/icons/
-  # fonts:
-  #   - family: NotoSansKR
-  #     fonts:
-  #       - asset: assets/fonts/NotoSansKR-Regular.otf
-  #       - asset: assets/fonts/NotoSansKR-Bold.otf
-  #         weight: 700

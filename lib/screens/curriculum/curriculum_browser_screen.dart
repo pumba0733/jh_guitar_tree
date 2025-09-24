@@ -1,9 +1,10 @@
 // lib/screens/curriculum/curriculum_browser_screen.dart
-// v1.46.0-ui | 커리큘럼 다중선택(체크박스) + 선택 배정 / 학생 다이얼로그 '전체 선택' + 악기표시 + 가나다정렬
+// v1.73.1-ui | 커리큘럼 다중선택(체크박스) + 선택 배정 / 학생 다이얼로그 '전체 선택' + 악기표시 + 가나다정렬
+// CHG: '오늘 레슨에 노드 링크' / '오늘 레슨에 링크' 기능 및 버튼 제거
 //
 // 의존:
 // - models: curriculum.dart, resource.dart, student.dart
-// - services: curriculum_service.dart, resource_service.dart, file_service.dart, student_service.dart, lesson_links_service.dart
+// - services: curriculum_service.dart, resource_service.dart, file_service.dart, student_service.dart
 // - packages: url_launcher
 
 import 'package:flutter/foundation.dart';
@@ -17,9 +18,6 @@ import '../../services/curriculum_service.dart';
 import '../../services/resource_service.dart';
 import '../../services/file_service.dart';
 import '../../services/student_service.dart';
-import '../../services/lesson_links_service.dart';
-import '../../services/xsc_sync_service.dart';
-
 
 class CurriculumBrowserScreen extends StatefulWidget {
   const CurriculumBrowserScreen({super.key});
@@ -32,13 +30,12 @@ class CurriculumBrowserScreen extends StatefulWidget {
 class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
   final _svc = CurriculumService();
   final _resSvc = ResourceService();
-  final _links = LessonLinksService();
   late Future<List<Map<String, dynamic>>> _load;
 
   CurriculumNode? _selected; // 우측 패널 상세 표시용 (단일 선택)
   Future<List<ResourceFile>>? _resLoad; // 선택 노드 리소스
 
-  // === NEW: 좌측 트리 다중선택 ===
+  // === 좌측 트리 다중선택 ===
   final Set<String> _selectedNodeIds = <String>{};
 
   @override
@@ -88,7 +85,7 @@ class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  // === NEW: 다중 선택된 노드 일괄 배정 ===
+  // === 다중 선택된 노드 일괄 배정 ===
   Future<void> _assignSelectedNodesToStudents() async {
     if (_selectedNodeIds.isEmpty) return;
     final picked = await _pickStudentsDialog();
@@ -108,49 +105,6 @@ class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
     }
     if (!mounted) return;
     final msg = fail == 0 ? '배정 완료 ($ok건)' : '일부 실패: 성공 $ok / 실패 $fail';
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
-  // === 오늘 레슨 링크 (기존 유지) ===
-  Future<void> _linkNodeToTodayLesson(CurriculumNode node) async {
-    final picked = await _pickStudentsDialog();
-    if (picked == null || picked.selected.isEmpty) return;
-
-    int ok = 0, fail = 0;
-    for (final stu in picked.selected) {
-      final success = await _links.sendNodeToTodayLesson(
-        studentId: stu.id,
-        nodeId: node.id,
-      );
-      if (success) {
-        ok++;
-      } else {
-        fail++;
-      }
-    }
-    if (!mounted) return;
-    final msg = fail == 0 ? '오늘 레슨 링크 완료 ($ok명)' : '일부 실패: 성공 $ok / 실패 $fail';
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
-  Future<void> _linkResourceToTodayLesson(ResourceFile r) async {
-    final picked = await _pickStudentsDialog();
-    if (picked == null || picked.selected.isEmpty) return;
-
-    int ok = 0, fail = 0;
-    for (final stu in picked.selected) {
-      final success = await _links.sendResourceToTodayLesson(
-        studentId: stu.id,
-        resource: r,
-      );
-      if (success) {
-        ok++;
-      } else {
-        fail++;
-      }
-    }
-    if (!mounted) return;
-    final msg = fail == 0 ? '리소스 링크 완료 ($ok명)' : '일부 실패: 성공 $ok / 실패 $fail';
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
@@ -193,7 +147,7 @@ class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
               ),
             ),
           IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
-          // === NEW: 선택 배정 버튼 ===
+          // === 선택 배정 버튼 ===
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: FilledButton.icon(
@@ -234,7 +188,7 @@ class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
                 byParent: byParent,
                 hideRootFiles: true, // ✅ 루트파일 숨김
                 onTapTitle: _selectNode,
-                // === NEW: 체크박스 핸들러 전달 ===
+                // === 체크박스 핸들러 전달 ===
                 isChecked: (id) => _selectedNodeIds.contains(id),
                 onToggleCheck: (id, v) {
                   setState(() {
@@ -287,12 +241,7 @@ class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
                             icon: const Icon(Icons.assignment_ind),
                             label: const Text('학생에게 배정'),
                           ),
-                          const SizedBox(width: 8),
-                          OutlinedButton.icon(
-                            onPressed: () => _linkNodeToTodayLesson(n),
-                            icon: const Icon(Icons.link),
-                            label: const Text('오늘 레슨에 노드 링크'),
-                          ),
+                          // NOTE: '오늘 레슨에 노드 링크' 버튼 제거됨
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -356,14 +305,7 @@ class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
                                                 Icons.open_in_new,
                                               ),
                                             ),
-                                            IconButton(
-                                              tooltip: '오늘 레슨에 링크',
-                                              onPressed: () =>
-                                                  _linkResourceToTodayLesson(r),
-                                              icon: const Icon(
-                                                Icons.link_outlined,
-                                              ),
-                                            ),
+                                            // NOTE: '오늘 레슨에 링크' 아이콘 버튼 제거됨
                                           ],
                                         ),
                                       );
@@ -410,7 +352,7 @@ class _Tree extends StatelessWidget {
   // 타이틀 클릭 시 우측 패널용 단일 선택 (기존 onTap 동작 대체)
   final ValueChanged<CurriculumNode> onTapTitle;
 
-  // === NEW: 체크박스 상태/토글 ===
+  // 체크박스 상태/토글
   final bool Function(String id) isChecked;
   final void Function(String id, bool? value) onToggleCheck;
 
@@ -483,7 +425,7 @@ class _StudentPickerDialogState extends State<_StudentPickerDialog> {
   final _query = TextEditingController();
   final _selected = <String, Student>{};
 
-  bool _selectAll = false; // === NEW: 전체 선택 토글
+  bool _selectAll = false; // === 전체 선택 토글
 
   @override
   void dispose() {
@@ -509,7 +451,7 @@ class _StudentPickerDialogState extends State<_StudentPickerDialog> {
           _selected[s.id] = s;
         }
       } else {
-        // 현재 필터로 보이는 학생만 선택 해제 (기존 다른 선택은 유지하고 싶다면 아래를 주석 처리)
+        // 현재 필터로 보이는 학생만 선택 해제
         for (final s in items) {
           _selected.remove(s.id);
         }
@@ -547,7 +489,7 @@ class _StudentPickerDialogState extends State<_StudentPickerDialog> {
               onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 8),
-            // === NEW: 전체 선택 스위치 ===
+            // === 전체 선택 스위치 ===
             Row(
               children: [
                 Switch(

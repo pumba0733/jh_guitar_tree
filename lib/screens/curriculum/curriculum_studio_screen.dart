@@ -1,9 +1,7 @@
 // lib/screens/curriculum/curriculum_studio_screen.dart
-// v1.47.0 | 커리큘럼 스튜디오 (업로드 바쁜 상태/403 안내/URL 보정/정렬 경계 보정)
-// - 업로드 중 UI 잠금(_busy) + 진행 스피너
-// - Storage/RLS 403 친화 메시지
-// - URL 스킴 자동 보정(https://)
-// - order 이동 경계값 보정
+// v1.74.1 | 이동 로직: service.moveNode() 사용(루트 이동 지원) + siblings 계산 정리
+// - 루트 이동(newParentId=null) 시 parent_id=NULL 제대로 반영
+// - 불필요한 toMap()/fromMap() 왕복 제거
 
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -102,8 +100,8 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     await _refresh();
   }
 
+  // (UI에서 사용 제거됨) 순서 이동
   Future<void> _moveOrder(CurriculumNode n, int delta) async {
-    // 경계값 보정: 형제 목록 기준으로 0..(len-1) 사이로 클램프
     try {
       final all = await _svc.listNodes();
       final nodes = all
@@ -125,7 +123,6 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
   }
 
   Future<void> _openUrl(String url) async {
-    // 스킴 보정: 사용자가 www. 또는 도메인만 넣은 경우 https:// 접두
     var u = url.trim();
     if (!u.contains('://')) u = 'https://$u';
     final uri = Uri.tryParse(u);
@@ -169,6 +166,103 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
       await _svc.updateNode(id: n.id, order: i);
     }
     await _refresh();
+  }
+
+  Future<void> _openMoveDialog({
+    required CurriculumNode target,
+    required List<CurriculumNode> allNodes,
+  }) async {
+    // 후보: category 타입만, 자기 자신 및 자신의 하위는 제외
+    final byId = {for (final n in allNodes) n.id: n};
+    bool isDescendant(String? candidateId, String nodeId) {
+      var cursor = candidateId;
+      while (cursor != null) {
+        if (cursor == nodeId) return true;
+        cursor = byId[cursor]?.parentId;
+      }
+      return false;
+    }
+
+    final allowed = <_MoveCandidate>[];
+
+    // 루트(최상위) 후보: 파일은 금지(스키마 제약), 카테고리는 허용
+    if (target.type == 'category') {
+      allowed.add(_MoveCandidate(id: null, pathText: '루트(최상위)', isRoot: true));
+    }
+
+    // 카테고리들 중에서 유효한 목적지만 추출
+    for (final n in allNodes) {
+      if (n.type != 'category') continue;
+      if (n.id == target.id) continue; // 자기 자신 금지
+      if (isDescendant(n.id, target.id)) continue; // 자손 밑으로 금지
+      final path = _buildPathText(n, byId);
+      allowed.add(_MoveCandidate(id: n.id, pathText: path));
+    }
+
+    if (allowed.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('이동 가능한 위치가 없습니다.')));
+      return;
+    }
+
+    final dest = await showDialog<_MoveCandidate>(
+      context: context,
+      builder: (_) => _MoveNodeDialog(target: target, candidates: allowed),
+    );
+    if (dest == null) return;
+
+    await _moveNodeTo(target: target, newParentId: dest.id, allNodes: allNodes);
+  }
+
+  Future<void> _moveNodeTo({
+    required CurriculumNode target,
+    required String? newParentId,
+    required List<CurriculumNode> allNodes,
+  }) async {
+    try {
+      // 제약 재확인: 파일 → 루트 금지
+      if (target.type == 'file' && newParentId == null) {
+        throw '파일 노드는 루트(최상위)로 이동할 수 없습니다.';
+      }
+      // 도착지 형제들 (간소화)
+      final siblings = allNodes.where((x) => x.parentId == newParentId).toList()
+        ..sort((a, b) => a.order.compareTo(b.order));
+      final newOrder = siblings.isEmpty ? 0 : (siblings.last.order + 1);
+
+      // ✅ 핵심: moveNode 사용 (루트 이동 시 parent_id=NULL 반영)
+      await _svc.moveNode(
+        id: target.id,
+        newParentId: newParentId, // null이면 루트
+        newOrder: newOrder,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('이동 완료: "${target.title}"')));
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('이동 실패: $e')));
+    }
+  }
+
+  String _buildPathText(CurriculumNode n, Map<String, CurriculumNode> byId) {
+    final parts = <String>[];
+    var cur = n;
+    while (true) {
+      parts.add(cur.title);
+      final pid = cur.parentId;
+      if (pid == null) break;
+      final p = byId[pid];
+      if (p == null) break;
+      cur = p;
+    }
+    return parts.reversed.join(' / ');
   }
 
   @override
@@ -237,6 +331,7 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
                       trailing: Wrap(
                         spacing: 4,
                         children: [
+                          // ✅ 유지: 형제 정렬
                           IconButton(
                             tooltip: '형제 정렬',
                             onPressed: () => _openSiblingReorderDialog(
@@ -247,44 +342,20 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
                             ),
                             icon: const Icon(Icons.swap_vert),
                           ),
+                          // ✅ 이동
                           IconButton(
-                            tooltip: '위로',
-                            onPressed: () => _moveOrder(n, -1),
-                            icon: const Icon(Icons.arrow_upward, size: 20),
+                            tooltip: '이동',
+                            onPressed: () =>
+                                _openMoveDialog(target: n, allNodes: nodes),
+                            icon: const Icon(Icons.drive_file_move),
                           ),
-                          IconButton(
-                            tooltip: '아래로',
-                            onPressed: () => _moveOrder(n, 1),
-                            icon: const Icon(Icons.arrow_downward, size: 20),
-                          ),
-                          IconButton(
-                            tooltip: '리소스 관리',
-                            onPressed: () => _openResourceManager(n),
-                            icon: const Icon(Icons.attach_file),
-                          ),
-                          if (n.type == 'file')
-                            IconButton(
-                              tooltip: '링크 편집(호환)',
-                              onPressed: () => _editFileUrl(n),
-                              icon: const Icon(Icons.link),
-                            ),
+                          // ✅ 제목 수정
                           IconButton(
                             tooltip: '제목',
                             onPressed: () => _editNode(n),
                             icon: const Icon(Icons.edit),
                           ),
-                          IconButton(
-                            tooltip: '하위 카테고리',
-                            onPressed: () =>
-                                _addNode(parentId: n.id, type: 'category'),
-                            icon: const Icon(Icons.create_new_folder),
-                          ),
-                          IconButton(
-                            tooltip: '하위 파일',
-                            onPressed: () =>
-                                _addNode(parentId: n.id, type: 'file'),
-                            icon: const Icon(Icons.note_add),
-                          ),
+                          // ✅ 삭제
                           IconButton(
                             tooltip: '삭제',
                             onPressed: () => _deleteNode(n),
@@ -405,6 +476,107 @@ class _SiblingReorderDialogState extends State<_SiblingReorderDialog> {
   }
 }
 
+// ===== 이동 대상 선택 다이얼로그 =====
+class _MoveCandidate {
+  final String? id; // null = 루트
+  final String pathText;
+  final bool isRoot;
+  _MoveCandidate({
+    required this.id,
+    required this.pathText,
+    this.isRoot = false,
+  });
+}
+
+class _MoveNodeDialog extends StatefulWidget {
+  final CurriculumNode target;
+  final List<_MoveCandidate> candidates;
+  const _MoveNodeDialog({required this.target, required this.candidates});
+
+  @override
+  State<_MoveNodeDialog> createState() => _MoveNodeDialogState();
+}
+
+class _MoveNodeDialogState extends State<_MoveNodeDialog> {
+  String _q = '';
+  _MoveCandidate? _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.candidates.isNotEmpty) {
+      _selected = widget.candidates.first;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = widget.candidates.where((c) {
+      if (_q.trim().isEmpty) return true;
+      final t = _q.trim().toLowerCase();
+      return c.pathText.toLowerCase().contains(t);
+    }).toList();
+
+    return AlertDialog(
+      title: Text('이동: ${widget.target.title}'),
+      content: SizedBox(
+        width: 520,
+        height: 520,
+        child: Column(
+          children: [
+            TextField(
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: '카테고리 검색',
+              ),
+              onChanged: (v) => setState(() => _q = v),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: ListView.separated(
+                itemCount: filtered.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (_, i) {
+                  final c = filtered[i];
+                  final sel =
+                      _selected?.id == c.id && _selected?.isRoot == c.isRoot;
+                  return ListTile(
+                    dense: true,
+                    title: Text(c.pathText),
+                    leading: Icon(
+                      c.isRoot ? Icons.home_outlined : Icons.folder,
+                    ),
+                    trailing: sel
+                        ? const Icon(Icons.check, color: Colors.blue)
+                        : null,
+                    onTap: () => setState(() => _selected = c),
+                    onLongPress: () {
+                      Navigator.pop(context, c);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('취소'),
+        ),
+        FilledButton.icon(
+          icon: const Icon(Icons.drive_file_move),
+          onPressed: _selected == null
+              ? null
+              : () => Navigator.pop(context, _selected),
+          label: const Text('이동'),
+        ),
+      ],
+    );
+  }
+}
+
 // ===== 리소스 관리 시트 =====
 class _ResourceManagerSheet extends StatefulWidget {
   final CurriculumNode node;
@@ -431,7 +603,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
     if (!mounted) return;
     setState(() {
       _load = f;
-    }); 
+    });
     await f;
   }
 
@@ -502,7 +674,6 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
             ? '권한이 없습니다. 관리자/교사 계정으로 로그인했는지 확인해주세요.'
             : es;
         if (!mounted) {
-          // fall out; busy 해제 불가하니 return 전에 해제
           _busy = false;
           return;
         }
