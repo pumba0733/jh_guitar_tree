@@ -342,7 +342,7 @@ class XscSyncService {
   }
 
 
-  /// 캐시 폴더(.shared_cache/<hash>/)에 생긴 *.xsc를 학생 폴더로 이동
+  /// 캐시 폴더(.shared_cache/`<hash>`/)에 생긴 *.xsc를 학생 폴더로 이동
   Future<String?> _migrateCacheXscIfExists({
     required String cacheMediaPath,
     required String studentDir,
@@ -474,7 +474,7 @@ class XscSyncService {
         orElse: () => objsDyn.first,
       );
 
-      final key = '$prefix${current.name as String}';
+      final key = '$prefix${current.name}';
       final bytes = await store.download(key);
       final local = File(p.join(intoDir, 'current.xsc'));
       await local.writeAsBytes(bytes, flush: true);
@@ -536,10 +536,10 @@ class XscSyncService {
       return false;
     }
 
-    Future<Map<String, dynamic>> _readSidecarMeta() async =>
+    Future<Map<String, dynamic>> readSidecarMeta() async =>
         _readJsonFile(p.join(dir, '.current.xsc.meta.json'));
 
-    Future<void> _writeSidecarMetaFromRemote(dynamic remoteObj) async {
+    Future<void> writeSidecarMetaFromRemote(dynamic remoteObj) async {
       try {
         final metaPath = p.join(dir, '.current.xsc.meta.json');
         final meta = <String, dynamic>{
@@ -554,7 +554,7 @@ class XscSyncService {
       } catch (_) {}
     }
 
-    Future<dynamic> _findRemoteCurrentMeta() async {
+    Future<dynamic> findRemoteCurrentMeta() async {
       try {
         final store = _sb.storage.from(studentXscBucket);
         final prefix = '$studentId/$mediaHash/';
@@ -563,7 +563,7 @@ class XscSyncService {
           searchOptions: const SearchOptions(limit: 50),
         );
         for (final o in objs) {
-          if ((o.name as String).toLowerCase() == 'current.xsc') return o;
+          if (o.name.toString().toLowerCase() == 'current.xsc') return o;
         }
       } catch (_) {}
       return null;
@@ -587,8 +587,8 @@ class XscSyncService {
         final prefix = '$studentId/$mediaHash/';
 
         // 0) 충돌 감지
-        final remote = await _findRemoteCurrentMeta();
-        final sidecar = await _readSidecarMeta();
+        final remote = await findRemoteCurrentMeta();
+        final sidecar = await readSidecarMeta();
 
         bool conflict = false;
         String? remoteUpdated = (remote?.updatedAt is DateTime)
@@ -631,7 +631,7 @@ class XscSyncService {
             );
           } catch (_) {}
           if (remote != null) {
-            await _writeSidecarMetaFromRemote(remote);
+            await writeSidecarMetaFromRemote(remote);
           }
           return;
         }
@@ -645,8 +645,8 @@ class XscSyncService {
         );
 
         // 메타 갱신
-        final after = await _findRemoteCurrentMeta();
-        if (after != null) await _writeSidecarMetaFromRemote(after);
+        final after = await findRemoteCurrentMeta();
+        if (after != null) await writeSidecarMetaFromRemote(after);
 
         // NOTE: 기존 API 시그니처 호환 (매개변수명은 mp3Hash였지만 의미는 "미디어 해시")
         await LessonLinksService().touchXscUpdatedAt(

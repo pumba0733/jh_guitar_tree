@@ -75,19 +75,6 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     await _refresh();
   }
 
-  Future<void> _editFileUrl(CurriculumNode n) async {
-    final url = await _promptText(
-      context,
-      '파일/링크 URL',
-      initial: n.fileUrl ?? '',
-    );
-    if (url == null) return;
-
-    final trimmed = url.trim();
-    await _svc.updateNode(id: n.id, fileUrl: trimmed.isEmpty ? null : trimmed);
-    await _refresh();
-  }
-
   Future<void> _deleteNode(CurriculumNode n) async {
     final ok = await _confirm(
       context,
@@ -101,27 +88,6 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     await _refresh();
   }
 
-  // (UI에서 사용 제거됨) 순서 이동
-  Future<void> _moveOrder(CurriculumNode n, int delta) async {
-    try {
-      final all = await _svc.listNodes();
-      final nodes = all
-          .map((e) => CurriculumNode.fromMap(Map<String, dynamic>.from(e)))
-          .toList();
-      final siblings = nodes.where((x) => x.parentId == n.parentId).toList()
-        ..sort((a, b) => a.order.compareTo(b.order));
-      final minOrder = 0;
-      final maxOrder = siblings.length - 1;
-      final newOrder = (n.order + delta).clamp(minOrder, maxOrder) as int;
-      await _svc.updateNode(id: n.id, order: newOrder);
-      await _refresh();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('순서 변경 실패: $e')));
-    }
-  }
 
   Future<void> _openUrl(String url) async {
     var u = url.trim();

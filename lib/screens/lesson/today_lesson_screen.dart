@@ -1,11 +1,9 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.68-ux3+auto | 오늘 수업 자동 복습 프리필
-// - 최초 진입 시 오늘 링크가 비어 있고 fromHistoryId 미지정이면:
-//   1) 가장 최근 과거 레슨 1건 조회
-//   2) 제목/메모/유튜브/키워드 프리필
-//   3) 그 레슨의 연결된 파일/첨부를 오늘 레슨에 자동 담기(중복 머지)
-//   4) 스낵바: "✅ {added}개 추가됨 (중복 {duplicated}, 실패 {failed})"
-// - 기존 흐름(과거 없거나 이미 오늘 링크 존재 시) 유지
+// v1.68-ux3+auto+bsel | 오늘 수업 자동 복습 프리필 + 링크 클릭열기 + 선택/일괄삭제
+// - '오늘 레슨 링크' 섹션:
+//   1) '파일 열기' 버튼 제거, 버튼 제외한 박스(ListTile 영역) 클릭 시 열기
+//   2) 메뉴 표시 버튼(⋮) 유지 (복사/노드열기/삭제 등)
+//   3) 선택 모드(체크박스) 추가: 선택/해제, 모두 선택, 선택 삭제(N), 전체 삭제
 
 import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
@@ -14,7 +12,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
-
 
 import '../../ui/components/drop_upload_area.dart';
 import '../../ui/components/save_status_indicator.dart';
@@ -97,6 +94,10 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
   // 링크 hover 상태
   String? _hoveredLinkId;
+
+  // ===== 선택 모드 / 일괄 삭제 상태 =====
+  bool _selectMode = false;
+  final Set<String> _selectedLinkIds = <String>{};
 
   bool get _isDesktop =>
       (Platform.isMacOS || Platform.isWindows || Platform.isLinux) && !kIsWeb;
@@ -496,7 +497,13 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     try {
       final list = await _links.listTodayByStudent(_studentId, ensure: ensure);
       if (!mounted) return;
-      setState(() => _todayLinks = list);
+      setState(() {
+        _todayLinks = list;
+        // 선택 모드 중에 목록이 갱신되면 선택 상태 정리
+        _selectedLinkIds.removeWhere(
+          (id) => !_todayLinks.any((m) => (m['id'] ?? '').toString() == id),
+        );
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() => _todayLinks = const []);
@@ -517,6 +524,53 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     } catch (e) {
       _showError('링크 삭제 실패: $e');
     }
+  }
+
+  Future<void> _removeLessonLinksBulk(Iterable<String> ids) async {
+    int ok = 0, fail = 0;
+    for (final id in ids) {
+      try {
+        final r = await _links.deleteById(id, studentId: _studentId);
+        if (r)
+          ok++;
+        else
+          fail++;
+      } catch (_) {
+        fail++;
+      }
+    }
+    await _reloadLessonLinks();
+    _selectedLinkIds.clear();
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('삭제 완료: 성공 $ok · 실패 $fail')));
+  }
+
+  Future<void> _confirmAndRemoveAll() async {
+    if (_todayLinks.isEmpty) return;
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('전체 삭제'),
+        content: const Text('오늘 레슨 링크를 모두 삭제할까요? 이 작업은 되돌릴 수 없습니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('전체 삭제'),
+          ),
+        ],
+      ),
+    );
+    if (yes != true) return;
+    final ids = _todayLinks
+        .map((m) => (m['id'] ?? '').toString())
+        .where((s) => s.isNotEmpty);
+    await _removeLessonLinksBulk(ids);
   }
 
   Future<void> _linkCurriculumResourceAssigned() async {
@@ -758,6 +812,37 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     );
   }
 
+  // ===== 선택 모드 토글/유틸 =====
+  void _enterSelectMode() {
+    setState(() {
+      _selectMode = true;
+      _selectedLinkIds.clear();
+    });
+  }
+
+  void _exitSelectMode() {
+    setState(() {
+      _selectMode = false;
+      _selectedLinkIds.clear();
+    });
+  }
+
+  void _toggleSelectAll() {
+    setState(() {
+      if (_selectedLinkIds.length == _todayLinks.length) {
+        _selectedLinkIds.clear();
+      } else {
+        _selectedLinkIds
+          ..clear()
+          ..addAll(
+            _todayLinks
+                .map((m) => (m['id'] ?? '').toString())
+                .where((s) => s.isNotEmpty),
+          );
+      }
+    });
+  }
+
   @override
   void dispose() {
     _debounce?.cancel();
@@ -936,7 +1021,58 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
             const SizedBox(height: 12),
 
             // ===== 2) 오늘 레슨 링크(평면 리스트) =====
-            Text('오늘 레슨 링크', style: _sectionH1(context)),
+            Row(
+              children: [
+                Text('오늘 레슨 링크', style: _sectionH1(context)),
+                const SizedBox(width: 8),
+                if (!_selectMode && _todayLinks.isNotEmpty)
+                  TextButton(
+                    onPressed: _enterSelectMode,
+                    child: const Text('선택'),
+                  ),
+                if (_selectMode) ...[
+                  const SizedBox(width: 8),
+                  OutlinedButton(
+                    onPressed: _toggleSelectAll,
+                    child: Text(
+                      _selectedLinkIds.length == _todayLinks.length
+                          ? '모두 해제'
+                          : '모두 선택',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.tonal(
+                    onPressed: _selectedLinkIds.isEmpty
+                        ? null
+                        : () => _removeLessonLinksBulk(_selectedLinkIds),
+                    child: Text(
+                      _selectedLinkIds.isEmpty
+                          ? '선택 삭제'
+                          : '선택 삭제(${_selectedLinkIds.length})',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: _exitSelectMode,
+                    child: const Text('취소'),
+                  ),
+                ],
+                const Spacer(),
+                // 섹션 더보기(전체 삭제)
+                if (_todayLinks.isNotEmpty)
+                  PopupMenuButton<String>(
+                    tooltip: '섹션 메뉴',
+                    onSelected: (v) async {
+                      if (v == 'delete_all') {
+                        await _confirmAndRemoveAll();
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'delete_all', child: Text('전체 삭제')),
+                    ],
+                  ),
+              ],
+            ),
             const SizedBox(height: 6),
             _buildLessonLinksListPlain(),
 
@@ -976,7 +1112,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                 hintText: '수업 중 메모를 기록하세요',
                 border: OutlineInputBorder(),
               ),
-              maxLines: 10, // ← 6 → 10 으로 확장
+              maxLines: 10, // 10줄 유지
             ),
           ],
         ),
@@ -1058,7 +1194,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
           final isHover = _hoveredLinkId == id;
           final base = Theme.of(context).colorScheme.surfaceContainerHighest;
-          final hoverBg = base.withValues(alpha: 0.22); // ← deprecated 교체
+          final hoverBg = base.withValues(alpha: 0.22);
 
           final bucket = (m['resource_bucket'] ?? _defaultResourceBucket)
               .toString();
@@ -1067,6 +1203,8 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           final tip = isNode
               ? '노드: ${(m['curriculum_node_id'] ?? '').toString()}'
               : '$bucket/$path/$filename';
+
+          final checked = _selectedLinkIds.contains(id);
 
           return MouseRegion(
             cursor: SystemMouseCursors.click,
@@ -1088,9 +1226,20 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                 ),
                 child: ListTile(
                   dense: true,
-                  leading: Icon(
-                    isNode ? Icons.folder : Icons.insert_drive_file,
-                  ),
+                  leading: _selectMode
+                      ? Checkbox(
+                          value: checked,
+                          onChanged: (_) {
+                            setState(() {
+                              if (checked) {
+                                _selectedLinkIds.remove(id);
+                              } else {
+                                _selectedLinkIds.add(id);
+                              }
+                            });
+                          },
+                        )
+                      : Icon(isNode ? Icons.folder : Icons.insert_drive_file),
                   title: Row(
                     children: [
                       Expanded(
@@ -1126,14 +1275,9 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                           icon: const Icon(Icons.music_note),
                           onPressed: () => _openLatestXsc(m),
                         ),
-                      IconButton(
-                        tooltip: isNode ? '노드는 열기 제공 안함' : '파일 열기',
-                        icon: const Icon(Icons.open_in_new),
-                        onPressed: isNode ? null : () => _openLessonLink(m),
-                      ),
+                      // ⛔️ '파일 열기' 버튼 제거됨 — 박스 클릭으로 대체
                       PopupMenuButton<String>(
                         onSelected: (v) async {
-                          final id = (m['id'] ?? '').toString();
                           switch (v) {
                             case 'copy_id':
                               final text = isNode
@@ -1183,8 +1327,9 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                               break;
 
                             case 'delete':
-                              if (id.isEmpty) return;
-                              _removeLessonLink(id);
+                              final lid = (m['id'] ?? '').toString();
+                              if (lid.isEmpty) return;
+                              _removeLessonLink(lid);
                               break;
                           }
                         },
@@ -1212,6 +1357,20 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                       ),
                     ],
                   ),
+                  // ✅ 버튼 제외한 박스 클릭 시 열기(선택 모드면 선택 토글)
+                  onTap: () {
+                    if (_selectMode) {
+                      setState(() {
+                        if (checked) {
+                          _selectedLinkIds.remove(id);
+                        } else {
+                          _selectedLinkIds.add(id);
+                        }
+                      });
+                      return;
+                    }
+                    _openLessonLink(m);
+                  },
                 ),
               ),
             ),

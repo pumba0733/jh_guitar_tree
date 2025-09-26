@@ -443,21 +443,7 @@ class _StudentPickerDialogState extends State<_StudentPickerDialog> {
     });
   }
 
-  void _applySelectAll(List<Student> items, bool value) {
-    setState(() {
-      _selectAll = value;
-      if (value) {
-        for (final s in items) {
-          _selected[s.id] = s;
-        }
-      } else {
-        // 현재 필터로 보이는 학생만 선택 해제
-        for (final s in items) {
-          _selected.remove(s.id);
-        }
-      }
-    });
-  }
+
 
   String _instrumentLabel(Student s) {
     // Student에 instrument가 없으면 빈 문자열

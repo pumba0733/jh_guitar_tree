@@ -11,7 +11,6 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:crypto/crypto.dart' show sha1;
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'dart:typed_data';
 import 'file_key_util.dart';
 import '../supabase/supabase_tables.dart';
 import '../models/resource.dart';
