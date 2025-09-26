@@ -14,7 +14,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import '../../services/resource_service.dart';
 import '../../routes/app_routes.dart';
 import '../../services/lesson_service.dart';
 import '../../services/auth_service.dart';
@@ -22,7 +21,6 @@ import '../../services/file_service.dart';
 import '../../services/log_service.dart';
 import '../../ui/components/file_clip.dart';
 import '../../services/lesson_links_service.dart';
-import '../../models/resource.dart';
 import '../../services/xsc_sync_service.dart';
 
 class LessonHistoryScreen extends StatefulWidget {
@@ -274,17 +272,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
     final hh = local.hour.toString().padLeft(2, '0');
     final mm = local.minute.toString().padLeft(2, '0');
     return '$y-$m-$d $hh:$mm';
-  }
-
-  bool _isAudioName(String name) {
-    final n = name.toLowerCase();
-    return n.endsWith('.mp3') ||
-        n.endsWith('.m4a') ||
-        n.endsWith('.wav') ||
-        n.endsWith('.aif') ||
-        n.endsWith('.aiff') ||
-        n.endsWith('.mp4') ||
-        n.endsWith('.mov');
   }
 
   Future<void> _exportCsv() async {
@@ -956,52 +943,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                               icon: const Icon(Icons.open_in_new),
                               label: const Text('열기'),
                             ),
-                            if (_isAudioName(
-                              (l['resource_filename'] ?? '').toString(),
-                            ))
-                              OutlinedButton.icon(
-                                onPressed: () async {
-                                  try {
-                                    final bucket =
-                                        (l['resource_bucket'] ??
-                                                ResourceService.bucket)
-                                            .toString();
-                                    final path = (l['resource_path'] ?? '')
-                                        .toString();
-                                    final name =
-                                        (l['resource_filename'] ?? 'resource')
-                                            .toString();
-                                    final rf = ResourceFile.fromMap({
-                                      'id': (l['id'] ?? '').toString(),
-                                      'curriculum_node_id':
-                                          l['curriculum_node_id'],
-                                      'title': (l['resource_title'] ?? '')
-                                          .toString(),
-                                      'filename': name,
-                                      'mime_type': null,
-                                      'size_bytes': null,
-                                      'storage_bucket': bucket,
-                                      'storage_path': path,
-                                      'created_at': l['created_at'],
-                                    });
-                                    final url = await ResourceService()
-                                        .signedUrl(rf);
-                                    await FileService()
-                                        .saveUrlToWorkspaceAndOpen(
-                                          studentId: _studentId,
-                                          filename: name,
-                                          url: url,
-                                        );
-                                  } catch (e) {
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('원본 열기 실패: $e')),
-                                    );
-                                  }
-                                },
-                                icon: const Icon(Icons.audiotrack),
-                                label: const Text('원본 mp3로 열기'),
-                              ),
                             OutlinedButton.icon(
                               onPressed: () async {
                                 try {
