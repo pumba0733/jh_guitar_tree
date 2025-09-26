@@ -6,9 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../services/auth_service.dart';
-import '../../../services/lesson_service.dart';
 import '../../../services/student_service.dart';
-import '../../../models/lesson.dart';
 import '../../../routes/app_routes.dart';
 
 class TeacherHomeBody extends StatefulWidget {
@@ -19,15 +17,8 @@ class TeacherHomeBody extends StatefulWidget {
 }
 
 class _TeacherHomeBodyState extends State<TeacherHomeBody> {
-  final _lessonSvc = LessonService();
   final _studentSvc = StudentService();
   final _sp = Supabase.instance.client;
-
-  String? _myTeacherId;
-
-  // 기존 today 레슨 리스트는 유지하되, 화면 렌더링은 todayUnique(학생 리스트) 사용
-  List<Lesson> _today = const [];
-  Map<String, String> _studentNames = const {};
 
   // ✅ 오늘 진행 학생 (최근 로직 재사용)
   List<_RecentStudent> _todayUnique = const [];
@@ -42,10 +33,6 @@ class _TeacherHomeBodyState extends State<TeacherHomeBody> {
 
   bool _loading = true;
   String? _error;
-  UserRole? _role;
-
-  bool get _isTeacherOrAdmin =>
-      _role == UserRole.teacher || _role == UserRole.admin;
 
   @override
   void initState() {
@@ -54,14 +41,6 @@ class _TeacherHomeBodyState extends State<TeacherHomeBody> {
   }
 
   Future<void> _guardAndLoad() async {
-    try {
-      final role = await AuthService().getRole();
-      if (!mounted) return;
-      setState(() => _role = role);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _role = null);
-    }
     await _load();
   }
 
@@ -75,9 +54,6 @@ class _TeacherHomeBodyState extends State<TeacherHomeBody> {
       final user = AuthService().currentAuthUser;
       if (user == null) {
         setState(() {
-          _myTeacherId = null;
-          _today = const [];
-          _studentNames = const {};
           _todayUnique = const [];
           _todayNames = const {};
           _todayStudentIds = const [];
@@ -92,12 +68,9 @@ class _TeacherHomeBodyState extends State<TeacherHomeBody> {
         authUid: user.id,
         email: user.email ?? '',
       );
-      _myTeacherId = teacherId;
 
       if (teacherId == null) {
         setState(() {
-          _today = const [];
-          _studentNames = const {};
           _todayUnique = const [];
           _todayNames = const {};
           _todayStudentIds = const [];
@@ -107,16 +80,6 @@ class _TeacherHomeBodyState extends State<TeacherHomeBody> {
         });
         return;
       }
-
-      // (참고) 오늘 레슨 — 유지(디버깅/호환용), 화면은 todayUnique로 렌더
-      final todayList = await _lessonSvc.listTodayByTeacher(teacherId);
-      final todayIdsFromLesson = todayList
-          .map((e) => e.studentId)
-          .toSet()
-          .toList();
-      final nameMapTodayFromLesson = todayIdsFromLesson.isEmpty
-          ? <String, String>{}
-          : await _studentSvc.fetchNamesByIds(todayIdsFromLesson);
 
       // 최근 14일(오늘 포함) 유니크 50
       final recent14 = await _fetchRecentStudentsWithLastDateByMyStudents(
@@ -144,10 +107,6 @@ class _TeacherHomeBodyState extends State<TeacherHomeBody> {
 
       if (!mounted) return;
       setState(() {
-        // 참고 저장
-        _today = todayList;
-        _studentNames = nameMapTodayFromLesson;
-
         // 화면 표시용(최근 구조 기반)
         _todayUnique = todayFromRecent;
         _todayNames = nameMapTodayFromRecent;
@@ -346,9 +305,6 @@ class _TeacherHomeBodyState extends State<TeacherHomeBody> {
     );
   }
 
-  String _safeDate(DateTime? d) =>
-      d == null ? '-' : d.toIso8601String().split('T').first;
-
   // ✅ 학생 홈 화면 — 관리자/교사용 진입 (ManageStudents와 동일한 경로)
   Future<void> _openStudentHomeByIdAdminDrive(
     String studentId, {
@@ -374,15 +330,6 @@ class _TeacherHomeBodyState extends State<TeacherHomeBody> {
         'prefill': (name ?? '').trim(),
         'autoOpenEdit': true, // 중요: 진입 후 자동으로 수정 다이얼로그 열기
       },
-    );
-  }
-
-  Future<void> _openLessonHistoryById(String studentId) async {
-    if (!mounted) return;
-    Navigator.pushNamed(
-      context,
-      AppRoutes.lessonHistory,
-      arguments: {'studentId': studentId},
     );
   }
 }
@@ -414,7 +361,7 @@ class _Recent14List extends StatelessWidget {
       shrinkWrap: true,
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
       itemCount: list.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (_, i) {
         final row = list[i];
         final name = (nameMap[row.studentId] ?? '').trim();
@@ -445,64 +392,6 @@ class _Recent14List extends StatelessWidget {
           onTap: () => onOpenHome(row.studentId),
         );
       },
-    );
-  }
-}
-
-class _NoTodaySection extends StatelessWidget {
-  final List<String> todayIds;
-  final Map<String, String> todayNames;
-  final void Function(String) onOpenHome;
-  final void Function(String) onOpenHistory;
-
-  const _NoTodaySection({
-    required this.todayIds,
-    required this.todayNames,
-    required this.onOpenHome,
-    required this.onOpenHistory,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.inbox, size: 42),
-                const SizedBox(height: 8),
-                Text('오늘 등록된 수업이 없습니다.', style: theme.textTheme.bodyLarge),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text('오늘 진행 학생', style: theme.textTheme.titleMedium),
-          const SizedBox(height: 8),
-          if (todayIds.isEmpty)
-            Text('없음', style: theme.textTheme.bodyMedium)
-          else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: todayIds.map((id) {
-                final name = (todayNames[id] ?? id).trim();
-                return InputChip(
-                  label: Text(name.isEmpty ? id : name),
-                  avatar: const Icon(Icons.person),
-                  onPressed: () => onOpenHome(id),
-                  deleteIcon: const Icon(Icons.history),
-                  onDeleted: () => onOpenHistory(id),
-                  tooltip: '탭: 학생 화면 / 히스토리 아이콘: 지난 수업',
-                );
-              }).toList(),
-            ),
-        ],
-      ),
     );
   }
 }

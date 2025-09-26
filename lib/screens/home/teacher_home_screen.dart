@@ -266,7 +266,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
       child: ListView.separated(
         padding: const EdgeInsets.all(16),
         itemCount: _today.length + 1,
-        separatorBuilder: (_, __) => const Divider(height: 1),
+        separatorBuilder: (_, _) => const Divider(height: 1),
         itemBuilder: (_, i) {
           if (i == 0) {
             return Padding(

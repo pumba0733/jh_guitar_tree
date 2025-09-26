@@ -315,7 +315,7 @@ class _ManageTeachersScreenState extends State<ManageTeachersScreen> {
             : ListView.separated(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
                 itemCount: _items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (_, i) {
                   final t = _items[i];
                   final linked = (t.authUserId ?? '').isNotEmpty;

@@ -4,7 +4,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/lesson.dart';
 import '../supabase/supabase_tables.dart';
-import '../../services/xsc_sync_service.dart';
 
 class LessonService {
   final SupabaseClient _client = Supabase.instance.client;

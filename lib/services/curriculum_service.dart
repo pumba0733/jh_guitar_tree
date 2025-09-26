@@ -9,6 +9,9 @@ import 'dart:io' show SocketException, HttpException;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+// ✅ lint fix: 로컬 함수 대신 top-level private helper로 승격
+String _trimSlashes(String s) => s.replaceAll(RegExp(r'^/+|/+$'), '');
+
 class CurriculumService {
   final SupabaseClient _c = Supabase.instance.client;
 
@@ -415,8 +418,7 @@ class CurriculumService {
     final seen = <String>{};
     final out = <Map<String, dynamic>>[];
 
-    String _trimSlashes(String s) => s.replaceAll(RegExp(r'^/+|/+$'), '');
-
+    // 🔧 로컬 선언 제거됨 → 위의 top-level _trimSlashes 사용
     for (final m in _mapList(data)) {
       final path = _trimSlashes((m['storage_path'] ?? '').toString().trim());
       final filename = (m['filename'] ?? '').toString().trim();

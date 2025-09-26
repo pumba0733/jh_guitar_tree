@@ -1,15 +1,12 @@
-// lib/screens/lesson/lesson_history_screen.dart
-// v1.74+edit-date-no-attachments
+// v1.74+edit-date-no-attachments (patched lint-only)
 // 히스토리 화면: '이 내용 복습하기' + 오늘 레슨 담기 + CSV + 레슨 **편집(날짜/제목/메모/키워드/YouTube)**
 //
 // 변경 요약
-// - [편집] 다이얼로그에서 '첨부' 편집 섹션(항목 추가/삭제/이름·URL 입력/‘첨부 없음’ 표시) 제거
+// - [편집] 다이얼로그에서 '첨부' 편집 섹션 제거 (표시만 유지)
 // - 저장 시 LessonService.updateByIdSafeDate(id, { date, subject, memo, youtube_url, keywords }) 만 전송
-// - 기존 첨부 데이터는 표시/복습/오늘레슨담기 기능만 유지하고, 편집 다이얼로그에서는 수정하지 않음
-//
-// 의존
-// - services: LessonService.updateByIdSafeDate(String id, Map patch)
-// - 파일 열기/CSV/링크담기 등 기존 의존은 동일
+// - 이번 패치: 린트/경고만 해결 (기능 변경 없음)
+//   * curly_braces_in_flow_control_structures → 단일 if에 중괄호 추가
+//   * use_build_context_synchronously → await 이후 context 사용 전에 context.mounted 가드
 
 import 'dart:async';
 import 'dart:convert';
@@ -348,7 +345,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
   Future<void> _confirmAndDelete(Map<String, dynamic> m) async {
     final id = (m['id'] ?? '').toString();
     if (id.isEmpty) {
-      if (!mounted) return;
+      if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('삭제할 수 없는 항목입니다(식별자 없음)')));
@@ -442,8 +439,9 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
   }
 
   Future<void> _ensureLinksLoaded(String lessonId) async {
-    if (_linksCache.containsKey(lessonId) || _linksLoading.contains(lessonId))
+    if (_linksCache.containsKey(lessonId) || _linksLoading.contains(lessonId)) {
       return;
+    }
     _linksLoading.add(lessonId);
     if (mounted) setState(() {});
     try {
@@ -578,8 +576,9 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                                               helpText: '수업 날짜 선택',
                                               locale: const Locale('ko'),
                                             );
-                                            if (picked != null)
+                                            if (picked != null) {
                                               setS(() => dateVal = picked);
+                                            }
                                           },
                                     icon: const Icon(Icons.edit_calendar),
                                     label: const Text('변경'),
@@ -670,7 +669,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                               'memo': memoCtl.text,
                               'youtube_url': youtubeCtl.text.trim(),
                               'keywords': keywords,
-                              // 'attachments': (제거) — 다이얼로그에서 편집하지 않음
                             };
 
                             final ok = await _service.updateByIdSafeDate(
@@ -695,7 +693,6 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                               updated['memo'] = patch['memo'];
                               updated['youtube_url'] = patch['youtube_url'];
                               updated['keywords'] = patch['keywords'];
-                              // attachments는 건드리지 않음
                               setState(() => _rows[idx] = updated);
                             }
 
@@ -710,14 +707,14 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                               ),
                             );
 
-                            if (mounted) {
+                            if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(content: Text('저장 완료')),
                               );
                               Navigator.pop(context, true);
                             }
                           } catch (e) {
-                            if (mounted) {
+                            if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('저장 실패: $e')),
                               );
@@ -1016,7 +1013,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                                   if (!mounted) return;
                                   _showAddResultSnack(r);
                                 } catch (e) {
-                                  if (!mounted) return;
+                                  if (!context.mounted) return;
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(content: Text('담기 실패: $e')),
                                   );
@@ -1066,7 +1063,9 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
             ? null
             : Text(memo, maxLines: 1, overflow: TextOverflow.ellipsis),
         onExpansionChanged: (open) {
-          if (open) _ensureLinksLoaded(idStr);
+          if (open) {
+            _ensureLinksLoaded(idStr);
+          }
         },
         children: [
           if (keywords.isNotEmpty)
@@ -1133,7 +1132,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
                                 if (!mounted) return;
                                 _showAddResultSnack(r);
                               } catch (e) {
-                                if (!mounted) return;
+                                if (!context.mounted) return;
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(content: Text('담기 실패: $e')),
                                 );
@@ -1381,7 +1380,7 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
           controller: _scroll,
           padding: const EdgeInsets.only(bottom: 24),
           itemCount: monthKeys.length + (_hasMore ? 1 : 0),
-          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
           itemBuilder: (context, i) {
             if (_hasMore && i == monthKeys.length) {
               return const Padding(

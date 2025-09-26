@@ -148,7 +148,7 @@ class _CurriculumOverviewScreenState extends State<CurriculumOverviewScreen> {
           final flat = _buildFlatTree(nodes);
           return ListView.separated(
             itemCount: flat.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
+            separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (context, i) {
               final item = flat[i];
               final n = item.node;

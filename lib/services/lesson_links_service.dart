@@ -154,10 +154,10 @@ class LessonLinksService {
             .eq('date', d)
             .limit(1),
       );
-      final list = rows as List;
+      final List list = rows; // ← unnecessary_cast 제거
       if (list.isEmpty) return null;
-      final first = list.first as Map;
-      final id = (first['id'] ?? '').toString();
+      final first = list.first; // Map(dynamic)로 취급해도 index 접근 가능
+      final id = ((first as Map)['id'] ?? '').toString();
       return id.isNotEmpty ? id : null;
     } catch (_) {
       return null;
@@ -369,7 +369,8 @@ class LessonLinksService {
             .eq('lesson_id', lessonId)
             .order('created_at', ascending: false),
       );
-      return (rows as List)
+      final List rowsList = rows; // ← unnecessary_cast 제거
+      return rowsList
           .map((e) => Map<String, dynamic>.from(e))
           .toList(growable: false);
     }
@@ -435,7 +436,7 @@ class LessonLinksService {
       if (attachmentsAny is List) {
         for (final e in attachmentsAny) {
           final map = (e is Map)
-              ? Map<String, dynamic>.from(e as Map)
+              ? Map<String, dynamic>.from(e) // ← unnecessary_cast 제거
               : <String, dynamic>{
                   'url': e.toString(),
                   'path': e.toString(),
@@ -512,8 +513,6 @@ class LessonLinksService {
       );
     }
   }
-
-
 
   Future<void> openFromAttachment(
     LessonAttachmentItem att, {
@@ -697,8 +696,6 @@ class LessonLinksService {
     return '$bucket::$path';
   }
 
-  
-
   // ---------- 메타 보조 ----------
   Future<void> touchXscUpdatedAt({
     required String studentId,
@@ -751,7 +748,8 @@ class LessonLinksService {
           )
           .eq('lesson_id', lessonId)
           .order('created_at', ascending: false);
-      return (rows as List)
+      final List rowsList = rows; // ← unnecessary_cast 제거
+      return rowsList
           .map((e) => Map<String, dynamic>.from(e))
           .toList(growable: false);
     } catch (_) {

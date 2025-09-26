@@ -1,8 +1,11 @@
 // lib/services/resource_service.dart
-// v1.67.0 | ASCII-safe key + (NEW) moveResourceToNode() 추가
+// v1.67.2-lintfix | ASCII-safe key + (NEW) moveResourceToNode()
 // - storagePath: yyyy-MM/{nodeSeg}/{safeBase}__{sha1-12}{ext}
 // - signedUrl 레거시 폴백 유지
 // - NEW: moveResourceToNode(resourceId, newNodeId)
+// - Lint fixes:
+//   * string interpolation에서 필요한 곳만 {} 유지 (safeBase, h12 앞뒤에 '_'가 붙음)
+//   * finalSize 비nullable로 정리하여 null 비교/! 제거
 
 import 'dart:async';
 import 'dart:io';
@@ -135,7 +138,8 @@ class ResourceService {
     final safeBase = _toAsciiSafe(base);
     final h12 = crypto.sha1.convert(bytes).toString().substring(0, 12);
 
-    return '$y-$m/$nodeSeg/${safeBase}__${h12}${ext}';
+    // NOTE: 여기서는 {}가 필요함 (변수 뒤에 '_' 문자가 이어짐)
+    return '$y-$m/$nodeSeg/${safeBase}__$h12$ext';
   }
 
   // ---------- 업로드용 기본 노드 보장 ----------
@@ -296,16 +300,15 @@ class ResourceService {
     final resolvedMime =
         mimeType ?? lookupMimeType(baseOriginal) ?? 'application/octet-stream';
 
+    // 파일 바이트 & 사이즈 계산
     Uint8List fileBytes;
-    int? finalSize = sizeBytes;
     if (bytes != null && bytes.isNotEmpty) {
       fileBytes = bytes;
-      finalSize ??= bytes.lengthInBytes;
     } else {
       final f = File(filePath!);
       fileBytes = await f.readAsBytes();
-      finalSize ??= fileBytes.lengthInBytes;
     }
+    final int finalSize = sizeBytes ?? fileBytes.lengthInBytes;
     final contentHash = crypto.sha1.convert(fileBytes).toString();
 
     final nodeSeg = nodeId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
@@ -406,16 +409,15 @@ class ResourceService {
     final resolvedMime =
         mimeType ?? lookupMimeType(baseOriginal) ?? 'application/octet-stream';
 
+    // 파일 바이트 & 사이즈 계산 (비nullable)
     Uint8List fileBytes;
-    int? finalSize = sizeBytes;
     if (bytes != null && bytes.isNotEmpty) {
       fileBytes = bytes;
-      finalSize ??= bytes.lengthInBytes;
     } else {
       final f = File(filePath!);
       fileBytes = await f.readAsBytes();
-      finalSize ??= fileBytes.lengthInBytes;
     }
+    final int finalSize = sizeBytes ?? fileBytes.lengthInBytes;
     final contentHash = crypto.sha1.convert(fileBytes).toString();
 
     final nodeSeg = effectiveNodeId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
@@ -432,13 +434,12 @@ class ResourceService {
       cacheControl: '3600',
     );
 
-    if (finalSize != null) {
-      final dup = await findDuplicateByNameAndSize(
-        filename: baseOriginal,
-        size: finalSize!,
-      );
-      if (dup != null) return dup;
-    }
+    // 중복 검사 (이미 비nullable이므로 불필요한 null 비교 제거)
+    final dup = await findDuplicateByNameAndSize(
+      filename: baseOriginal,
+      size: finalSize,
+    );
+    if (dup != null) return dup;
 
     try {
       if (bytes != null && bytes.isNotEmpty) {

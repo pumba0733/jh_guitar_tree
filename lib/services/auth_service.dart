@@ -4,6 +4,7 @@
 // - restoreLinkedIdentities(): 앱 재시작/세션 복원 시 교사/학생 상태 재결합
 // - ensureTeacherLink(): 이메일 기반 auth_user_id 동기화(기존 유지)
 // - setCurrentStudent/clearCurrentStudent: 화면 간 공유를 위한 setter 제공
+// - 2025-09-26 lint fix: unused_element(ignore) + no_leading_underscores_for_local_identifiers
 
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
@@ -117,13 +118,11 @@ class AuthService {
     return true;
   }
 
-
-
-
   // ---------------- 강사/관리자 로그인 ----------------
   String _normEmail(String v) => v.trim().toLowerCase();
   String _sha256Hex(String v) => sha256.convert(utf8.encode(v)).toString();
 
+  // ignore: unused_element
   Future<Map<String, dynamic>?> _rpcAppLoginTeacher({
     required String email,
     required String pwdHash,
@@ -167,7 +166,7 @@ class AuthService {
     } catch (_) {}
 
     // 1) Supabase Auth 세션 보장
-    Future<bool> _ensureAuthSession() async {
+    Future<bool> ensureAuthSession() async {
       try {
         await _client.auth.signInWithPassword(email: e, password: password);
         return true;
@@ -187,7 +186,7 @@ class AuthService {
       }
     }
 
-    if (!await _ensureAuthSession()) return false;
+    if (!await ensureAuthSession()) return false;
 
     // 2) auth.uid ↔ teachers.auth_user_id 링크 + 마지막 로그인 시간
     try {

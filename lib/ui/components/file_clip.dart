@@ -42,8 +42,9 @@ class FileClip extends StatelessWidget {
       '.bmp',
       '.webp',
       '.heic',
-    ].contains(ext))
-      return Icons.image;
+    ].contains(ext)) {
+      return Icons.image; // ← 블록으로 변경 (lint fix)
+    }
     if (['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.aiff'].contains(ext)) {
       return Icons.audiotrack;
     }

@@ -276,7 +276,7 @@ class _CurriculumBrowserScreenState extends State<CurriculumBrowserScreen> {
                                   }
                                   return ListView.separated(
                                     itemCount: items.length,
-                                    separatorBuilder: (_, __) =>
+                                    separatorBuilder: (_, _) =>
                                         const Divider(height: 1),
                                     itemBuilder: (_, i) {
                                       final r = items[i];
@@ -518,7 +518,7 @@ class _StudentPickerDialogState extends State<_StudentPickerDialog> {
 
                   return ListView.separated(
                     itemCount: items.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final s = items[i];
                       final checked = _selected.containsKey(s.id);

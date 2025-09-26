@@ -1,9 +1,6 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.68-ux3+auto+bsel | 오늘 수업 자동 복습 프리필 + 링크 클릭열기 + 선택/일괄삭제
-// - '오늘 레슨 링크' 섹션:
-//   1) '파일 열기' 버튼 제거, 버튼 제외한 박스(ListTile 영역) 클릭 시 열기
-//   2) 메뉴 표시 버튼(⋮) 유지 (복사/노드열기/삭제 등)
-//   3) 선택 모드(체크박스) 추가: 선택/해제, 모두 선택, 선택 삭제(N), 전체 삭제
+// v1.68-ux3+no-sectionmenu+hide-subject-keywords+lintfix
+// 오늘 수업: 섹션메뉴 제거 + 주제/키워드 UI 숨김 + unused_element/underscores lint fix
 
 import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
@@ -41,7 +38,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
   final LessonLinksService _links = LessonLinksService();
   final CurriculumService _curr = CurriculumService();
-  final ResourceService _res = ResourceService();
   String get _defaultResourceBucket => ResourceService.bucket;
 
   final _subjectCtl = TextEditingController();
@@ -72,7 +68,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   // 오늘 날짜 (YYYY-MM-DD)
   late String _todayDateStr;
 
-  // 키워드 (DB) 상태
+  // 키워드 (DB) 상태 (데이터는 유지하되 UI는 숨김)
   List<String> _categories = const [];
   String? _selectedCategory;
   List<KeywordItem> _items = const [];
@@ -164,12 +160,13 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       await _prefillFromHistory(_fromHistoryId!);
     }
 
+    // 데이터는 유지(향후 재사용), UI는 숨김
     await _loadKeywordData();
 
     // 오늘 링크 로드
     await _reloadLessonLinks(ensure: true);
 
-    // 자동 복습: 오늘 링크 비어 있고(fromHistoryId 없음)일 때 1회만
+    // 자동 복습
     if ((_fromHistoryId ?? '').isEmpty) {
       await _maybeAutoPrefillFromLatestPast();
     }
@@ -314,7 +311,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         limit: 1,
         asc: false,
       );
-      if (pastList.isEmpty) return; // 과거 수업 없음 → 그대로 빈 흐름 유지
+      if (pastList.isEmpty) return;
 
       final latest = Map<String, dynamic>.from(pastList.first);
       final historyId = (latest['id'] ?? '').toString();
@@ -329,7 +326,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           ? latest['attachments'] as List
           : [];
 
-      Map<String, dynamic> _normalizeAttachment(dynamic a) {
+      Map<String, dynamic> normalizeAttachment(dynamic a) {
         if (a is Map) return Map<String, dynamic>.from(a);
         final s = a?.toString() ?? '';
         return <String, dynamic>{
@@ -339,7 +336,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         };
       }
 
-      final atts = attachmentsRaw.map(_normalizeAttachment).toList();
+      final atts = attachmentsRaw.map(normalizeAttachment).toList();
 
       final r1 = await _links.addResourceLinkMapsToToday(
         studentId: _studentId,
@@ -531,10 +528,11 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     for (final id in ids) {
       try {
         final r = await _links.deleteById(id, studentId: _studentId);
-        if (r)
+        if (r) {
           ok++;
-        else
+        } else {
           fail++;
+        }
       } catch (_) {
         fail++;
       }
@@ -547,6 +545,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     ).showSnackBar(SnackBar(content: Text('삭제 완료: 성공 $ok · 실패 $fail')));
   }
 
+  // ignore: unused_element
   Future<void> _confirmAndRemoveAll() async {
     if (_todayLinks.isEmpty) return;
     final yes = await showDialog<bool>(
@@ -566,6 +565,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         ],
       ),
     );
+    if (!mounted) return;
     if (yes != true) return;
     final ids = _todayLinks
         .map((m) => (m['id'] ?? '').toString())
@@ -617,6 +617,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
     // 2) curriculum_nodes 트리에서 node_id -> 루트 타이틀 맵 생성 (널 안전)
     final nodesRaw = await _curr.listNodes(); // List<Map>
+    if (!mounted) return null;
     final Map<String, Map<String, dynamic>> byId = {
       for (final m in nodesRaw)
         if ((m['id'] ?? '').toString().isNotEmpty)
@@ -719,38 +720,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     }
   }
 
-  Future<void> _openOriginalAudio(Map<String, dynamic> link) async {
-    try {
-      final bucket = (link['resource_bucket'] ?? _defaultResourceBucket)
-          .toString();
-      final storagePath = (link['resource_path'] ?? '').toString(); // 그대로
-      final displayName = (link['resource_filename'] ?? 'resource').toString();
-
-      final rf = ResourceFile.fromMap({
-        'id': link['id'],
-        'curriculum_node_id': link['curriculum_node_id'],
-        'title': link['resource_title'],
-        'filename': displayName,
-        'mime_type': null,
-        'size_bytes': null,
-        'storage_bucket': bucket,
-        'storage_path': storagePath,
-        'created_at': link['created_at'],
-      });
-
-      final url = await _res.signedUrl(rf);
-      await _file.saveUrlToWorkspaceAndOpen(
-        studentId: _studentId,
-        filename: rf.filename,
-        url: url,
-        bucket: bucket, // ← 고유화에 사용
-        storagePath: storagePath, // ← 고유화에 사용
-      );
-    } catch (e) {
-      _showError('원본 미디어 열기 실패: $e');
-    }
-  }
-
   void _toggleKeyword(String value) {
     if (_selectedKeywords.contains(value)) {
       _selectedKeywords.remove(value);
@@ -841,18 +810,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           );
       }
     });
-  }
-
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    _kwSearchDebounce?.cancel();
-    _subjectCtl.dispose();
-    _memoCtl.dispose();
-    _youtubeCtl.dispose();
-    _keywordSearchCtl.dispose();
-    _scrollCtl.dispose();
-    super.dispose();
   }
 
   @override
@@ -1028,7 +985,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                 if (!_selectMode && _todayLinks.isNotEmpty)
                   TextButton(
                     onPressed: _enterSelectMode,
-                    child: const Text('선택'),
+                    child: const Text('선택 삭제'),
                   ),
                 if (_selectMode) ...[
                   const SizedBox(width: 8),
@@ -1058,19 +1015,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                   ),
                 ],
                 const Spacer(),
-                // 섹션 더보기(전체 삭제)
-                if (_todayLinks.isNotEmpty)
-                  PopupMenuButton<String>(
-                    tooltip: '섹션 메뉴',
-                    onSelected: (v) async {
-                      if (v == 'delete_all') {
-                        await _confirmAndRemoveAll();
-                      }
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'delete_all', child: Text('전체 삭제')),
-                    ],
-                  ),
+                // ⛔️ 섹션 메뉴(전체 삭제) 버튼은 요구로 제거됨
               ],
             ),
             const SizedBox(height: 6),
@@ -1078,30 +1023,30 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
 
             const SizedBox(height: 16),
 
-            // ===== 3) 주제 =====
-            Text('주제', style: _sectionH1(context)),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _subjectCtl,
-              decoration: const InputDecoration(
-                hintText: '예: 코드 전환 + 다운업 스트로크',
-                border: OutlineInputBorder(),
-              ),
-              textInputAction: TextInputAction.next,
-            ),
+            // ===== (숨김) 3) 주제 =====
+            // Text('주제', style: _sectionH1(context)),
+            // const SizedBox(height: 6),
+            // TextField(
+            //   controller: _subjectCtl,
+            //   decoration: const InputDecoration(
+            //     hintText: '예: 코드 전환 + 다운업 스트로크',
+            //     border: OutlineInputBorder(),
+            //   ),
+            //   textInputAction: TextInputAction.next,
+            // ),
 
-            const SizedBox(height: 16),
+            // const SizedBox(height: 16),
 
-            // ===== 4) 키워드 =====
-            Text('키워드', style: _sectionH1(context)),
-            const SizedBox(height: 8),
-            _buildKeywordControls(),
-            const SizedBox(height: 8),
-            _buildKeywordSearchBox(),
-            const SizedBox(height: 8),
-            _buildKeywordChips(),
+            // ===== (숨김) 4) 키워드 =====
+            // Text('키워드', style: _sectionH1(context)),
+            // const SizedBox(height: 8),
+            // _buildKeywordControls(),
+            // const SizedBox(height: 8),
+            // _buildKeywordSearchBox(),
+            // const SizedBox(height: 8),
+            // _buildKeywordChips(),
 
-            const SizedBox(height: 16),
+            // const SizedBox(height: 16),
 
             // ===== 5) 메모 (10줄) =====
             Text('수업 메모', style: _sectionH1(context)),
@@ -1170,17 +1115,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       return _fmtLocalStamp(v) ?? v;
     }
 
-    bool isAudioLink(Map m) {
-      final name = (m['resource_filename'] ?? '').toString().toLowerCase();
-      return name.endsWith('.mp3') ||
-          name.endsWith('.m4a') ||
-          name.endsWith('.wav') ||
-          name.endsWith('.aif') ||
-          name.endsWith('.aiff') ||
-          name.endsWith('.mp4') ||
-          name.endsWith('.mov');
-    }
-
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1190,7 +1124,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
           final kind = (m['kind'] ?? '').toString();
           final isNode = kind == 'node';
           final showXsc = !isNode && hasXscMeta(m);
-          final isAudio = !isNode && isAudioLink(m);
 
           final isHover = _hoveredLinkId == id;
           final base = Theme.of(context).colorScheme.surfaceContainerHighest;
@@ -1275,7 +1208,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                           icon: const Icon(Icons.music_note),
                           onPressed: () => _openLatestXsc(m),
                         ),
-                      // ⛔️ '파일 열기' 버튼 제거됨 — 박스 클릭으로 대체
                       PopupMenuButton<String>(
                         onSelected: (v) async {
                           switch (v) {
@@ -1357,7 +1289,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                       ),
                     ],
                   ),
-                  // ✅ 버튼 제외한 박스 클릭 시 열기(선택 모드면 선택 토글)
                   onTap: () {
                     if (_selectMode) {
                       setState(() {
@@ -1380,9 +1311,10 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     );
   }
 
-  // === 키워드 섹션 UI ===
+  // === 키워드 섹션 UI (현재 숨김이지만 코드 유지) ===
   final GlobalKey _keywordsKey = GlobalKey();
 
+  // ignore: unused_element
   Widget _buildKeywordControls() {
     if (_loadingKeywords) {
       return const Padding(
@@ -1444,6 +1376,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildKeywordSearchBox() {
     return TextField(
       controller: _keywordSearchCtl,
@@ -1464,6 +1397,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildKeywordChips() {
     return Padding(
       key: _keywordsKey,
@@ -1544,10 +1478,7 @@ class _AssignedResourcesPickerDialogState
     _list = widget.assigned;
     _queryCtl.addListener(() {
       _searchDebounce?.cancel();
-      _searchDebounce = Timer(
-        const Duration(milliseconds: 250),
-        _runSearch,
-      ); // 서버검색 디바운스
+      _searchDebounce = Timer(const Duration(milliseconds: 250), _runSearch);
       if (mounted) setState(() {}); // suffixIcon 즉시 갱신용
     });
   }
@@ -1601,20 +1532,16 @@ class _AssignedResourcesPickerDialogState
       final path = v('storage_path'); // 전체 경로
       final last = _lastSegment(path); // 마지막 세그먼트
 
-      final bag =
-          <String>[
-                filename,
-                _basename(filename), // 확장자 제거본
-                original,
-                _basename(original),
-                path, // ✅ 전체 경로도 통째로 검색
-                last,
-                _basename(last),
-                v('title'),
-              ]
-              .where((e) => e.trim().isNotEmpty)
-              .map(_normKo) // ✅ NFC 정규화 + 소문자 + 구분자 제거
-              .toList();
+      final bag = <String>[
+        filename,
+        _basename(filename),
+        original,
+        _basename(original),
+        path,
+        last,
+        _basename(last),
+        v('title'),
+      ].where((e) => e.trim().isNotEmpty).map(_normKo).toList();
 
       return bag.any((h) => h.contains(needle));
     }
@@ -1624,7 +1551,6 @@ class _AssignedResourcesPickerDialogState
       _loading = false;
     });
   }
-
 
   // ====== 루트 카테고리 추출 ======
   String _extractRoot(Map<String, dynamic> r) {
@@ -1665,7 +1591,7 @@ class _AssignedResourcesPickerDialogState
     for (final r in rows) {
       s.add(_extractRoot(r));
     }
-    final list = s.toList()..sort((a, b) => a.compareTo(b)); // 가나다/알파벳 정렬
+    final list = s.toList()..sort((a, b) => a.compareTo(b));
     return ['전체', ...list];
   }
 
@@ -1684,19 +1610,19 @@ class _AssignedResourcesPickerDialogState
   List<Map<String, dynamic>> _filtered() {
     final q = _queryCtl.text.trim();
 
-    // 1) 파일만 통과: storage_path(or path) & filename 필요
+    // 1) 파일만 통과
     List<Map<String, dynamic>> base = _list.where((r) {
       final path = (r['storage_path'] ?? r['path'] ?? '').toString().trim();
       final filename = (r['filename'] ?? '').toString().trim();
       return path.isNotEmpty && filename.isNotEmpty;
     }).toList();
 
-    // 2) 루트 카테고리 필터
+    // 2) 루트 필터
     if (_selectedRoot != '전체') {
       base = base.where((r) => _extractRoot(r) == _selectedRoot).toList();
     }
 
-    // 3) 추가 클라이언트 검색(서버검색 결과 위에 보조 필터)
+    // 3) 추가 클라 검색
     if (q.isNotEmpty) {
       final needle = _normKo(q);
       bool hit(Map<String, dynamic> r) {
@@ -1722,8 +1648,7 @@ class _AssignedResourcesPickerDialogState
       base = base.where(hit).toList();
     }
 
-
-    // 4) 정렬 (가나다/알파벳): 원본 제목 → 없으면 타이틀/파일명
+    // 4) 정렬
     base.sort((a, b) {
       String displayA = _originalTitleOf(a);
       if (displayA.isEmpty) {
@@ -1736,7 +1661,7 @@ class _AssignedResourcesPickerDialogState
       return displayA.compareTo(displayB);
     });
 
-    // 5) 중복 제거: bucket::path::filename
+    // 5) 중복 제거
     final seen = <String>{};
     final items = <Map<String, dynamic>>[];
     for (final r in base) {
@@ -1876,7 +1801,7 @@ class _AssignedResourcesPickerDialogState
                             ),
                       border: const OutlineInputBorder(),
                     ),
-                    onChanged: (_) => setState(() {}), // 즉시 UI 반영
+                    onChanged: (_) => setState(() {}),
                   ),
                 ),
               ],
@@ -1904,7 +1829,7 @@ class _AssignedResourcesPickerDialogState
                   ? const Center(child: Text('표시할 리소스가 없습니다.'))
                   : ListView.separated(
                       itemCount: items.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      separatorBuilder: (_, i) => const Divider(height: 1),
                       itemBuilder: (_, i) {
                         final r = items[i];
 

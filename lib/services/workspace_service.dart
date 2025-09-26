@@ -293,7 +293,7 @@ class WorkspaceService {
 
     // (선택) lesson_attachments 테이블에도 메타 insert — 통계/관리용
     try {
-      final lessonId = await links.getTodayLessonId(studentId, ensure: true);
+      final lessonId = await links.getTodayLessonIdEnsure(studentId);
       if (lessonId != null) {
         final mediaHash = await _sha1OfFile(path);
         await Supabase.instance.client.from('lesson_attachments').insert({

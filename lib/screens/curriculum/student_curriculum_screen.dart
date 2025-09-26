@@ -1,9 +1,7 @@
 // lib/screens/curriculum/student_curriculum_screen.dart
-// v1.71 | 지난 수업 리소스: 전역 중복 제거 + 최신순 보장
-// - _fetchReviewed(): 레슨 목록을 날짜 내림차순 정렬 후 순회(최신 → 과거)
-// - globalSeenRes / globalSeenAtt로 전 레슨 범위 중복 제거(가장 최신만 노출)
-// - 그룹이 비게 되면 스킵
-// - 기존 '오늘 레슨에 담기' 동작/스낵바 그대로 유지
+// v1.71.2-lintfix | 지난 수업 리소스: 전역 중복 제거 + 최신순 보장
+// - 로컬 함수 언더스코어 제거 유지 (parseDate, resKey, attKey)
+// - if(!mounted) 단일문 → 블록으로 감싸 린트 해결 (curly_braces_in_flow_control_structures)
 
 import 'package:flutter/material.dart';
 
@@ -127,7 +125,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
     );
 
     // 날짜 파싱 유틸
-    DateTime _parseDate(dynamic v) {
+    DateTime parseDate(dynamic v) {
       if (v == null) return DateTime.fromMillisecondsSinceEpoch(0);
       if (v is DateTime) return v;
       final s = v.toString();
@@ -139,7 +137,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
 
     // 1) 최신순 정렬 보장
     final sorted = lessons.map((e) => Map<String, dynamic>.from(e)).toList()
-      ..sort((a, b) => _parseDate(b['date']).compareTo(_parseDate(a['date'])));
+      ..sort((a, b) => parseDate(b['date']).compareTo(parseDate(a['date'])));
 
     // 2) 전역 중복 제거 키 셋 (레슨 전체 범위)
     // 리소스: bucket::path[::filename] (filename 까지 포함해 더 보수적으로)
@@ -147,7 +145,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
     // 첨부: localPath / url / path 중 우선순위로 구성
     final globalSeenAtt = <String>{};
 
-    String _resKey(Map<String, dynamic> mm) {
+    String resKey(Map<String, dynamic> mm) {
       final bucket = (mm['resource_bucket'] ?? ResourceService.bucket)
           .toString()
           .trim();
@@ -156,7 +154,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
       return '$bucket::$path::${fname.isEmpty ? '(nofile)' : fname}';
     }
 
-    String _attKey(Map<String, dynamic> m) {
+    String attKey(Map<String, dynamic> m) {
       final localPath = (m['localPath'] ?? '').toString().trim();
       final url = (m['url'] ?? '').toString().trim();
       final path = (m['path'] ?? '').toString().trim();
@@ -184,7 +182,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
         final path = (mm['resource_path'] ?? '').toString();
         if (path.isEmpty) continue;
 
-        final gkey = _resKey(mm);
+        final gkey = resKey(mm);
         if (!globalSeenRes.add(gkey)) continue; // ✅ 전역 중복 제거
         final lkey = '$bucket::$path';
         if (!seen.add(lkey)) continue; // 레슨 내부 보조 중복 제거
@@ -224,7 +222,7 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
           final path = (map['path'] ?? '').toString();
           final name = (map['name'] ?? path.split('/').last).toString();
 
-          final gkey = _attKey(map);
+          final gkey = attKey(map);
           if (!globalSeenAtt.add(gkey)) continue; // ✅ 전역 중복 제거
 
           final lkey = localPath.isNotEmpty ? 'local::$localPath' : 'url::$url';
@@ -544,8 +542,9 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                                                                   linkRow:
                                                                       it.src!,
                                                                 );
-                                                            if (!mounted)
+                                                            if (!mounted) {
                                                               return;
+                                                            }
                                                             _showAddResultSnack(
                                                               r,
                                                             );
@@ -612,8 +611,9 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                                                                   attachment:
                                                                       it.src!,
                                                                 );
-                                                            if (!mounted)
+                                                            if (!mounted) {
                                                               return;
+                                                            }
                                                             _showAddResultSnack(
                                                               r,
                                                             );
@@ -740,7 +740,7 @@ class _SendChooserSheet extends StatelessWidget {
                       }
                       return ListView.separated(
                         itemCount: items.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        separatorBuilder: (_, _) => const Divider(height: 1),
                         itemBuilder: (_, i) {
                           final r = items[i];
                           return ListTile(

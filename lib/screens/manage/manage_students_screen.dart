@@ -681,7 +681,7 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
                 : ListView.separated(
                     padding: const EdgeInsets.all(12),
                     itemCount: _list.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final s = _list[i];
                       final teacherName =

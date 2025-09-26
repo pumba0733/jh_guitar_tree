@@ -497,7 +497,7 @@ class _MoveNodeDialogState extends State<_MoveNodeDialog> {
             Expanded(
               child: ListView.separated(
                 itemCount: filtered.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
+                separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (_, i) {
                   final c = filtered[i];
                   final sel =
@@ -851,7 +851,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
                         }
                         return ListView.separated(
                           itemCount: items.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          separatorBuilder: (_, _) => const Divider(height: 1),
                           itemBuilder: (_, i) {
                             final r = items[i];
                             final subtitle =
