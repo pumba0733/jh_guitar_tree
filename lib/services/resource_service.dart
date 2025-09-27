@@ -1,11 +1,10 @@
 // lib/services/resource_service.dart
-// v1.67.2-lintfix | ASCII-safe key + (NEW) moveResourceToNode()
+// v1.68.0 | ASCII-safe key + moveResourceToNode + (NEW) renameResourceFilename
 // - storagePath: yyyy-MM/{nodeSeg}/{safeBase}__{sha1-12}{ext}
 // - signedUrl 레거시 폴백 유지
-// - NEW: moveResourceToNode(resourceId, newNodeId)
-// - Lint fixes:
-//   * string interpolation에서 필요한 곳만 {} 유지 (safeBase, h12 앞뒤에 '_'가 붙음)
-//   * finalSize 비nullable로 정리하여 null 비교/! 제거
+// - moveResourceToNode(resourceId, newNodeId)
+// - NEW: renameResourceFilename(resourceId, newFilename, alsoUpdateOriginal)
+// - Lint tidy
 
 import 'dart:async';
 import 'dart:io';
@@ -434,7 +433,7 @@ class ResourceService {
       cacheControl: '3600',
     );
 
-    // 중복 검사 (이미 비nullable이므로 불필요한 null 비교 제거)
+    // 중복 검사
     final dup = await findDuplicateByNameAndSize(
       filename: baseOriginal,
       size: finalSize,
@@ -606,5 +605,37 @@ class ResourceService {
           .update({'curriculum_node_id': newNodeId})
           .inFilter('id', resourceIds),
     );
+  }
+
+  // ---------- (NEW) 파일명 변경 ----------
+  /// DB의 filename(그리고 옵션으로 original_filename)을 변경합니다.
+  /// Storage의 실제 파일 키(storage_path)는 변경하지 않습니다.
+  Future<ResourceFile> renameResourceFilename({
+    required String resourceId,
+    required String newFilename,
+    bool alsoUpdateOriginal = true,
+  }) async {
+    if (!await _tableExists()) {
+      throw StateError('resources 테이블이 아직 준비되지 않았습니다.');
+    }
+    final cleaned = p.basename(newFilename.trim());
+    if (cleaned.isEmpty) {
+      throw ArgumentError('새 파일명이 비어 있습니다.');
+    }
+
+    final payload = <String, dynamic>{'filename': cleaned};
+    if (alsoUpdateOriginal) {
+      payload['original_filename'] = cleaned;
+    }
+
+    final row = await _retry(
+      () => _c
+          .from(_tResources)
+          .update(payload)
+          .eq('id', resourceId)
+          .select()
+          .single(),
+    );
+    return ResourceFile.fromMap(_one(row));
   }
 }

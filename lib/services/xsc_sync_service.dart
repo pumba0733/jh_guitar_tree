@@ -424,6 +424,9 @@ class XscSyncService {
       try {
         final d = Directory(c);
         if (!d.existsSync()) d.createSync(recursive: true);
+        final probe = File(p.join(d.path, '.gt_write_test'));
+        probe.writeAsStringSync('ok', flush: true);
+        probe.deleteSync();
         return d.path;
       } catch (_) {}
     }

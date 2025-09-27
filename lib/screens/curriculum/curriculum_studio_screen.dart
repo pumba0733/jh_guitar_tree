@@ -1,8 +1,8 @@
 // lib/screens/curriculum/curriculum_studio_screen.dart
-// v1.74.2 | 리소스 '매핑 변경' 기능 추가 (파일을 다른 카테고리로 이동)
-// - ResourceService.moveResourceToNode(...) 호출
-// - 후보는 category 타입 노드만 (경로 표시)
-// - 기존 노드 이동/형제정렬/업로드/삭제 로직은 그대로 유지
+// v1.74.4 | 리소스 다이얼로그 개선 + 파일명 변경 버튼/동작 추가
+// - 목록 기본 정렬: 파일명 오름차순(ABC, 가나다)
+// - 파일명 검색(경로 제외) 추가
+// - '파일명 변경' 버튼 추가: ResourceService.renameResourceFilename(...) 호출
 
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -11,6 +11,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:mime/mime.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:cross_file/cross_file.dart';
+import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
 import '../../models/curriculum.dart';
 import '../../models/resource.dart';
@@ -20,7 +21,6 @@ import '../../services/file_service.dart';
 
 class CurriculumStudioScreen extends StatefulWidget {
   const CurriculumStudioScreen({super.key});
-
   @override
   State<CurriculumStudioScreen> createState() => _CurriculumStudioScreenState();
 }
@@ -53,7 +53,6 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     if (title == null) return;
     final trimmed = title.trim();
     if (trimmed.isEmpty) return;
-
     try {
       await _svc.createNode(parentId: parentId, type: type, title: trimmed);
       await _refresh();
@@ -70,7 +69,6 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     if (title == null) return;
     final trimmed = title.trim();
     if (trimmed.isEmpty) return;
-
     await _svc.updateNode(id: n.id, title: trimmed);
     await _refresh();
   }
@@ -83,11 +81,9 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
       danger: true,
     );
     if (!ok) return;
-
     await _svc.deleteNode(n.id);
     await _refresh();
   }
-
 
   Future<void> _openUrl(String url) async {
     var u = url.trim();
@@ -127,7 +123,6 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
       builder: (_) => _SiblingReorderDialog(siblings: siblings),
     );
     if (result == null) return;
-
     for (var i = 0; i < result.length; i++) {
       final n = result[i];
       await _svc.updateNode(id: n.id, order: i);
@@ -140,6 +135,7 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     required List<CurriculumNode> allNodes,
   }) async {
     final byId = {for (final n in allNodes) n.id: n};
+
     bool isDescendant(String? candidateId, String nodeId) {
       var cursor = candidateId;
       while (cursor != null) {
@@ -150,11 +146,9 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
     }
 
     final allowed = <_MoveCandidate>[];
-
     if (target.type == 'category') {
       allowed.add(_MoveCandidate(id: null, pathText: '루트(최상위)', isRoot: true));
     }
-
     for (final n in allNodes) {
       if (n.type != 'category') continue;
       if (n.id == target.id) continue;
@@ -380,14 +374,12 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
 class _SiblingReorderDialog extends StatefulWidget {
   final List<CurriculumNode> siblings;
   const _SiblingReorderDialog({required this.siblings});
-
   @override
   State<_SiblingReorderDialog> createState() => _SiblingReorderDialogState();
 }
 
 class _SiblingReorderDialogState extends State<_SiblingReorderDialog> {
   late List<CurriculumNode> _working;
-
   @override
   void initState() {
     super.initState();
@@ -454,7 +446,6 @@ class _MoveNodeDialog extends StatefulWidget {
   final CurriculumNode target;
   final List<_MoveCandidate> candidates;
   const _MoveNodeDialog({required this.target, required this.candidates});
-
   @override
   State<_MoveNodeDialog> createState() => _MoveNodeDialogState();
 }
@@ -512,9 +503,7 @@ class _MoveNodeDialogState extends State<_MoveNodeDialog> {
                         ? const Icon(Icons.check, color: Colors.blue)
                         : null,
                     onTap: () => setState(() => _selected = c),
-                    onLongPress: () {
-                      Navigator.pop(context, c);
-                    },
+                    onLongPress: () => Navigator.pop(context, c),
                   );
                 },
               ),
@@ -544,7 +533,6 @@ class _ResourceManagerSheet extends StatefulWidget {
   final CurriculumNode node;
   final ResourceService svc;
   const _ResourceManagerSheet({required this.node, required this.svc});
-
   @override
   State<_ResourceManagerSheet> createState() => _ResourceManagerSheetState();
 }
@@ -552,20 +540,30 @@ class _ResourceManagerSheet extends StatefulWidget {
 class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
   late Future<List<ResourceFile>> _load;
   bool _dragging = false;
-  bool _busy = false; // 업로드/삭제/매핑중 UI 잠금
+  bool _busy = false; // 업로드/삭제/매핑/이름변경 중 UI 잠금
+
+  // 🔎 파일명 검색 컨트롤러
+  final TextEditingController _resSearchCtl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _load = widget.svc.listByNode(widget.node.id);
+    _resSearchCtl.addListener(() {
+      if (mounted) setState(() {}); // 즉시 필터 반영
+    });
+  }
+
+  @override
+  void dispose() {
+    _resSearchCtl.dispose();
+    super.dispose();
   }
 
   Future<void> _refresh() async {
     final f = widget.svc.listByNode(widget.node.id);
     if (!mounted) return;
-    setState(() {
-      _load = f;
-    });
+    setState(() => _load = f);
     await f;
   }
 
@@ -611,7 +609,6 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
   Future<void> _uploadEntries({required List<_Picked> files}) async {
     if (_busy) return;
     setState(() => _busy = true);
-
     int okCount = 0;
     for (final f in files) {
       final name = f.name;
@@ -692,13 +689,11 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
   Future<void> _remapResource(ResourceFile r) async {
     if (_busy) return;
 
-    // 모든 노드 로드(카테고리 후보만)
     final svc = CurriculumService();
     final raw = await svc.listNodes();
     final all = raw
         .map((e) => CurriculumNode.fromMap(Map<String, dynamic>.from(e)))
         .toList();
-
     final byId = {for (final n in all) n.id: n};
 
     String pathText(CurriculumNode n) {
@@ -765,10 +760,96 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
     }
   }
 
+  // ====== (NEW) 파일명 변경 ======
+  Future<void> _renameFilename(ResourceFile r) async {
+    if (_busy) return;
+
+    final current = r.filename;
+    final input = await _promptText(context, '파일명 변경', initial: current);
+    if (input == null) return;
+
+    // ✅ 1) 첫 번째 async gap(위 다이얼로그) 후 컨텍스트/상태 사용 전 가드
+    if (!mounted) return;
+
+    final newName = input.trim();
+    if (newName.isEmpty) return;
+
+    // 확장자 변경 경고(선택): UX 보조 — 저장은 허용
+    final oldExt = _extOf(current);
+    final newExt = _extOf(newName);
+    if (oldExt != newExt && oldExt.isNotEmpty) {
+      final ok = await _confirm(
+        context,
+        title: '확장자 변경 경고',
+        message:
+            '기존 확장자($oldExt)와 다른 확장자($newExt)가 입력되었습니다.\n그래도 변경할까요?\n(스토리지 파일은 이동/이름변경되지 않으며, DB 파일명만 변경됩니다.)',
+        confirmText: '변경',
+      );
+      // ✅ 2) 두 번째 async gap(확인 다이얼로그) 후 가드
+      if (!mounted) return;
+      if (!ok) return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      await widget.svc.renameResourceFilename(
+        resourceId: r.id,
+        newFilename: newName,
+        alsoUpdateOriginal: true,
+      );
+      await _refresh();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('파일명을 변경했습니다.')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('파일명 변경 실패: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+
+
+
+  String _extOf(String s) {
+    final i = s.lastIndexOf('.');
+    return (i >= 0 && i < s.length - 1) ? s.substring(i + 1).toLowerCase() : '';
+  }
+
+  // 🔎 검색용 정규화: NFC → 소문자 → 구분자 제거
+  String _normKo(String s) {
+    final nfc = s.isEmpty ? s : unorm.nfc(s);
+    return nfc.toLowerCase().replaceAll(
+      RegExp(r'[\s\-\_\.\(\)\[\]\{\},/]+'),
+      '',
+    );
+  }
+
+  // 파일명만 기준으로 필터 + 파일명 오름차순 정렬
+  List<ResourceFile> _filterAndSort(List<ResourceFile> list) {
+    final q = _resSearchCtl.text.trim();
+    final needle = _normKo(q);
+
+    bool hit(ResourceFile r) {
+      final fname = (r.filename).trim();
+      if (fname.isEmpty) return false;
+      if (needle.isEmpty) return true;
+      return _normKo(fname).contains(needle);
+    }
+
+    final filtered = list.where(hit).toList()
+      ..sort((a, b) => a.filename.compareTo(b.filename));
+
+    return filtered;
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
-
     return Padding(
       padding: EdgeInsets.only(bottom: bottom),
       child: SafeArea(
@@ -798,6 +879,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
               },
               child: Column(
                 children: [
+                  // 업로드 안내
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                     child: AnimatedContainer(
@@ -828,7 +910,31 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
                       ),
                     ),
                   ),
+
                   const SizedBox(height: 8),
+
+                  // 🔎 파일명 검색 입력
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: TextField(
+                      controller: _resSearchCtl,
+                      decoration: InputDecoration(
+                        hintText: '파일명 검색… (경로 제외)',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _resSearchCtl.text.isEmpty
+                            ? null
+                            : IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () => _resSearchCtl.clear(),
+                                tooltip: '검색어 지우기',
+                              ),
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+
+                  // 목록
                   Expanded(
                     child: FutureBuilder<List<ResourceFile>>(
                       future: _load,
@@ -849,11 +955,14 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
                             ),
                           );
                         }
+
+                        final list = _filterAndSort(items);
+
                         return ListView.separated(
-                          itemCount: items.length,
+                          itemCount: list.length,
                           separatorBuilder: (_, _) => const Divider(height: 1),
                           itemBuilder: (_, i) {
-                            final r = items[i];
+                            final r = list[i];
                             final subtitle =
                                 '${r.storageBucket}/${r.storagePath}';
                             return ListTile(
@@ -862,6 +971,8 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
                                 (r.title?.isNotEmpty ?? false)
                                     ? r.title!
                                     : r.filename,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                               subtitle: Text(
                                 subtitle,
@@ -884,6 +995,15 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
                                         : () => _remapResource(r),
                                     icon: const Icon(
                                       Icons.drive_file_move_outline,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: '파일명 변경',
+                                    onPressed: _busy
+                                        ? null
+                                        : () => _renameFilename(r),
+                                    icon: const Icon(
+                                      Icons.drive_file_rename_outline,
                                     ),
                                   ),
                                   IconButton(

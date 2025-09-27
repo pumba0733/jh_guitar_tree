@@ -42,6 +42,9 @@ class WorkspaceService {
     '.aiff',
     '.mp4',
     '.mov',
+    '.m4v',
+    '.mkv',
+    '.avi',
   };
 
   bool get isRunning => _sub != null;
@@ -71,7 +74,7 @@ class WorkspaceService {
       }
 
       // Windows에서 흔한 예: C:\Users\you\GuitarTreeWorkspace → 실제 사용자로 교정
-      if (Platform.isWindows && fixed.contains(r'\you\')) {
+      if (Platform.isWindows && fixed.toLowerCase().contains(r'\you\')) {
         if (osHome != null && osHome.isNotEmpty) {
           // \you\ 이후 하위 경로를 보존해 붙인다
           final idx = fixed.toLowerCase().indexOf(r'\you\');
