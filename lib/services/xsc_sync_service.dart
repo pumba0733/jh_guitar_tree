@@ -1,11 +1,7 @@
 // lib/services/xsc_sync_service.dart
-// v1.64.2 | Transcribe(xsc) 동기화 — 미디어 일반화(오디오+영상)
-// - mp3 한정 로직을 모든 미디어(오디오/비디오)로 일반화
-// - _ensureSharedMp3 → _ensureSharedMedia (해시/캐시/인덱스 동일 구조)
-// - 확장자+MIME 기반으로 isMediaEligibleForXsc() 판별
-// - 초회(로컬 xsc 없음) copy 고정 → 저장 위치 안정화
-// - .shared_cache/<hash>/*.xsc 자동 이관 후 그 파일로 오픈
-// - 나머지 캐시/업로드/충돌 처리/사이드카 메타는 기존 유지
+// v1.65.0 | Win/mac 공통: WORKSPACE 후보에 USERPROFILE 추가 + Windows는 항상 copy 배치
+// - mp3 한정 로직 → 오디오/비디오 미디어 일반화 유지
+// - 캐시/학생폴더/사이드카/충돌/백업 로직 동일
 
 import 'dart:async' show StreamSubscription, Timer, unawaited;
 import 'dart:convert' as convert;
@@ -67,7 +63,6 @@ class XscSyncService {
     return byExt || byMime;
   }
 
-
   // ---------------- 판별: XSC 대상 미디어인지 ----------------
   bool isMediaEligibleForXsc(ResourceFile r) {
     return _isMediaByNameMime(r.filename, r.mimeType);
@@ -124,13 +119,11 @@ class XscSyncService {
     await open(resource: rf, studentId: studentId);
   }
 
-
-
   // [ADD] 첨부(lessons.attachments의 item)에서 열기: URL/경로 기반
   Future<void> openFromAttachment({
     required Map<String, dynamic> attachment,
     required String studentId,
-    String? mimeType, // 선택: 상위에서 MIME 힌트 줄 수 있음
+    String? mimeType,
   }) async {
     final url = (attachment['url'] ?? attachment['path'] ?? '')
         .toString()
@@ -144,14 +137,14 @@ class XscSyncService {
       throw ArgumentError('attachment url/path가 비어 있습니다.');
     }
 
-    // 0) 미디어 여부 판단 (확장자+MIME)
+    // 0) 미디어 여부 판단
     final isMedia = _isMediaByNameMime(filename, mimeType);
     if (!isMedia) {
       await _file.openUrl(url); // 미디어 아니면 그냥 열기
       return;
     }
 
-    // 1) 공유 미디어 캐시 확보 (URL 다운로드 기반)
+    // 1) 공유 미디어 캐시 확보
     final sharedMediaPath = await _ensureSharedMediaFromUrl(
       url: url,
       filename: filename,
@@ -163,7 +156,7 @@ class XscSyncService {
     final studentDir = await _ensureDir(p.join(studentRoot, mediaHash));
 
     // 3-A) 캐시 내 *.xsc → 학생 폴더로 이관
-    String? localXsc = await _migrateCacheXscIfExists(
+    await _migrateCacheXscIfExists(
       cacheMediaPath: sharedMediaPath,
       studentDir: studentDir,
     );
@@ -172,22 +165,24 @@ class XscSyncService {
     final linkedOrCopiedMedia = await _placeMediaForStudent(
       sharedMediaPath: sharedMediaPath,
       studentMediaDir: studentDir,
-      forceCopy: localXsc == null,
+      forceCopy: true, // 초회 copy 고정
     );
 
-    // 4) 원격 최신 xsc 내려받기 → 없으면 로컬 스캔
-    localXsc ??= await _downloadLatestXscIfAny(
+    // 4) 원격 최신 current.xsc 우선 시도
+    await _downloadLatestXscIfAny(
       studentId: studentId,
       mediaHash: mediaHash,
       intoDir: studentDir,
     );
-    localXsc ??= await _findLocalLatestXsc(studentDir);
 
-    // 5) 열기 (xsc 우선)
+    // 5) 로컬 최신 xsc 스캔
+    final localXsc = await _findLocalLatestXsc(studentDir);
+
+    // 6) 열기 (xsc 우선)
     final toOpen = localXsc ?? linkedOrCopiedMedia;
     await _file.openLocal(toOpen);
 
-    // 6) 저장 감시 & 업로드 (기존 LessonLinksService 시그니처와 동일하게 mp3Hash=mediaHash)
+    // 7) 저장 감시 & 업로드
     await _watchAndSyncXsc(
       dir: studentDir,
       studentId: studentId,
@@ -195,15 +190,13 @@ class XscSyncService {
     );
   }
 
-
   Future<void> open({
     required ResourceFile resource,
     required String studentId,
   }) async {
-    // 0) 미디어(XSC 대상) 여부 판단
+    // 0) XSC 대상 여부
     final isMedia = isMediaEligibleForXsc(resource);
 
-    // 미디어가 아니면 기존처럼 URL로 오픈
     if (!isMedia) {
       final url = await _res.signedUrl(resource);
       await _file.openUrl(url);
@@ -219,38 +212,39 @@ class XscSyncService {
     final studentDir = await _ensureDir(p.join(studentRoot, mediaHash));
 
     // 3-A) 캐시에 생긴 *.xsc가 있으면 학생 폴더로 이관
-    String? localXsc = await _migrateCacheXscIfExists(
+    await _migrateCacheXscIfExists(
       cacheMediaPath: sharedMediaPath,
       studentDir: studentDir,
     );
 
     // 3-B) 학생 폴더에 미디어 배치
-    //     로컬 xsc가 아직 없으면 '복사' 고정(초회), 있으면 symlink 시도→실패 시 복사
+    final hasAnyXsc = (await _findLocalLatestXsc(studentDir)) != null;
     final linkedOrCopiedMedia = await _placeMediaForStudent(
       sharedMediaPath: sharedMediaPath,
       studentMediaDir: studentDir,
-      forceCopy: localXsc == null, // 초회엔 copy
+      // Windows에서는 항상 copy, macOS는 로컬 xsc 없으면 copy 고정
+      forceCopy: Platform.isWindows || !hasAnyXsc,
     );
 
-    // 4) 원격 최신 xsc 내려받기(없을 때만 로컬 스캔/이관으로 결정)
-    localXsc ??= await _downloadLatestXscIfAny(
+    // 4) 원격 최신 current.xsc 우선 시도
+    await _downloadLatestXscIfAny(
       studentId: studentId,
       mediaHash: mediaHash,
       intoDir: studentDir,
     );
 
-    // 4-b) 그래도 없으면 로컬 학생 폴더 스캔(임의 파일명)
-    localXsc ??= await _findLocalLatestXsc(studentDir);
+    // 5) 로컬 최신 xsc 스캔
+    final localXsc = await _findLocalLatestXsc(studentDir);
 
-    // 5) 기본앱 실행 (xsc 우선)
+    // 6) 기본앱 실행 (xsc 우선)
     final toOpen = localXsc ?? linkedOrCopiedMedia;
     await _file.openLocal(toOpen);
 
-    // 6) 저장 감시 시작 (충돌 체크 포함)
+    // 7) 저장 감시 시작
     await _watchAndSyncXsc(
       dir: studentDir,
       studentId: studentId,
-      mediaHash: mediaHash, // NOTE: LessonLinksService 시그니처 호환 위해 내부에서 그대로 사용
+      mediaHash: mediaHash,
     );
   }
 
@@ -341,7 +335,6 @@ class XscSyncService {
     return outPath;
   }
 
-
   /// 캐시 폴더(.shared_cache/`<hash>`/)에 생긴 *.xsc를 학생 폴더로 이동
   Future<String?> _migrateCacheXscIfExists({
     required String cacheMediaPath,
@@ -383,7 +376,8 @@ class XscSyncService {
     required bool forceCopy,
   }) async {
     final dst = p.join(studentMediaDir, p.basename(sharedMediaPath));
-    if (forceCopy) {
+    // Windows는 항상 copy (권한/정책으로 symlink 실패가 잦음)
+    if (forceCopy || Platform.isWindows) {
       final copied = await File(sharedMediaPath).copy(dst);
       return copied.path;
     }
@@ -416,10 +410,13 @@ class XscSyncService {
 
   String _workspace() {
     final home = Platform.environment['HOME'];
+    final userProfile = Platform.environment['USERPROFILE'];
     final candidates = <String>[
       if (_wsDir.isNotEmpty) _wsDir,
       Platform.environment['WORKSPACE_DIR'] ?? '',
       if (home != null && home.isNotEmpty) p.join(home, 'GuitarTreeWorkspace'),
+      if (userProfile != null && userProfile.isNotEmpty)
+        p.join(userProfile, 'GuitarTreeWorkspace'),
       p.join(Directory.systemTemp.path, 'GuitarTreeWorkspace'),
     ].where((e) => e.trim().isNotEmpty).toList();
 
@@ -658,7 +655,6 @@ class XscSyncService {
           mp3Hash: mediaHash,
           xscStoragePath: 'student_xsc/$studentId/$mediaHash/current.xsc',
         );
-
       } catch (_) {
       } finally {
         busy[path] = false;

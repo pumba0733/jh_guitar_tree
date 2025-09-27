@@ -236,17 +236,31 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                   ? localPath
                   : (url.isNotEmpty ? url : path),
               onOpen: () async {
-                if (localPath.isNotEmpty) {
-                  await FileService().openLocal(localPath);
-                } else if (url.isNotEmpty) {
-                  await FileService().openUrl(url);
-                } else if (path.isNotEmpty) {
-                  await FileService().openUrl(path);
-                }
+                // ✅ 첨부도 XSC 루틴으로
+                await LessonLinksService().openFromAttachment(
+                  LessonAttachmentItem(
+                    lessonId: id, // 해당 레슨 id
+                    type: (map['type'] ?? 'url').toString(),
+                    createdAt: DateTime.now(),
+                    localPath: localPath.isNotEmpty ? localPath : null,
+                    url: url.isNotEmpty ? url : null,
+                    path: path.isNotEmpty ? path : null,
+                    originalFilename: (map['name'] ?? '').toString().isNotEmpty
+                        ? map['name'].toString()
+                        : null,
+                    mediaName: (map['mediaName'] ?? '').toString().isNotEmpty
+                        ? map['mediaName'].toString()
+                        : null,
+                    xscStoragePath: null,
+                    xscUpdatedAt: null,
+                  ),
+                  studentId: widget.studentId,
+                );
               },
-              src: map, // v1.70 유지
+              src: map,
             ),
           );
+
         }
       }
 

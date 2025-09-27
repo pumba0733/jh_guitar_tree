@@ -1,8 +1,6 @@
 // lib/services/lesson_links_service.dart
 // v1.70 | 오늘 레슨에 '담기' 일괄 추가 API (링크·첨부) + 중복 방지 머지
-// - AddItem/AddResult 도입
-// - addResourceLinkMapsToToday / addAttachmentsToTodayLesson / 단건 헬퍼 추가
-// - 기존 ensureTodayLessonAndLinkResource 등 시그니처/동작 유지
+// (변경 없음: XSC 흐름과 호환 확인용 재배포)
 
 import 'dart:async';
 import 'dart:io';
@@ -436,7 +434,7 @@ class LessonLinksService {
       if (attachmentsAny is List) {
         for (final e in attachmentsAny) {
           final map = (e is Map)
-              ? Map<String, dynamic>.from(e) // ← unnecessary_cast 제거
+              ? Map<String, dynamic>.from(e)
               : <String, dynamic>{
                   'url': e.toString(),
                   'path': e.toString(),
@@ -524,7 +522,30 @@ class LessonLinksService {
       if ((att.originalFilename ?? '').isNotEmpty) 'name': att.originalFilename,
       if ((att.mediaName ?? '').isNotEmpty) 'mediaName': att.mediaName,
     };
-    await FileService().openAttachment(map);
+
+    // 첨부가 미디어면 XSC 루틴으로
+    final name = (att.mediaName ?? att.originalFilename ?? '').toLowerCase();
+    final isMedia = XscSyncService.instance.isMediaEligibleForXsc(
+      ResourceFile.fromMap({
+        'id': '',
+        'filename': name.isNotEmpty ? name : 'media',
+        'mime_type': null,
+        'size_bytes': null,
+        'storage_bucket': '',
+        'storage_path': '',
+        'created_at': DateTime.now().toIso8601String(),
+      }),
+    );
+
+    if (isMedia) {
+      await XscSyncService.instance.openFromAttachment(
+        attachment: map,
+        studentId: studentId,
+        mimeType: null,
+      );
+    } else {
+      await FileService().openAttachment(map);
+    }
   }
 
   // ---------- v1.70: 오늘 레슨에 '담기' 일괄 추가 ----------
@@ -755,32 +776,5 @@ class LessonLinksService {
     } catch (_) {
       return const [];
     }
-  }
-}
-
-// v1.61 | Storage Key ASCII-safe 유틸 + 표준 경로
-class FileKeyUtil {
-  // 영문/숫자/._- 만 허용, 나머지는 '_'
-  static String keySafe(String input) {
-    final buf = StringBuffer();
-    for (final ch in input.runes) {
-      final c = String.fromCharCode(ch);
-      final ok = RegExp(r'[A-Za-z0-9._-]').hasMatch(c);
-      buf.write(ok ? c : '_');
-    }
-    var s = buf.toString();
-    s = s.replaceAll(RegExp(r'_+'), '_');
-    s = s.replaceAll(RegExp(r'^[._]+|[._]+$'), '');
-    return s.isEmpty ? '_' : s;
-  }
-
-  /// 표준 첨부 경로: lesson/{lessonId}/{uuid}.ext  (ext는 ".xsc" 형태)
-  static String lessonAttachmentKey({
-    required String lessonId,
-    required String uuid,
-    required String ext, // ".xsc" 같은 형태(점 포함/미포함 허용)
-  }) {
-    final e = ext.startsWith('.') ? ext : '.$ext';
-    return 'lesson/$lessonId/$uuid${e.toLowerCase()}';
   }
 }
