@@ -16,7 +16,7 @@ import '../models/resource.dart';
 import 'file_service.dart';
 import 'resource_service.dart';
 import 'lesson_links_service.dart';
-import 'student_service.dart'; 
+import 'student_service.dart';
 
 class XscSyncService {
   XscSyncService._();
@@ -398,39 +398,43 @@ class XscSyncService {
     }
   }
 
-    Future<Uint8List> _downloadBytes(String url) async {
+  Future<Uint8List> _downloadBytes(String url) async {
     final http = HttpClient();
     final uri = Uri.parse(url);
 
-    // 연결/요청
+    // 요청 시작
     final rq = await http.getUrl(uri);
-
-    // (가볍게) 헤더에서 Content-Length=0 감지 시 즉시 차단
-    // (일부 서버는 HEAD가 아니면 정확하지 않을 수 있으나 흔한 오류 케이스를 빠르게 컷)
-    final clen = rq.headers.value(HttpHeaders.contentLengthHeader);
-    if (clen != null) {
-      final n = int.tryParse(clen);
-      if (n != null && n == 0) {
-        throw StateError('미디어 다운로드 실패(빈 응답: Content-Length=0)');
-      }
-    }
+    // ❌ (삭제) 요청 헤더의 Content-Length 검사: GET은 원래 0임
+    // final clen = rq.headers.value(HttpHeaders.contentLengthHeader);
+    // if (clen == '0') throw StateError('...');
 
     final rs = await rq.close();
 
+    // 리다이렉트는 HttpClient가 기본적으로 따라가지만, 혹시 모를 대비
+    if (rs.isRedirect && rs.headers.value(HttpHeaders.locationHeader) != null) {
+      final loc = rs.headers.value(HttpHeaders.locationHeader)!;
+      final rrq = await http.getUrl(Uri.parse(loc));
+      final rrs = await rrq.close();
+      return _readResponseOrThrow(rrs);
+    }
+
+    return _readResponseOrThrow(rs);
+  }
+
+  Future<Uint8List> _readResponseOrThrow(HttpClientResponse rs) async {
     if (rs.statusCode != 200) {
       throw StateError('미디어 다운로드 실패(${rs.statusCode})');
     }
 
-    final bytes = await rs.fold<List<int>>([], (a, b) => a..addAll(b));
-
-    // 수신 바이트가 0이면 실패로 처리 (캐시/파일 생성 방지)
-    if (bytes.isEmpty) {
+    // ✅ 응답의 contentLength는 -1(모름/청크)일 수 있으니 0일 때만 강력 의심
+    // 하지만 서버가 헤더만 0이고 실제 바디가 오는 경우가 있으므로
+    // 최종적으로 바디 길이로 판정합니다.
+    final chunks = await rs.fold<List<int>>([], (a, b) => a..addAll(b));
+    if (chunks.isEmpty) {
       throw StateError('미디어 다운로드 실패(빈 응답 바디)');
     }
-
-    return Uint8List.fromList(bytes);
+    return Uint8List.fromList(chunks);
   }
-
 
   Future<String> _sha1OfFile(String path) async {
     final f = File(path);
@@ -496,15 +500,14 @@ class XscSyncService {
         if (v is String) {
           return DateTime.tryParse(v) ?? DateTime.fromMillisecondsSinceEpoch(0);
         }
-         return DateTime.fromMillisecondsSinceEpoch(0);
-       }
+        return DateTime.fromMillisecondsSinceEpoch(0);
+      }
 
       String asString(dynamic v) => (v ?? '').toString();
 
       objsDyn.sort(
         (a, b) => parseTime(b.updatedAt).compareTo(parseTime(a.updatedAt)),
       );
-
 
       dynamic current = objsDyn.firstWhere(
         (o) => (o.name as String).toLowerCase() == 'current.xsc',
@@ -653,13 +656,14 @@ class XscSyncService {
         ).toIso8601String();
         final String remoteEtag = asString(remote?.eTag ?? remote?.id);
 
-
         final localBaseUpdated = sidecar['updated_at']?.toString();
         final localBaseEtag = sidecar['etag']?.toString();
 
         if (remote != null) {
           if ((localBaseUpdated != null && remoteUpdated != localBaseUpdated) ||
-              (remoteEtag.isNotEmpty && (localBaseEtag ?? '').isNotEmpty && remoteEtag != localBaseEtag)) {
+              (remoteEtag.isNotEmpty &&
+                  (localBaseEtag ?? '').isNotEmpty &&
+                  remoteEtag != localBaseEtag)) {
             conflict = true;
           }
         }
