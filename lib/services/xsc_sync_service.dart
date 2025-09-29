@@ -16,6 +16,7 @@ import '../models/resource.dart';
 import 'file_service.dart';
 import 'resource_service.dart';
 import 'lesson_links_service.dart';
+import 'student_service.dart'; 
 
 class XscSyncService {
   XscSyncService._();
@@ -125,6 +126,9 @@ class XscSyncService {
     required String studentId,
     String? mimeType,
   }) async {
+    try {
+      await StudentService().attachMeToStudent(studentId);
+    } catch (_) {}
     final url = (attachment['url'] ?? attachment['path'] ?? '')
         .toString()
         .trim();
@@ -194,6 +198,9 @@ class XscSyncService {
     required ResourceFile resource,
     required String studentId,
   }) async {
+    try {
+      await StudentService().attachMeToStudent(studentId);
+    } catch (_) {}
     // 0) XSC 대상 여부
     final isMedia = isMediaEligibleForXsc(resource);
 
@@ -391,16 +398,39 @@ class XscSyncService {
     }
   }
 
-  Future<Uint8List> _downloadBytes(String url) async {
+    Future<Uint8List> _downloadBytes(String url) async {
     final http = HttpClient();
-    final rq = await http.getUrl(Uri.parse(url));
+    final uri = Uri.parse(url);
+
+    // 연결/요청
+    final rq = await http.getUrl(uri);
+
+    // (가볍게) 헤더에서 Content-Length=0 감지 시 즉시 차단
+    // (일부 서버는 HEAD가 아니면 정확하지 않을 수 있으나 흔한 오류 케이스를 빠르게 컷)
+    final clen = rq.headers.value(HttpHeaders.contentLengthHeader);
+    if (clen != null) {
+      final n = int.tryParse(clen);
+      if (n != null && n == 0) {
+        throw StateError('미디어 다운로드 실패(빈 응답: Content-Length=0)');
+      }
+    }
+
     final rs = await rq.close();
+
     if (rs.statusCode != 200) {
       throw StateError('미디어 다운로드 실패(${rs.statusCode})');
     }
+
     final bytes = await rs.fold<List<int>>([], (a, b) => a..addAll(b));
+
+    // 수신 바이트가 0이면 실패로 처리 (캐시/파일 생성 방지)
+    if (bytes.isEmpty) {
+      throw StateError('미디어 다운로드 실패(빈 응답 바디)');
+    }
+
     return Uint8List.fromList(bytes);
   }
+
 
   Future<String> _sha1OfFile(String path) async {
     final f = File(path);
@@ -457,17 +487,24 @@ class XscSyncService {
         searchOptions: const SearchOptions(limit: 200),
       );
       final List<dynamic> objsDyn = objsRaw;
-      if (objsDyn.isEmpty) return null;
+      if (objsDyn.isEmpty) {
+        return null;
+      }
 
-      objsDyn.sort((a, b) {
-        DateTime parse(dynamic v) {
-          if (v is DateTime) return v;
-          if (v is String) return DateTime.tryParse(v) ?? DateTime(1970);
-          return DateTime(1970);
+      DateTime parseTime(dynamic v) {
+        if (v is DateTime) return v;
+        if (v is String) {
+          return DateTime.tryParse(v) ?? DateTime.fromMillisecondsSinceEpoch(0);
         }
+         return DateTime.fromMillisecondsSinceEpoch(0);
+       }
 
-        return parse(b.updatedAt).compareTo(parse(a.updatedAt));
-      });
+      String asString(dynamic v) => (v ?? '').toString();
+
+      objsDyn.sort(
+        (a, b) => parseTime(b.updatedAt).compareTo(parseTime(a.updatedAt)),
+      );
+
 
       dynamic current = objsDyn.firstWhere(
         (o) => (o.name as String).toLowerCase() == 'current.xsc',
@@ -483,10 +520,8 @@ class XscSyncService {
       final metaPath = p.join(intoDir, '.current.xsc.meta.json');
       final meta = <String, dynamic>{
         'remote_key': key,
-        'updated_at': (current.updatedAt is DateTime)
-            ? (current.updatedAt as DateTime).toIso8601String()
-            : current.updatedAt?.toString(),
-        'etag': (current.eTag ?? current.id ?? '').toString(),
+        'updated_at': parseTime(current.updatedAt).toIso8601String(),
+        'etag': asString(current.eTag ?? current.id),
         'saved_at': DateTime.now().toIso8601String(),
       };
       await _writeJsonFile(metaPath, meta);
@@ -542,12 +577,21 @@ class XscSyncService {
     Future<void> writeSidecarMetaFromRemote(dynamic remoteObj) async {
       try {
         final metaPath = p.join(dir, '.current.xsc.meta.json');
+        DateTime toTime(dynamic v) {
+          if (v is DateTime) return v;
+          if (v is String) {
+            return DateTime.tryParse(v) ??
+                DateTime.fromMillisecondsSinceEpoch(0);
+          }
+          return DateTime.fromMillisecondsSinceEpoch(0);
+        }
+
+        String asString(dynamic v) => (v ?? '').toString();
+
         final meta = <String, dynamic>{
-          'remote_key': '$studentId/$mediaHash/current.xsc', // ← 일관된 스토리지 키
-          'updated_at': (remoteObj?.updatedAt is DateTime)
-              ? (remoteObj.updatedAt as DateTime).toIso8601String()
-              : remoteObj?.updatedAt?.toString(),
-          'etag': (remoteObj?.eTag ?? remoteObj?.id ?? '').toString(),
+          'remote_key': '$studentId/$mediaHash/current.xsc',
+          'updated_at': toTime(remoteObj?.updatedAt).toIso8601String(),
+          'etag': asString(remoteObj?.eTag ?? remoteObj?.id),
           'saved_at': DateTime.now().toIso8601String(),
         };
         await _writeJsonFile(metaPath, meta);
@@ -570,7 +614,9 @@ class XscSyncService {
     }
 
     Future<void> uploadOnce(String path) async {
-      if (busy[path] == true) return;
+      if (busy[path] == true) {
+        return;
+      }
       busy[path] = true;
       try {
         // 파일 크기 안정화 대기
@@ -591,22 +637,29 @@ class XscSyncService {
         final sidecar = await readSidecarMeta();
 
         bool conflict = false;
-        String? remoteUpdated = (remote?.updatedAt is DateTime)
-            ? (remote.updatedAt as DateTime).toIso8601String()
-            : remote?.updatedAt?.toString();
-        final remoteEtag = (remote?.eTag ?? remote?.id ?? '').toString();
+        DateTime toTime(dynamic v) {
+          if (v is DateTime) return v;
+          if (v is String) {
+            return DateTime.tryParse(v) ??
+                DateTime.fromMillisecondsSinceEpoch(0);
+          }
+          return DateTime.fromMillisecondsSinceEpoch(0);
+        }
+
+        String asString(dynamic v) => (v ?? '').toString();
+
+        final String remoteUpdated = toTime(
+          remote?.updatedAt,
+        ).toIso8601String();
+        final String remoteEtag = asString(remote?.eTag ?? remote?.id);
+
 
         final localBaseUpdated = sidecar['updated_at']?.toString();
         final localBaseEtag = sidecar['etag']?.toString();
 
         if (remote != null) {
-          if ((remoteUpdated != null &&
-                  localBaseUpdated != null &&
-                  remoteUpdated != localBaseUpdated) ||
-              (remoteEtag.isNotEmpty &&
-                  localBaseEtag != null &&
-                  localBaseEtag.isNotEmpty &&
-                  remoteEtag != localBaseEtag)) {
+          if ((localBaseUpdated != null && remoteUpdated != localBaseUpdated) ||
+              (remoteEtag.isNotEmpty && (localBaseEtag ?? '').isNotEmpty && remoteEtag != localBaseEtag)) {
             conflict = true;
           }
         }
@@ -666,8 +719,12 @@ class XscSyncService {
 
     void scheduleUpload(String path) {
       final name = path.toLowerCase();
-      if (name.endsWith('.xsc') == false) return;
-      if (isTempOrHidden(path)) return;
+      if (name.endsWith('.xsc') == false) {
+        return;
+      }
+      if (isTempOrHidden(path)) {
+        return;
+      }
 
       debounces[path]?.cancel();
       debounces[path] = Timer(

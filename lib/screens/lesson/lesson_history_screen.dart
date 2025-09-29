@@ -432,8 +432,11 @@ class _LessonHistoryScreenState extends State<LessonHistoryScreen> {
     _linksLoading.add(lessonId);
     if (mounted) setState(() {});
     try {
-      final svc = LessonLinksService();
-      final links = await svc.listByLesson(lessonId);
+     // XSC 메타(최근 저장본/스토리지 경로)까지 병합하여 가져오기
+      final links = await _linksSvc.listByLessonEnriched(
+        lessonId: lessonId,
+        studentId: _studentId,
+      );
       _linksCache[lessonId] = links;
     } catch (e) {
       if (!mounted) return;

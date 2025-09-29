@@ -78,8 +78,9 @@ class WorkspaceService {
         if (osHome != null && osHome.isNotEmpty) {
           // \you\ 이후 하위 경로를 보존해 붙인다
           final idx = fixed.toLowerCase().indexOf(r'\you\');
+          final marker = r'\you\';
           final tail = idx >= 0
-              ? fixed.substring(idx + r'\you'.length)
+              ? fixed.substring(idx + marker.length) // ★ '\you\' 전체 길이 사용
               : r'\GuitarTreeWorkspace';
           fixed = p.join(osHome, tail);
         }

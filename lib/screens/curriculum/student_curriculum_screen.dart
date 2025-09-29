@@ -174,7 +174,10 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
       final seen = <String>{}; // 레슨 내부 중복 방지(보조)
 
       // 1) lesson_links (resource)
-      final links = await _links.listByLesson(id);
+      final links = await _links.listByLessonEnriched(
+        lessonId: id,
+        studentId: widget.studentId,
+      );
       for (final m in links) {
         final mm = Map<String, dynamic>.from(m);
         final bucket = (mm['resource_bucket'] ?? ResourceService.bucket)
@@ -541,29 +544,45 @@ class _StudentCurriculumScreenState extends State<StudentCurriculumScreen> {
                                               trailing: Wrap(
                                                 spacing: 8,
                                                 children: [
-                                                  OutlinedButton.icon(
-                                                    icon: const Icon(Icons.add),
-                                                    label: const Text(
-                                                      '오늘 레슨에 담기',
+                                                  if ((it.src?['xsc_updated_at'] ??
+                                                              '')
+                                                          .toString()
+                                                          .isNotEmpty ||
+                                                      (it.src?['xsc_storage_path'] ??
+                                                              '')
+                                                          .toString()
+                                                          .isNotEmpty)
+                                                    Tooltip(
+                                                      message:
+                                                          (it.src?['xsc_updated_at'] ??
+                                                                  '')
+                                                              .toString()
+                                                              .isEmpty
+                                                          ? '학생별 xsc 연결됨'
+                                                          : '최근 저장: ${DateTime.tryParse(it.src!['xsc_updated_at'].toString())?.toLocal().toString().substring(0, 16) ?? it.src!['xsc_updated_at'].toString()}',
+                                                      child: const Chip(
+                                                        label: Text('최근 저장본'),
+                                                        materialTapTargetSize:
+                                                            MaterialTapTargetSize
+                                                                .shrinkWrap,
+                                                      ),
                                                     ),
-                                                    onPressed: it.src == null
-                                                        ? null
-                                                        : () async {
-                                                            final r = await _links
-                                                                .addResourceLinkMapToToday(
-                                                                  studentId: widget
-                                                                      .studentId,
-                                                                  linkRow:
-                                                                      it.src!,
-                                                                );
-                                                            if (!mounted) {
-                                                              return;
-                                                            }
-                                                            _showAddResultSnack(
-                                                              r,
-                                                            );
-                                                          },
-                                                  ),
+                                                  if ((it.src?['xsc_updated_at'] ??
+                                                              '')
+                                                          .toString()
+                                                          .isNotEmpty ||
+                                                      (it.src?['xsc_storage_path'] ??
+                                                              '')
+                                                          .toString()
+                                                          .isNotEmpty)
+                                                    IconButton(
+                                                      tooltip: 'xsc(최신) 열기',
+                                                      icon: const Icon(
+                                                        Icons.music_note,
+                                                      ),
+                                                      onPressed: it
+                                                          .onOpen, // openFromLessonLinkMap 호출됨
+                                                    ),
                                                   IconButton(
                                                     tooltip: '열기',
                                                     icon: const Icon(

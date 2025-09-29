@@ -1,6 +1,6 @@
 // lib/services/lesson_links_service.dart
-// v1.70 | 오늘 레슨에 '담기' 일괄 추가 API (링크·첨부) + 중복 방지 머지
-// (변경 없음: XSC 흐름과 호환 확인용 재배포)
+// v1.71 | touchXscUpdatedAt: 별칭 RPC 우선 + 폴백 / 나머지 동일
+// - 오늘 레슨 담기/조회/열기 유틸 + XSC 메타 연동
 
 import 'dart:async';
 import 'dart:io';
@@ -717,17 +717,30 @@ class LessonLinksService {
     return '$bucket::$path';
   }
 
-  // ---------- 메타 보조 ----------
+  // ---------- 메타 보조 (수정됨) ----------
   Future<void> touchXscUpdatedAt({
     required String studentId,
     required String mp3Hash,
   }) async {
+    // 1) 별칭 RPC 우선 시도
+    try {
+      await _c.rpc(
+        'touch_xsc_updated_at',
+        params: {'p_student_id': studentId, 'p_mp3_hash': mp3Hash},
+      );
+      return;
+    } catch (_) {
+      // fallthrough
+    }
+    // 2) 폴백: 원래 함수
     try {
       await _c.rpc(
         'touch_xsc_meta_for_student_hash',
         params: {'p_student_id': studentId, 'p_mp3_hash': mp3Hash},
       );
-    } catch (_) {}
+    } catch (_) {
+      // 조용히 실패 허용 (로컬 모드/권한 이슈 등)
+    }
   }
 
   Future<void> upsertAttachmentXscMeta({
@@ -747,34 +760,249 @@ class LessonLinksService {
     } catch (_) {}
   }
 
-  /// 오늘 레슨 링크 목록(ensure 강제)
+  /// 오늘 레슨 링크 + (enrich) resource.content_hash, lesson_attachments의 XSC 메타 병합
   Future<List<Map<String, dynamic>>> listTodayByStudent(
     String studentId, {
-    bool ensure = false, // 호환용
+    bool ensure = false, // 호환용(무시)
   }) async {
+    // 1) 오늘 레슨 ID 확보
     final lessonId = await getTodayLessonIdEnsure(studentId);
     // ignore: avoid_print
     print(
       '[LLS] listTodayByStudent student=$studentId lessonId=$lessonId (ensure=forced)',
     );
     if (lessonId == null) return const [];
-    final viaTableOrView = await listByLesson(lessonId);
-    if (viaTableOrView.isNotEmpty) return viaTableOrView;
 
-    try {
-      final rows = await _c
-          .from(SupabaseTables.lessonLinks)
-          .select(
-            'id, lesson_id, kind, curriculum_node_id, resource_bucket, resource_path, resource_filename, resource_title, created_at',
-          )
-          .eq('lesson_id', lessonId)
-          .order('created_at', ascending: false);
-      final List rowsList = rows; // ← unnecessary_cast 제거
-      return rowsList
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList(growable: false);
-    } catch (_) {
-      return const [];
+    // 2) 기본 링크 가져오기 (TABLE 우선 → VIEW 폴백)
+    Future<List<Map<String, dynamic>>> fetchLinks() async {
+      Future<List<Map<String, dynamic>>> selectFrom(String table) async {
+        final rows = await _retry(
+          () => _c
+              .from(table)
+              .select(
+                'id, lesson_id, kind, curriculum_node_id, '
+                'resource_bucket, resource_path, resource_filename, resource_title, created_at',
+              )
+              .eq('lesson_id', lessonId)
+              .order('created_at', ascending: false),
+        );
+        final List rowsList = rows;
+        return rowsList
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList(growable: false);
+      }
+
+      try {
+        final viaTable = await selectFrom(SupabaseTables.lessonResourceLinks);
+        if (viaTable.isNotEmpty) return viaTable;
+      } catch (_) {}
+      try {
+        return await selectFrom(SupabaseTables.lessonLinks);
+      } catch (_) {
+        return const [];
+      }
     }
+
+    final base = await fetchLinks();
+    if (base.isEmpty) return base;
+
+    // 3) 리소스 링크만 추려서 (bucket,path) 세트 구성
+    final resLinks = base
+        .where((m) => (m['kind'] ?? '') == 'resource')
+        .toList();
+    final keys = <String>{};
+    for (final m in resLinks) {
+      final b = ((m['resource_bucket'] ?? ResourceService.bucket)
+          .toString()
+          .trim()
+          .toLowerCase());
+      final p = ((m['resource_path'] ?? '').toString().trim());
+      if (b.isNotEmpty && p.isNotEmpty) keys.add('$b::$p');
+    }
+    if (keys.isEmpty) return base;
+
+    // 4) resources에서 content_hash 조회 (bucket+path 매칭)
+    final bucketPaths = keys.map((k) => k.split('::')).toList();
+    final buckets = bucketPaths.map((bp) => bp[0]).toSet().toList();
+    final paths = bucketPaths.map((bp) => bp[1]).toSet().toList();
+
+    // Supabase는 복합 inFilter가 없어서 한 번에 못 묶음 → 간단히 전부 가져와 메모리 매칭
+    final resRows = await _retry(
+      () => _c
+          .from(SupabaseTables.resources)
+          .select(
+            'storage_bucket, storage_path, content_hash, mime_type, size_bytes',
+          )
+          .inFilter('storage_bucket', buckets)
+          .inFilter('storage_path', paths),
+    );
+    final List resList = resRows;
+    final byKey = <String, Map<String, dynamic>>{};
+    for (final r in resList) {
+      final m = Map<String, dynamic>.from(r);
+      final b = (m['storage_bucket'] ?? '').toString().toLowerCase();
+      final p = (m['storage_path'] ?? '').toString();
+      if (b.isEmpty || p.isEmpty) continue;
+      byKey['$b::$p'] = m;
+    }
+
+    // 5) 오늘 레슨의 lesson_attachments에서 mp3_hash 동일한 메타 조회
+    final laRows = await _retry(
+      () => _c
+          .from(SupabaseTables.lessonAttachments)
+          .select('lesson_id, mp3_hash, xsc_storage_path, xsc_updated_at')
+          .eq('lesson_id', lessonId),
+    );
+    final List laList = laRows;
+    final laByHash = <String, Map<String, dynamic>>{};
+    for (final r in laList) {
+      final m = Map<String, dynamic>.from(r);
+      final h = (m['mp3_hash'] ?? '').toString();
+      if (h.isNotEmpty) laByHash[h] = m;
+    }
+
+    // 6) 각 링크에 content_hash + XSC 메타 병합
+    for (final m in base) {
+      if ((m['kind'] ?? '') != 'resource') continue;
+      final b = ((m['resource_bucket'] ?? ResourceService.bucket)
+          .toString()
+          .trim()
+          .toLowerCase());
+      final p = ((m['resource_path'] ?? '').toString().trim());
+      final k = '$b::$p';
+
+      final resMeta = byKey[k];
+      if (resMeta != null) {
+        final hash = (resMeta['content_hash'] ?? '').toString();
+        if (hash.isNotEmpty) {
+          m['resource_content_hash'] =
+              hash; // ← XscSyncService.openFromLessonLinkMap 에서 사용
+          // lesson_attachments 메타 붙이기
+          final la = laByHash[hash];
+          if (la != null) {
+            if ((la['xsc_updated_at'] ?? '').toString().isNotEmpty) {
+              m['xsc_updated_at'] = la['xsc_updated_at'];
+            }
+            if ((la['xsc_storage_path'] ?? '').toString().isNotEmpty) {
+              m['xsc_storage_path'] = la['xsc_storage_path'];
+            }
+          }
+        }
+      }
+    }
+
+    return base;
+  }
+
+  Future<List<Map<String, dynamic>>> listByLessonEnriched({
+    required String lessonId,
+    required String studentId,
+  }) async {
+    // 1) 기본 링크 로드(table→view 폴백)
+    Future<List<Map<String, dynamic>>> fetch() async {
+      Future<List<Map<String, dynamic>>> sel(String table) async {
+        final rows = await _retry(
+          () => _c
+              .from(table)
+              .select(
+                'id, lesson_id, kind, curriculum_node_id, '
+                'resource_bucket, resource_path, resource_filename, resource_title, created_at',
+              )
+              .eq('lesson_id', lessonId)
+              .order('created_at', ascending: false),
+        );
+        final List list = rows;
+        return list
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList(growable: false);
+      }
+
+      try {
+        final viaTable = await sel(SupabaseTables.lessonResourceLinks);
+        if (viaTable.isNotEmpty) return viaTable;
+      } catch (_) {}
+      try {
+        return await sel(SupabaseTables.lessonLinks);
+      } catch (_) {
+        return const [];
+      }
+    }
+
+    final base = await fetch();
+    if (base.isEmpty) return base;
+
+    // 2) 리소스 키 세트
+    final res = base.where((m) => (m['kind'] ?? '') == 'resource').toList();
+    final keys = <String>{};
+    for (final m in res) {
+      final b = ((m['resource_bucket'] ?? ResourceService.bucket)
+          .toString()
+          .trim()
+          .toLowerCase());
+      final p = ((m['resource_path'] ?? '').toString().trim());
+      if (b.isNotEmpty && p.isNotEmpty) keys.add('$b::$p');
+    }
+    if (keys.isEmpty) return base;
+
+    // 3) resources에서 content_hash 조회
+    final parts = keys.map((k) => k.split('::')).toList();
+    final buckets = parts.map((e) => e[0]).toSet().toList();
+    final paths = parts.map((e) => e[1]).toSet().toList();
+
+    final resRows = await _retry(
+      () => _c
+          .from(SupabaseTables.resources)
+          .select('storage_bucket, storage_path, content_hash')
+          .inFilter('storage_bucket', buckets)
+          .inFilter('storage_path', paths),
+    );
+    final List resList = resRows;
+    final byKey = <String, Map<String, dynamic>>{};
+    for (final r in resList) {
+      final m = Map<String, dynamic>.from(r);
+      final b = (m['storage_bucket'] ?? '').toString().toLowerCase();
+      final p = (m['storage_path'] ?? '').toString();
+      if (b.isNotEmpty && p.isNotEmpty) byKey['$b::$p'] = m;
+    }
+
+    // 4) 해당 레슨의 lesson_attachments에서 동일 해시 메타 취득
+    final laRows = await _retry(
+      () => _c
+          .from(SupabaseTables.lessonAttachments)
+          .select('lesson_id, mp3_hash, xsc_storage_path, xsc_updated_at')
+          .eq('lesson_id', lessonId),
+    );
+    final List laList = laRows;
+    final laByHash = <String, Map<String, dynamic>>{
+      for (final r in laList)
+        if ((r['mp3_hash'] ?? '').toString().isNotEmpty)
+          (r['mp3_hash'] as String): Map<String, dynamic>.from(r),
+    };
+
+    // 5) 병합 주입
+    for (final m in base) {
+      if ((m['kind'] ?? '') != 'resource') continue;
+      final b = ((m['resource_bucket'] ?? ResourceService.bucket)
+          .toString()
+          .trim()
+          .toLowerCase());
+      final p = ((m['resource_path'] ?? '').toString().trim());
+      final meta = byKey['$b::$p'];
+      final hash = (meta?['content_hash'] ?? '').toString();
+      if (hash.isEmpty) continue;
+
+      m['resource_content_hash'] = hash; // XscSyncService가 사용
+      final la = laByHash[hash];
+      if (la != null) {
+        if ((la['xsc_updated_at'] ?? '').toString().isNotEmpty) {
+          m['xsc_updated_at'] = la['xsc_updated_at'];
+        }
+        if ((la['xsc_storage_path'] ?? '').toString().isNotEmpty) {
+          m['xsc_storage_path'] = la['xsc_storage_path'];
+        }
+      }
+    }
+
+    return base;
   }
 }

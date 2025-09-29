@@ -23,6 +23,7 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
 
   Student? _student;
   bool _loading = true;
+  final _studentSvc2 = StudentService();
 
   @override
   void initState() {
@@ -44,6 +45,9 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
         try {
           final s = await _studentSvc.fetchById(_argStudentId!);
           if (mounted) setState(() => _student = s);
+          try {
+            await _studentSvc2.attachMeToStudent(_argStudentId!);
+          } catch (_) {}
         } catch (_) {
           // 에러 무시, 화면에 메시지 표시
         } finally {
