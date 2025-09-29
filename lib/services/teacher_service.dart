@@ -84,18 +84,6 @@ class TeacherService {
     await _client.rpc('sync_auth_user_id_by_email', params: {'p_email': e});
   }
 
-  Future<void> syncCurrentAuthUserLink() async {
-    final u = _client.auth.currentUser;
-    if (u == null) return;
-    final email = _normEmail(u.email ?? '');
-    if (email.isEmpty) return;
-
-    await _client.rpc(
-      'upsert_teacher_min',
-      params: {'p_email': email, 'p_name': email.split('@').first},
-    );
-    await syncAuthUserIdByEmail(email);
-  }
 
   // App-Auth 전용 등록: Supabase Auth 계정 생성 안 함 (4자리 비번 허용)
   Future<bool> registerTeacher({
@@ -136,10 +124,13 @@ class TeacherService {
   }
 
   Future<void> setAdmin({required String id, required bool isAdmin}) async {
-    await _client.rpc(
-      'set_teacher_admin',
-      params: {'p_id': id, 'p_is_admin': isAdmin},
-    );
+    await _client
+        .from(SupabaseTables.teachers)
+        .update({
+          'is_admin': isAdmin,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', id);
   }
 
   // 🔒 삭제: 실제 삭제 행을 검사 (0건이면 예외 발생)
@@ -162,13 +153,10 @@ class TeacherService {
   }) async {
     final hashed = _sha256(newPassword.trim());
     final e = _normEmail(email);
-    await _client
-        .from(SupabaseTables.teachers)
-        .update({
-          'password_hash': hashed,
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
-        })
-        .eq('email', e);
+    await _client.rpc(
+      'set_teacher_password_hash',
+      params: {'p_email': e, 'p_password_hash': hashed},
+    );
   }
 
   Future<bool> verifyLocalPassword(String email, String password) async {
@@ -183,6 +171,6 @@ class TeacherService {
     if (row == null) return false;
     final stored = (row['password_hash'] as String?)?.trim() ?? '';
     if (stored.isEmpty) return false;
-    return stored == _sha256(password);
+    return stored == _sha256(password.trim());
   }
 }

@@ -68,7 +68,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     });
 
     try {
-      final user = AuthService().currentAuthUser;
+      final user = AuthService().currentTeacher;
       if (user == null) {
         if (!mounted) return;
         setState(() {
@@ -158,7 +158,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
   Future<void> _goLessonSummary() async {
     // Navigator를 먼저 캡처 → await 이후 context 직접 접근 회피
     final nav = Navigator.of(context);
-    final teacherId = AuthService().currentAuthUser?.id;
+    final teacherId = AuthService().currentTeacher?.id;
     final studentId = await _pickStudentId();
     if (studentId == null) return;
     nav.pushNamed(
@@ -297,7 +297,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
                 arguments: {
                   'studentId': l.studentId,
                   if ((l.id).trim().isNotEmpty) 'lessonId': l.id,
-                  'teacherId': AuthService().currentAuthUser?.id,
+                  'teacherId': AuthService().currentTeacher?.id,
                 },
               );
             },

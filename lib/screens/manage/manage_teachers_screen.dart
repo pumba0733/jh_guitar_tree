@@ -1,19 +1,16 @@
 // lib/screens/manage/manage_teachers_screen.dart
-// v1.37.0 | 강사 관리 화면 – (구)Auth 연동 완전 제거 + UI 정리
-// - AppBar ⋯ 메뉴에서 "권한/링크 동기화" 완전 제거
-// - 카드 팝업메뉴에서 "계정 링크 동기화" 완전 제거
-// - 진단 다이얼로그에서 ensureTeacherLink() 호출 제거 (조회/권한 확인만)
-// - 목록/등록/편집/삭제/비밀번호 변경(teachers.password_hash: SHA-256) 기능 유지
+// v1.37.1 | 강사 관리 화면 – Auth 연동 완전 제거 + UI 정리
+// - AppBar ⋯ "권한/링크 동기화" 제거
+// - 카드 팝업메뉴 ⋯ "계정 링크 동기화" 제거
+// - 진단 다이얼로그 ⋯ RPC 제거 → currentTeacher 기반 단순화
+// - 기능 유지: 목록/등록/편집/삭제/비밀번호 변경(teachers.password_hash: SHA-256)
 //
 // 의존:
 // - services: AuthService, TeacherService
 // - models: Teacher
-// - supabase: Supabase.instance.client.rpc('is_current_user_admin') 사용(선택)
-// - pub: supabase_flutter
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/auth_service.dart';
 import '../../services/teacher_service.dart';
@@ -99,7 +96,7 @@ class _ManageTeachersScreenState extends State<ManageTeachersScreen> {
       Navigator.of(context).pop(); // progress 닫기
       final msg = e.toString();
       if (msg.contains('23505')) {
-        _toast('이미 존재하는 계정/링크입니다. 이메일 중복 또는 기존 연결을 확인해 주세요.');
+        _toast('이미 존재하는 계정입니다. 이메일 중복을 확인해 주세요.');
       } else {
         _toast('강사 등록 실패: $e');
       }
@@ -230,16 +227,9 @@ class _ManageTeachersScreenState extends State<ManageTeachersScreen> {
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
     try {
-      final role = await _auth
-          .getRole(); // student/teacher/admin 판별 (teachers 기준)
-      bool isAdmin = false;
-      try {
-        final res =
-            await Supabase.instance.client.rpc('is_current_user_admin')
-                as bool?;
-        isAdmin = res == true;
-      } catch (_) {}
-
+      final role = await _auth.getRole(); // student/teacher/admin 판별
+      final me = AuthService().currentTeacher;
+      final isAdmin = me?.isAdmin ?? false;
       final list = await _teacher.listBasic();
 
       if (!mounted) return;
@@ -258,7 +248,7 @@ class _ManageTeachersScreenState extends State<ManageTeachersScreen> {
               Text('관리자 여부: ${isAdmin ? "YES" : "NO"}'),
               Text('강사 수 조회: ${list.length}명'),
               const SizedBox(height: 8),
-              const Text('※ 관리자·비밀번호는 Authentication에 의존하지 않습니다.'),
+              const Text('※ 관리자·비밀번호는 Authentication과 무관하게 앱 내부에서만 관리합니다.'),
             ],
           ),
           actions: [
@@ -318,13 +308,10 @@ class _ManageTeachersScreenState extends State<ManageTeachersScreen> {
                 separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (_, i) {
                   final t = _items[i];
-                  final linked = (t.authUserId ?? '').isNotEmpty;
                   return Card(
                     child: ListTile(
-                      leading: CircleAvatar(
-                        child: Icon(
-                          linked ? Icons.verified_user : Icons.person_outline,
-                        ),
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.person_outline),
                       ),
                       title: Row(
                         children: [
@@ -634,7 +621,6 @@ class _EditTeacherDialogState extends State<_EditTeacherDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final linked = (widget.teacher.authUserId ?? '').isNotEmpty;
     return AlertDialog(
       title: const Text('강사 정보 수정'),
       content: Form(
@@ -661,14 +647,6 @@ class _EditTeacherDialogState extends State<_EditTeacherDialog> {
                 onChanged: (v) => setState(() => _isAdmin = v),
               ),
               const Divider(),
-              ListTile(
-                dense: true,
-                title: const Text('연결된 Auth 사용자'),
-                subtitle: Text(linked ? widget.teacher.authUserId! : '연결 없음'),
-                trailing: linked
-                    ? const Icon(Icons.verified_user)
-                    : const Icon(Icons.link_off),
-              ),
               if (widget.teacher.lastLogin != null)
                 ListTile(
                   dense: true,

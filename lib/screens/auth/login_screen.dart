@@ -1,8 +1,9 @@
 // lib/screens/auth/login_screen.dart
-// v1.36.6 | App-Auth용 로그인 화면
-// - 학생: 기존 간편로그인 유지
-// - 강사/관리자: AuthService.signInTeacherAdmin(email, password) 호출
-// - 비밀번호 검증: 4자 이상 (원하면 4자리 고정도 가능)
+// v1.77.0 | 관리자 탭 제거 + 강사/관리자 라우팅 통합 (테이블 인증 전용)
+// - 탭: 학생 / 강사 2개만 노출 (관리자 제거)
+// - 강사 로그인 성공 후: AuthService.getRole()으로 admin이면 관리자 홈, 아니면 강사 홈 라우팅
+// - 비밀번호 4자 이상 검증 유지
+// - Supabase Auth 미사용(서비스 쪽에서 제거됨)
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,17 +12,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/auth_service.dart';
 import '../../routes/app_routes.dart';
 
-enum LoginRole { student, teacher, admin }
+enum LoginRole { student, teacher }
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
   static const _prefsKeyRole = 'login.last_role';
-
   LoginRole _role = LoginRole.student;
 
   final _studentFormKey = GlobalKey<FormState>();
@@ -130,18 +131,20 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // 강사/관리자: App-Auth 사용
+      // 강사(관리자 포함) 로그인: 테이블 인증만 사용
       final ok = await auth.signInTeacherAdmin(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text,
       );
       if (!ok) throw Exception('이메일 또는 비밀번호가 올바르지 않습니다.');
 
-      final role = await auth.getRole(); // App-Auth 메모리 기반 판별
+      final role = await auth.getRole(); // 테이블의 is_admin 기준
       final route = switch (role) {
         UserRole.admin => AppRoutes.adminHome,
+        UserRole.teacher => AppRoutes.teacherHome,
         _ => AppRoutes.teacherHome,
       };
+
       if (!mounted) return;
       Navigator.of(context).pushNamedAndRemoveUntil(route, (_) => false);
     } catch (e) {
@@ -169,16 +172,11 @@ class _LoginScreenState extends State<LoginScreen> {
     final isStudent = _role == LoginRole.student;
 
     final roleTabs = ToggleButtons(
-      isSelected: [
-        _role == LoginRole.student,
-        _role == LoginRole.teacher,
-        _role == LoginRole.admin,
-      ],
+      isSelected: [_role == LoginRole.student, _role == LoginRole.teacher],
       onPressed: _loading ? null : (i) => _setRole(LoginRole.values[i]),
       children: const [
         Padding(padding: EdgeInsets.all(8), child: Text('학생')),
         Padding(padding: EdgeInsets.all(8), child: Text('강사')),
-        Padding(padding: EdgeInsets.all(8), child: Text('관리자')),
       ],
     );
 
@@ -275,7 +273,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     height: 18,
                     child: CircularProgressIndicator(),
                   )
-                : Text(_role == LoginRole.admin ? '관리자 로그인' : '이메일 로그인'),
+                : const Text('강사 로그인'),
           ),
         ],
       ),

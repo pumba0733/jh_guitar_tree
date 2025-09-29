@@ -1,10 +1,13 @@
 // lib/services/auth_service.dart
-// v1.58.0 | 세션 복원 & 링크 보강 + 학생/교사 상태 접근자 추가
-// - B안 유지: 교사/관리자만 Supabase Auth 세션 사용, 학생은 앱 내부 엔터티로만 취급
-// - restoreLinkedIdentities(): 앱 재시작/세션 복원 시 교사/학생 상태 재결합
-// - ensureTeacherLink(): 이메일 기반 auth_user_id 동기화(기존 유지)
-// - setCurrentStudent/clearCurrentStudent: 화면 간 공유를 위한 setter 제공
-// - 2025-09-26 lint fix: unused_element(ignore) + no_leading_underscores_for_local_identifiers
+// v1.77.1 | 테이블 인증 전용 + 호환용 게터 복구
+// - Supabase Auth 의존 제거 유지
+// - 학생: StudentService로만 로그인/상태 유지
+// - 강사/관리자: teachers(email + password_hash)로 검증
+// - getRole(): Teacher.isAdmin으로 판별
+// - signOutAll(): 로컬 상태만 클리어
+// - ✅ 호환용 게터 복구:
+//     * User? get currentAuthUser => null;  // 더 이상 Auth 세션 없음 (null 고정)
+//     * bool get isTeacherLike => _currentTeacher != null && _currentStudent == null;
 
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
@@ -33,8 +36,11 @@ class AuthService {
   bool get isLoggedInAsStudent => _currentStudent != null;
   bool get isLoggedInAsTeacher => _currentTeacher != null;
 
-  User? get currentAuthUser => _client.auth.currentUser;
-  bool get isTeacherLike => _currentTeacher != null && !isLoggedInAsStudent;
+  // ✅ 호환용: 예전 코드가 참조하는 Auth 세션 사용자 (이제는 null 고정)
+  User? get currentAuthUser => null;
+
+  // ✅ 호환용: 예전 코드가 참조하는 "교사 비슷" 판단
+  bool get isTeacherLike => _currentTeacher != null && _currentStudent == null;
 
   // ---- 상태 제어자 (학생 선택 유지용) ----
   void setCurrentStudent(Student? s) {
@@ -45,104 +51,24 @@ class AuthService {
     _currentStudent = null;
   }
 
-  // ---------------- 학생 로그인 (앱 내부 엔터티) ----------------
-  // B안: Supabase Auth 세션을 만들지 않음. 학생은 내부 엔터티로만 사용.
-  // lib/services/auth_service.dart
-
+  // ---------------- 학생 로그인 (테이블만) ----------------
   Future<bool> signInStudent({
     required String name,
     required String last4,
   }) async {
-    // ❶ 교사 세션 정리 후, 학생 전용(익명) 세션 시도
-    try {
-      await _client.auth.signOut();
-    } catch (_) {}
-
-    bool anonymousOk = false;
-    try {
-      await _client.auth.signInAnonymously();
-      anonymousOk = true;
-    } catch (e) {
-      // 콘솔에만 경고 남기고 계속 진행(422: anonymous_provider_disabled)
-      // 익명 비활성 상태면 attach_me_to_student / RLS가 풀리지 않음 → UI는 빈 목록일 수 있음
-      // 반드시 Supabase에서 Anonymous provider 활성화 필요.
-      // debugPrint('anonymous sign-in failed: $e');
-    }
-
     final n = name.trim();
     final l4 = last4.trim();
 
-    // 1) RPC 우선
-    try {
-      final res = await _client.rpc(
-        'find_student',
-        params: {'p_name': n, 'p_phone_last4': l4},
-      );
-
-      Map<String, dynamic>? row;
-      if (res is List && res.isNotEmpty && res.first is Map) {
-        row = Map<String, dynamic>.from(res.first as Map);
-      } else if (res is Map) {
-        row = Map<String, dynamic>.from(res);
-      }
-      if (row != null) {
-        _currentStudent = Student.fromMap(row);
-        // 익명 세션이 살아 있을 때만 attach 시도(없으면 조용히 스킵)
-        if (anonymousOk) {
-          try {
-            await _client.rpc(
-              'attach_me_to_student',
-              params: {'p_student_id': _currentStudent!.id},
-            );
-          } catch (_) {}
-        }
-        return true;
-      }
-    } catch (_) {
-      /* 폴백으로 진행 */
-    }
-
-    // 2) 폴백: 기존 StudentService 경로
     final found = await _studentService.findByNameAndLast4(name: n, last4: l4);
     if (found == null) return false;
 
     _currentStudent = found;
-    if (anonymousOk) {
-      try {
-        await _client.rpc(
-          'attach_me_to_student',
-          params: {'p_student_id': _currentStudent!.id},
-        );
-      } catch (_) {}
-    }
     return true;
   }
 
-  // ---------------- 강사/관리자 로그인 ----------------
+  // ---------------- 강사/관리자 로그인 (테이블만) ----------------
   String _normEmail(String v) => v.trim().toLowerCase();
   String _sha256Hex(String v) => sha256.convert(utf8.encode(v)).toString();
-
-  // ignore: unused_element
-  Future<Map<String, dynamic>?> _rpcAppLoginTeacher({
-    required String email,
-    required String pwdHash,
-  }) async {
-    try {
-      final res = await _client.rpc(
-        'app_login_teacher',
-        params: {'p_email': email, 'p_password_hash': pwdHash},
-      );
-      if (res == null) return null;
-      if (res is List && res.isNotEmpty) {
-        return Map<String, dynamic>.from(res.first as Map);
-      } else if (res is Map) {
-        return Map<String, dynamic>.from(res);
-      }
-      return null;
-    } catch (_) {
-      return null; // 함수 없음/권한/기타 → 폴백 허용
-    }
-  }
 
   Future<bool> signInTeacherAdmin({
     required String email,
@@ -150,48 +76,7 @@ class AuthService {
   }) async {
     final e = _normEmail(email);
     if (e.isEmpty) return false;
-
     final pwdHash = _sha256Hex(password);
-
-    // 0) 최소 레코드 보장(실패 무시)
-    try {
-      await _client.rpc(
-        'upsert_teacher_min',
-        params: {
-          'p_email': e,
-          'p_name': e.split('@').first,
-          'p_is_admin': null,
-        },
-      );
-    } catch (_) {}
-
-    // 1) Supabase Auth 세션 보장
-    Future<bool> ensureAuthSession() async {
-      try {
-        await _client.auth.signInWithPassword(email: e, password: password);
-        return true;
-      } catch (_) {
-        /* 계속 */
-      }
-      try {
-        await _client.auth.signUp(email: e, password: password);
-      } catch (_) {
-        /* 이미 있을 수 있음 */
-      }
-      try {
-        await _client.auth.signInWithPassword(email: e, password: password);
-        return true;
-      } catch (_) {
-        return false;
-      }
-    }
-
-    if (!await ensureAuthSession()) return false;
-
-    // 2) auth.uid ↔ teachers.auth_user_id 링크 + 마지막 로그인 시간
-    try {
-      await _client.rpc('sync_auth_user_id_by_email', params: {'p_email': e});
-    } catch (_) {}
 
     try {
       final rows = await _client
@@ -201,12 +86,12 @@ class AuthService {
           )
           .eq('email', e)
           .limit(1);
-      if (rows.isEmpty) return false;
 
+      if (rows.isEmpty) return false;
       final m = Map<String, dynamic>.from(rows.first);
+
       final stored = (m['password_hash'] as String?)?.trim() ?? '';
-      if (stored.isNotEmpty && stored != pwdHash) {
-        // 테이블 비번 정책 사용하는 경우: 불일치면 로그인 실패로 처리(선택)
+      if (stored.isEmpty || stored != pwdHash) {
         return false;
       }
 
@@ -218,9 +103,7 @@ class AuthService {
             .eq('email', e);
       } catch (_) {}
 
-      // 최종 세션/역할 세팅
       _currentTeacher = Teacher.fromMap(m);
-      // 학생 상태는 유지(교사 전환 중이라면 필요 시 clear)
       return true;
     } catch (_) {
       return false;
@@ -231,9 +114,7 @@ class AuthService {
   Future<void> signOutAll() async {
     _currentStudent = null;
     _currentTeacher = null;
-    try {
-      await _client.auth.signOut();
-    } catch (_) {}
+    // Supabase Auth 사용 안함 → auth.signOut() 호출 없음
   }
 
   // ---------------- 역할 판별 ----------------
@@ -246,58 +127,14 @@ class AuthService {
     return t.isAdmin ? UserRole.admin : UserRole.teacher;
   }
 
-  // ---------------- 세션-링크 보강 ----------------
+  // ---------------- (호환 스텁) 링크/복원 ----------------
   Future<void> ensureTeacherLink() async {
-    final email = _client.auth.currentUser?.email; // nullable
-    if (email == null || email.isEmpty) return;
-    try {
-      await _client.rpc(
-        'sync_auth_user_id_by_email',
-        params: {'p_email': email},
-      );
-    } catch (_) {}
+    // no-op (테이블 인증)
   }
 
-  // ---------------- 재시작 시 링크 복원 ----------------
-  // 앱 부트스트랩에서 onAuthStateChange 직후 호출 권장.
   Future<void> restoreLinkedIdentities() async {
-    final user = _client.auth.currentUser;
-    if (user == null) {
-      _currentTeacher = null;
-      // _currentStudent 는 화면(로컬 저장소 복원)에서 세팅하도록 둔다.
-      return;
-    }
-
-    // 1) 교사 이메일 기반 링크 동기화 (최우선)
-    try {
-      final email = user.email;
-      if (email != null && email.isNotEmpty) {
-        await _client.rpc(
-          'sync_auth_user_id_by_email',
-          params: {'p_email': email},
-        );
-      }
-    } catch (_) {}
-
-    // 2) 교사 로드
-    try {
-      final rows = await _client
-          .from('teachers')
-          .select()
-          .or('auth_user_id.eq.${user.id},email.eq.${user.email ?? ''}')
-          .limit(1);
-      if (rows.isNotEmpty) {
-        _currentTeacher = Teacher.fromMap(
-          Map<String, dynamic>.from(rows.first),
-        );
-      } else {
-        _currentTeacher = null;
-      }
-    } catch (_) {
-      _currentTeacher = null;
-    }
-
-    // 3) 학생은 B안에서 세션 주체가 아니므로 여기서 강제 복원하지 않음
-    //    (학생 선택은 화면단에서 lastSelectedStudentId로 복원 → setCurrentStudent)
+    // 앱 재시작 시 Auth 세션 복원 없음 → 로컬 상태만 초기화
+    _currentTeacher = null;
+    // _currentStudent는 화면단에서 복원(setCurrentStudent) 사용
   }
 }

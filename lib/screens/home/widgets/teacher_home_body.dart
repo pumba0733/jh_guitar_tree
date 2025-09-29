@@ -1,6 +1,8 @@
-// v1.33.10 - '학생 홈 화면', '수정' 버튼 동작을 학생 관리 화면과 동일하게 정렬
-//            - 학생 홈 화면: AppRoutes.pushStudentHome(..., adminDrive: true)
-//            - 수정: ManageStudentsScreen로 이동하며 focusStudentId + autoOpenEdit 전달
+// v1.33.11 - Auth 제거 버전: 교사/관리자 세션은 테이블 기반으로 사용
+// - 기존: AuthService().currentAuthUser == null → "세션 만료" 표시
+// - 변경: AuthService().currentTeacher 를 확인하여 교사/관리자 식별
+// - teacherId = currentTeacher.id 로 학생/레슨 조회
+// - UI/동작은 동일 (오늘 진행/최근 14일, 학생 홈/수정 버튼)
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -51,25 +53,23 @@ class _TeacherHomeBodyState extends State<TeacherHomeBody> {
     });
 
     try {
-      final user = AuthService().currentAuthUser;
-      if (user == null) {
+      // ✅ Auth 미사용: 테이블 세션 확인
+      final auth = AuthService();
+      final teacher = auth.currentTeacher;
+      if (teacher == null) {
         setState(() {
           _todayUnique = const [];
           _todayNames = const {};
           _todayStudentIds = const [];
           _recent14Unique = const [];
           _recent14Names = const {};
-          _error = '세션이 만료되었거나 사용자 정보가 없습니다.';
+          _error = '교사/관리자 로그인이 필요합니다.';
         });
         return;
       }
 
-      final teacherId = await _resolveMyTeacherId(
-        authUid: user.id,
-        email: user.email ?? '',
-      );
-
-      if (teacherId == null) {
+      final teacherId = teacher.id;
+      if (teacherId.isEmpty) {
         setState(() {
           _todayUnique = const [];
           _todayNames = const {};
@@ -82,8 +82,9 @@ class _TeacherHomeBodyState extends State<TeacherHomeBody> {
       }
 
       // 최근 14일(오늘 포함) 유니크 50
+      final myStudentIds = await _fetchMyStudentIds(teacherId);
       final recent14 = await _fetchRecentStudentsWithLastDateByMyStudents(
-        myStudentIds: await _fetchMyStudentIds(teacherId),
+        myStudentIds: myStudentIds,
         days: 14,
         limit: 50,
       );
@@ -123,35 +124,6 @@ class _TeacherHomeBodyState extends State<TeacherHomeBody> {
     }
   }
 
-  Future<String?> _resolveMyTeacherId({
-    required String authUid,
-    required String email,
-  }) async {
-    final List byUid = await _sp
-        .from('teachers')
-        .select('id')
-        .eq('auth_user_id', authUid)
-        .limit(1);
-    if (byUid.isNotEmpty) {
-      final m = Map<String, dynamic>.from(byUid.first as Map);
-      final id = (m['id'] ?? '').toString();
-      if (id.isNotEmpty) return id;
-    }
-    final e = email.trim().toLowerCase();
-    if (e.isEmpty) return null;
-    final List byEmail = await _sp
-        .from('teachers')
-        .select('id')
-        .eq('email', e)
-        .limit(1);
-    if (byEmail.isNotEmpty) {
-      final m = Map<String, dynamic>.from(byEmail.first as Map);
-      final id = (m['id'] ?? '').toString();
-      if (id.isNotEmpty) return id;
-    }
-    return null;
-  }
-
   Future<Set<String>> _fetchMyStudentIds(String teacherId) async {
     final List rows = await _sp
         .from('students')
@@ -176,6 +148,7 @@ class _TeacherHomeBodyState extends State<TeacherHomeBody> {
       now.month,
       now.day,
     ).subtract(Duration(days: days));
+
     final List rows = await _sp
         .from('lessons')
         .select('student_id, date')

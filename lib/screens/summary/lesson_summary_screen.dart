@@ -111,7 +111,7 @@ class _LessonSummaryScreenState extends State<LessonSummaryScreen> {
     _studentId = (args['studentId'] as String?)?.trim();
     _teacherId = (args['teacherId'] as String?)?.trim();
     // teacherId 미전달 시 auth user로 보강
-    _teacherId ??= AuthService().currentAuthUser?.id;
+    _teacherId ??= AuthService().currentTeacher?.id;
 
     if (_studentId != null && _studentId!.isNotEmpty) {
       unawaited(_resetAndLoad());

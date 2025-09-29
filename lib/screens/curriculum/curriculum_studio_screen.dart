@@ -1,10 +1,11 @@
 // lib/screens/curriculum/curriculum_studio_screen.dart
-// v1.74.4 | 리소스 다이얼로그 개선 + 파일명 변경 버튼/동작 추가
-// - 목록 기본 정렬: 파일명 오름차순(ABC, 가나다)
-// - 파일명 검색(경로 제외) 추가
-// - '파일명 변경' 버튼 추가: ResourceService.renameResourceFilename(...) 호출
+// v1.74.5 | setState-Future 경고 제거 + _busy 해제 가드
+// - onPressed에 async 함수 직접 전달하지 않도록 래핑(unawaited)
+// - mounted=false 시에도 _busy 해제 폴백
+// - 나머지 로직/UX 동일
 
 import 'dart:typed_data';
+import 'dart:async'; // [v1.74.5] unawaited 사용
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
@@ -226,7 +227,13 @@ class _CurriculumStudioScreenState extends State<CurriculumStudioScreen> {
       appBar: AppBar(
         title: const Text('커리큘럼 스튜디오 (관리자)'),
         actions: [
-          IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
+          IconButton(
+            // [v1.74.5] async를 직접 전달하지 말고 래핑
+            onPressed: () {
+              unawaited(_refresh());
+            },
+            icon: const Icon(Icons.refresh),
+          ),
         ],
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
@@ -633,6 +640,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
             ? '권한이 없습니다. 관리자/교사 계정으로 로그인했는지 확인해주세요.'
             : es;
         if (!mounted) {
+          // [v1.74.5] 폴백: 언마운트 시에도 busy 해제
           _busy = false;
           return;
         }
@@ -642,7 +650,11 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
       }
     }
     await _refresh();
-    if (!mounted) return;
+    if (!mounted) {
+      // [v1.74.5] 폴백
+      _busy = false;
+      return;
+    }
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('업로드 완료: $okCount개')));
@@ -681,7 +693,12 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
         ).showSnackBar(SnackBar(content: Text('삭제 실패: $e')));
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      } else {
+        // [v1.74.5] 폴백
+        _busy = false;
+      }
     }
   }
 
@@ -756,7 +773,12 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
         context,
       ).showSnackBar(SnackBar(content: Text('이동 실패: $e')));
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      } else {
+        // [v1.74.5] 폴백
+        _busy = false;
+      }
     }
   }
 
@@ -774,7 +796,7 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
     final newName = input.trim();
     if (newName.isEmpty) return;
 
-    // 확장자 변경 경고(선택): UX 보조 — 저장은 허용
+    // 확장자 변경 경고(선택)
     final oldExt = _extOf(current);
     final newExt = _extOf(newName);
     if (oldExt != newExt && oldExt.isNotEmpty) {
@@ -808,12 +830,14 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
         context,
       ).showSnackBar(SnackBar(content: Text('파일명 변경 실패: $e')));
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      } else {
+        // [v1.74.5] 폴백
+        _busy = false;
+      }
     }
   }
-
-
-
 
   String _extOf(String s) {
     final i = s.lastIndexOf('.');
@@ -861,7 +885,12 @@ class _ResourceManagerSheetState extends State<_ResourceManagerSheet> {
               automaticallyImplyLeading: false,
               actions: [
                 IconButton(
-                  onPressed: _busy ? null : _refresh,
+                  // [v1.74.5] async 직접 전달 금지
+                  onPressed: _busy
+                      ? null
+                      : () {
+                          unawaited(_refresh());
+                        },
                   icon: const Icon(Icons.refresh),
                 ),
                 IconButton(
