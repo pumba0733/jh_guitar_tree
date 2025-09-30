@@ -1,8 +1,10 @@
-// v1.65.1 | LOG BOOST + 충돌판정 정교화
-// - Supabase list() 결과를 List<FileObject>로 정적 타이핑
-// - firstWhere(orElse) 타입 오류 제거
-// - FileObject.eTag 의존 제거 → updatedAt 중심 비교/메타
-// - 사이드카 메타(etag)는 빈 문자열로 유지(하위 호환), 판정은 updated_at만 사용
+// v1.66.0 | XSC path-normalize + Open Fallback + Log diet + refined conflict
+// - XSC 내 사운드 파일 경로를 '파일명만'으로 강제(normalize) → OS 교차 호환
+// - 업로드 전에 다시 한 번 normalize (왕복 안정성 보장)
+// - open() / openFromAttachment()에서 로컬 XSC 정규화 후 열기
+// - 폴백: XSC가 없거나 손상 징후 시 미디어 파일 직접 오픈하여 새 XSC 유도
+// - FS Watch 로그 노이즈 축소(실제 .xsc 변화만 디바운스 로그)
+// - Supabase list() 정적 타이핑, eTag 비의존, updatedAt 기반 비교 유지
 
 import 'dart:async' show StreamSubscription, Timer, unawaited;
 import 'dart:convert' as convert;
@@ -52,7 +54,6 @@ class XscSyncService {
   bool _isMediaByNameMime(String name, String? mime) {
     final lowerName = name.toLowerCase();
     final mt = (mime ?? '').toLowerCase();
-
     const exts = [
       '.mp3',
       '.wav',
@@ -105,6 +106,71 @@ class XscSyncService {
     }
   }
 
+  // ====== NEW: XSC 내부 사운드 경로를 '파일명만'으로 강제 ======
+  Future<bool> _rewriteXscMediaPathToBasename({
+    required String xscPath,
+    required String mediaPath,
+  }) async {
+    try {
+      final f = File(xscPath);
+      if (!await f.exists()) return false;
+      final txt = await f.readAsString();
+      final desired = p.basename(mediaPath);
+
+      String fixTag(String s, String tag) {
+        final re = RegExp(
+          '<\\s*$tag\\s*>\\s*(.*?)\\s*<\\s*/\\s*$tag\\s*>',
+          caseSensitive: false,
+          dotAll: true,
+        );
+        return s.replaceAllMapped(re, (m) {
+          final cur = (m.group(1) ?? '').trim();
+          if (cur == desired) return m.group(0)!;
+          return '<$tag>$desired</$tag>';
+        });
+      }
+
+      var out = txt;
+      for (final tag in const [
+        'soundfile',
+        'soundfilename',
+        'mediafile',
+        'audiofile',
+      ]) {
+        out = fixTag(out, tag);
+      }
+
+      // 혹시 절대경로 패턴이 남아있으면 파일명만으로 치환 시도
+      final absRe = RegExp(
+        r'([A-Za-z]:\\|\/)[^<>\r\n"]+\.(mp3|wav|aif|aiff|flac|m4a|mp4|mov|m4v|mkv|avi)',
+        caseSensitive: false,
+      );
+      out = out.replaceAllMapped(absRe, (_) => desired);
+
+      if (out == txt) return false;
+      await f.writeAsString(out, flush: true);
+      print('[XSC] rewrote media path in xsc → $desired');
+      return true;
+    } catch (e, st) {
+      print('[XSC] _rewriteXscMediaPathToBasename error: $e\n$st');
+      return false;
+    }
+  }
+
+  // ====== 권장: 오픈 폴백 유틸(손상/부재시 미디어 직접 오픈) ======
+  Future<void> _openWithFallback({
+    required String? localXsc,
+    required String mediaPath,
+  }) async {
+    // 1) XSC가 있으면 우선 그걸 연다.
+    if (localXsc != null && await File(localXsc).exists()) {
+      await _file.openLocal(localXsc);
+      return;
+    }
+    // 2) 없거나 손상/부재면 미디어 파일 자체를 연다 → Transcribe!가 새 .xsc 생성
+    await _file.openLocal(mediaPath);
+  }
+
   Future<void> openFromLessonLinkMap({
     required Map<String, dynamic> link,
     required String studentId,
@@ -150,6 +216,7 @@ class XscSyncService {
     } catch (e) {
       print('[XSC] attachMeToStudent warn: $e');
     }
+
     final url = (attachment['url'] ?? attachment['path'] ?? '')
         .toString()
         .trim();
@@ -157,7 +224,6 @@ class XscSyncService {
     final filename = nameSrc.isNotEmpty
         ? nameSrc
         : (url.isNotEmpty ? p.basename(url) : 'media');
-
     if (url.isEmpty) throw ArgumentError('attachment url/path가 비어 있습니다.');
 
     final isMedia = _isMediaByNameMime(filename, mimeType);
@@ -199,12 +265,19 @@ class XscSyncService {
     );
     print('[XSC] downloadLatestXscIfAny => ${dl ?? "none"}');
 
-    final localXsc = await _findLocalLatestXsc(studentDir);
+    var localXsc = await _findLocalLatestXsc(studentDir);
     print('[XSC] local latest XSC => ${localXsc ?? "none"}');
 
-    final toOpen = localXsc ?? linkedOrCopiedMedia;
-    print('[XSC] open file: $toOpen');
-    await _file.openLocal(toOpen);
+    // ▼ 열기 전 경로 정규화
+    if (localXsc != null) {
+      await _rewriteXscMediaPathToBasename(
+        xscPath: localXsc,
+        mediaPath: linkedOrCopiedMedia,
+      );
+    }
+
+    // ▼ 폴백 포함 오픈
+    await _openWithFallback(localXsc: localXsc, mediaPath: linkedOrCopiedMedia);
 
     await _watchAndSyncXsc(
       dir: studentDir,
@@ -266,12 +339,19 @@ class XscSyncService {
     );
     print('[XSC] downloadLatestXscIfAny => ${dl ?? "none"}');
 
-    final localXsc = await _findLocalLatestXsc(studentDir);
+    var localXsc = await _findLocalLatestXsc(studentDir);
     print('[XSC] local latest XSC => ${localXsc ?? "none"}');
 
-    final toOpen = localXsc ?? linkedOrCopiedMedia;
-    print('[XSC] open file: $toOpen');
-    await _file.openLocal(toOpen);
+    // ▼ 열기 전 경로 정규화
+    if (localXsc != null) {
+      await _rewriteXscMediaPathToBasename(
+        xscPath: localXsc,
+        mediaPath: linkedOrCopiedMedia,
+      );
+    }
+
+    // ▼ 폴백 포함 오픈
+    await _openWithFallback(localXsc: localXsc, mediaPath: linkedOrCopiedMedia);
 
     await _watchAndSyncXsc(
       dir: studentDir,
@@ -306,7 +386,6 @@ class XscSyncService {
           print('[XSC] cache hit by hash=$hash → $outPath');
           return outPath;
         }
-
         final url = await _res.signedUrl(resource);
         print('[XSC] cache miss by hash=$hash → download: $url');
         final bytes = await _downloadBytes(url);
@@ -360,7 +439,6 @@ class XscSyncService {
         bytes: await _downloadBytes(url),
       );
       final computedHash = await _sha1OfFile(tmp.path);
-
       final hashDir = await _ensureDir(p.join(cacheRoot, computedHash));
       final outPath = p.join(hashDir, filename);
       final out = File(outPath);
@@ -424,7 +502,6 @@ class XscSyncService {
       return copied.path;
     }
     try {
-      // ⬇️ 추가: 파일이나 링크가 이미 있으면 바로 재사용
       if (await File(dst).exists() || await Link(dst).exists()) return dst;
       await Link(dst).create(sharedMediaPath, recursive: true);
       return dst;
@@ -449,19 +526,16 @@ class XscSyncService {
         print('[XSC] HTTP redirect → $loc');
         final redirected = await http.getUrl(Uri.parse(loc));
         final r2 = await redirected.close();
-        if (r2.statusCode != 200) {
+        if (r2.statusCode != 200)
           throw StateError('미디어 다운로드 실패(${r2.statusCode})');
-        }
         final data = await r2.fold<List<int>>([], (a, b) => a..addAll(b));
         if (data.isEmpty) throw StateError('미디어 다운로드 실패(빈 응답 바디)');
         print('[XSC] HTTP 200 (redirected), ${data.length} bytes');
         return Uint8List.fromList(data);
       }
 
-      if (rs.statusCode != 200) {
+      if (rs.statusCode != 200)
         throw StateError('미디어 다운로드 실패(${rs.statusCode})');
-      }
-
       final bytes = await rs.fold<List<int>>([], (a, b) => a..addAll(b));
       if (bytes.isEmpty) throw StateError('미디어 다운로드 실패(빈 응답 바디)');
       print('[XSC] HTTP 200, ${bytes.length} bytes');
@@ -513,14 +587,14 @@ class XscSyncService {
     return tmp;
   }
 
-  Future<String> _ensureStudentRoot(String studentId) async =>
-      _ensureDir(p.join(_workspace(), studentId));
-
   Future<String> _ensureDir(String path) async {
     final d = Directory(path);
     if (!await d.exists()) await d.create(recursive: true);
     return d.path;
   }
+
+  Future<String> _ensureStudentRoot(String studentId) async =>
+      _ensureDir(p.join(_workspace(), studentId));
 
   // ---------------- XSC 다운로드 ----------------
   Future<String?> _downloadLatestXscIfAny({
@@ -564,12 +638,12 @@ class XscSyncService {
       final local = File(p.join(intoDir, 'current.xsc'));
       await local.writeAsBytes(bytes, flush: true);
 
-      // sidecar meta 저장 — updated_at만 사용
+      // sidecar meta — updated_at만 사용
       final metaPath = p.join(intoDir, '.current.xsc.meta.json');
       final meta = <String, dynamic>{
         'remote_key': key,
         'updated_at': parseTime(current.updatedAt).toIso8601String(),
-        'etag': '', // 유지하되 사용하지 않음
+        'etag': '',
         'saved_at': DateTime.now().toIso8601String(),
       };
       await _writeJsonFile(metaPath, meta);
@@ -647,7 +721,7 @@ class XscSyncService {
         final meta = <String, dynamic>{
           'remote_key': '$studentId/$mediaHash/current.xsc',
           'updated_at': toTime(remoteObj?.updatedAt).toIso8601String(),
-          'etag': '', // 유지하되 사용하지 않음
+          'etag': '',
           'saved_at': DateTime.now().toIso8601String(),
         };
         await _writeJsonFile(metaPath, meta);
@@ -689,6 +763,40 @@ class XscSyncService {
           if (last == len) break;
           last = len;
           await Future.delayed(const Duration(milliseconds: 200));
+        }
+
+        // 업로드 전에 한 번 더 경로 정규화 (왕복 안정성)
+        try {
+          // 학생 폴더 내 미디어 파일 하나 선택
+          final dd = Directory(dir);
+          final media = await dd
+              .list(followLinks: true)
+              .where((e) => e is File)
+              .cast<File>()
+              .firstWhere((ff) {
+                final nm = ff.path.toLowerCase();
+                return nm.endsWith('.mp3') ||
+                    nm.endsWith('.wav') ||
+                    nm.endsWith('.aiff') ||
+                    nm.endsWith('.aif') ||
+                    nm.endsWith('.flac') ||
+                    nm.endsWith('.m4a') ||
+                    nm.endsWith('.mp4') ||
+                    nm.endsWith('.mov') ||
+                    nm.endsWith('.m4v') ||
+                    nm.endsWith('.mkv') ||
+                    nm.endsWith('.avi');
+              }, orElse: () => File(''));
+          if (await media.exists()) {
+            final changed = await _rewriteXscMediaPathToBasename(
+              xscPath: path,
+              mediaPath: media.path,
+            );
+            if (changed)
+              print('[XSC] normalized xsc before upload (basename media)');
+          }
+        } catch (e) {
+          print('[XSC] normalize-before-upload warn: $e');
         }
 
         final store = _sb.storage.from(studentXscBucket);
@@ -782,12 +890,11 @@ class XscSyncService {
 
     void scheduleUpload(String path) {
       final name = path.toLowerCase();
-      // ⬇️ 여기서부터 업로드 대상만 로그
       if (!name.endsWith('.xsc')) return;
       if (isTempOrHidden(path)) return;
 
       debounces[path]?.cancel();
-      final isNew = debounces[path] == null; // 새 스케줄인지 체크
+      final isNew = debounces[path] == null;
       debounces[path] = Timer(
         const Duration(milliseconds: 800),
         () => unawaited(uploadOnce(path)),
@@ -796,8 +903,6 @@ class XscSyncService {
         print('[XSC] 📝 change detected → debounce upload: $path');
       }
     }
-    // 그리고 .listen(...)의 콜백에서 무조건 찍던
-    // print('[XSC] fs event=...')는 삭제 or 디버그 레벨로 낮추기.
 
     _sub = folder
         .watch(
@@ -810,7 +915,10 @@ class XscSyncService {
         .listen(
           (evt) {
             final pth = evt.path.toString();
-            print('[XSC] fs event=${evt.type} path=$pth');
+            // 로그 다이어트: .xsc만 관심
+            if (pth.toLowerCase().endsWith('.xsc') && !isTempOrHidden(pth)) {
+              print('[XSC] fs event=${evt.type} path=$pth');
+            }
             scheduleUpload(pth);
           },
           onError: (e, st) => print('[XSC] watcher error: $e\n$st'),
