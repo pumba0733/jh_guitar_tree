@@ -1,6 +1,10 @@
 // lib/screens/lesson/today_lesson_screen.dart
-// v1.68-ux3+no-sectionmenu+hide-subject-keywords+lintfix
-// 오늘 수업: 섹션메뉴 제거 + 주제/키워드 UI 숨김 + unused_element/underscores lint fix
+// v1.83-builtin-toggle | 오늘 수업: 내장 플레이어로 열기 토글 + 분기
+//
+// 변경 요약
+// - 상단 빠른 실행 바에 "내장 플레이어로 열기(Beta)" 토글 추가(_useBuiltInPlayer)
+// - 리소스 링크 열기 시: 토글 ON이고 미디어면 → XscSyncService.prepareForBuiltInPlayer() → SmartMediaPlayerScreen.push()
+// - 그 외 기존 동작 불변
 
 import 'dart:async' show Timer, unawaited;
 import 'dart:io' show Platform;
@@ -24,6 +28,10 @@ import '../../services/resource_service.dart';
 import '../../models/resource.dart';
 import '../../services/xsc_sync_service.dart';
 import '../../services/student_service.dart';
+
+// ★ NEW
+import 'package:path/path.dart' as p;
+import '../../../packages/smart_media_player/smart_media_player_screen.dart';
 
 class TodayLessonScreen extends StatefulWidget {
   const TodayLessonScreen({super.key});
@@ -94,6 +102,9 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   // ===== 선택 모드 / 일괄 삭제 상태 =====
   bool _selectMode = false;
   final Set<String> _selectedLinkIds = <String>{};
+
+  // ===== NEW: 내장 플레이어 토글 =====
+  bool _useBuiltInPlayer = false;
 
   bool get _isDesktop =>
       (Platform.isMacOS || Platform.isWindows || Platform.isLinux) && !kIsWeb;
@@ -664,10 +675,82 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   }
 
   // ===== 링크/첨부 열기 =====
-  Future<void> _openLessonLink(Map<String, dynamic> link) async {
+    Future<void> _openLessonLink(Map<String, dynamic> link) async {
     final kind = (link['kind'] ?? '').toString();
 
     if (kind == 'resource') {
+      // NEW: 내장 플레이어 분기
+      if (_useBuiltInPlayer) {
+        try {
+          // 1) 리소스 맵 → ResourceFile
+          final rf = ResourceFile.fromMap({
+            'id': (link['id'] ?? '').toString(),
+            'curriculum_node_id': link['curriculum_node_id'],
+            'title': link['resource_title'],
+            'filename': (link['resource_filename'] ?? 'resource').toString(),
+            'mime_type': link['resource_mime_type'],
+            'size_bytes': link['resource_size'],
+            'storage_bucket':
+                (link['resource_bucket'] ?? _defaultResourceBucket).toString(),
+            'storage_path': (link['resource_path'] ?? '').toString(),
+            'created_at': link['created_at'],
+            'content_hash':
+                (link['resource_content_hash'] ??
+                        link['content_hash'] ??
+                        link['hash'])
+                    ?.toString(),
+          });
+
+          // 미디어 판별
+          if (!XscSyncService().isMediaEligibleForXsc(rf)) {
+            // 미디어가 아니면 기존 동작 (URL 열기)으로 폴백
+            await _links.openFromLessonLink(
+              LessonLinkItem(
+                id: (link['id'] ?? '').toString(),
+                lessonId: (link['lesson_id'] ?? _lessonId ?? '').toString(),
+                title: (link['resource_title'] ?? '').toString().isNotEmpty
+                    ? link['resource_title'].toString()
+                    : (link['resource_filename'] ?? 'resource').toString(),
+                resourceBucket:
+                    (link['resource_bucket'] ?? _defaultResourceBucket)
+                        .toString(),
+                resourcePath: (link['resource_path'] ?? '').toString(),
+                resourceFilename: (link['resource_filename'] ?? 'resource')
+                    .toString(),
+                createdAt:
+                    DateTime.tryParse((link['created_at'] ?? '').toString()) ??
+                    DateTime.now(),
+              ),
+              studentId: _studentId,
+            );
+            return;
+          }
+
+          // 2) 로컬 준비 (사이드카 포함) + 감시 시작
+          final prep = await XscSyncService().prepareForBuiltInPlayer(
+            resource: rf,
+            studentId: _studentId,
+          );
+          await XscSyncService().startWatcherForBuiltIn(prep);
+
+          // 3) 내장 플레이어 화면 진입
+          await SmartMediaPlayerScreen.push(
+            context,
+            SmartMediaPlayerScreen(
+              studentId: prep.studentId,
+              mediaHash: prep.mediaHash,
+              mediaPath: prep.mediaPath,
+              studentDir: prep.studentDir,
+              initialSidecar: prep.sidecarPath,
+            ),
+          );
+        } catch (e) {
+          _showError('내장 플레이어 열기 실패: $e');
+        }
+        return;
+      }
+
+      // 기존 기본앱 실행 동작 (불변)
       try {
         await _links.openFromLessonLink(
           LessonLinkItem(
@@ -693,6 +776,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       return;
     }
 
+    // === node 링크 기존 동작 유지 ===
     final nodeId = (link['curriculum_node_id'] ?? '').toString();
     if (nodeId.isEmpty) {
       _showError('노드 정보를 찾을 수 없습니다.');
@@ -708,6 +792,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
       ).showSnackBar(const SnackBar(content: Text('노드 ID를 클립보드에 복사했습니다.')));
     }
   }
+
 
   Future<void> _openLatestXsc(Map<String, dynamic> link) async {
     try {
@@ -822,7 +907,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ===== 1) 빠른 실행 바: 링크/업로드/유튜브 =====
+            // ===== 1) 빠른 실행 바: 링크/업로드/유튜브 + (NEW) 내장 토글 =====
             Card(
               elevation: 0,
               shape: RoundedRectangleBorder(
@@ -842,7 +927,6 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                           icon: const Icon(Icons.link),
                           label: const Text('리소스 링크 추가'),
                         ),
-                        // 업로드 버튼은 패널 열기/닫기만 수행
                         FilledButton.icon(
                           onPressed: _toggleUploadPanel,
                           icon: Icon(
@@ -851,6 +935,18 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
                                 : Icons.expand_more,
                           ),
                           label: const Text('업로드'),
+                        ),
+                        // NEW: 내장 플레이어 토글
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Switch(
+                              value: _useBuiltInPlayer,
+                              onChanged: (v) =>
+                                  setState(() => _useBuiltInPlayer = v),
+                            ),
+                            const Text('내장 플레이어로 열기 (Beta)'),
+                          ],
                         ),
                       ],
                     ),

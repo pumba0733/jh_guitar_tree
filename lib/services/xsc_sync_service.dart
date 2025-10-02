@@ -1,11 +1,15 @@
 // lib/services/xsc_sync_service.dart
 //
-// v1.66.1+stabilize | Storage 504 retry + logs silenced via zone
-// - Storage list/download 및 원격 메타 조회에 지수 백오프 적용(_withRetry)
-// - 실행 구간(runZoned)으로 print() 무음 처리(기능 영향 없음)
-// - 기존 기능/흐름 불변
+// v1.83 | XSC/GTXSC dual support + resilient sync
+// - NEW: .gtxsc 동기화(다운로드/감시/업로드/백업) 추가
+// - CHANGE: 최신본 선택 규칙 = current.gtxsc > current.xsc > updated_at 최신
+// - CHANGE: sidecar 메타 파일을 확장자별로 분리(.current.<ext>.meta.json)
+// - CHANGE: lesson_links 갱신 시 실제 확장자 반영 (current.<ext>)
+// - KEEP: 기존 .xsc 동작/흐름 100% 유지
+//
+// v1.66.1+stabilize 기반: retry/silence 유지
 
-import 'dart:async' as async; // ★ zone, retry, timers 용
+import 'dart:async' as async; // zone, retry, timers
 import 'dart:convert' as convert;
 import 'dart:io';
 import 'dart:typed_data';
@@ -39,10 +43,13 @@ class XscSyncService {
 
   async.StreamSubscription<FileSystemEvent>? _sub;
 
-  // ---- 중복 업로드 방지 ----
+  // ---- 업로드 쿨다운/중복 방지 ----
   final Map<String, bool> _uploading = {};
   final Map<String, DateTime> _cooldown = {};
   static const Duration _cooldownDur = Duration(seconds: 3);
+
+  // ---- 지원 확장자(.xsc, .gtxsc) ----
+  static const List<String> _xscExts = ['.xsc', '.gtxsc'];
 
   // ===== 안정화 유틸: 지수 백오프 공통 래퍼 =====
   Future<T> _withRetry<T>(
@@ -58,8 +65,7 @@ class XscSyncService {
         return await task().timeout(timeout);
       } on async.TimeoutException {
         if (attempt >= retries) rethrow;
-      }
- catch (e) {
+      } catch (e) {
         final s = e.toString();
         final retry =
             (shouldRetry?.call(e) ?? false) ||
@@ -76,19 +82,18 @@ class XscSyncService {
         if (!retry || attempt >= retries) rethrow;
       }
       attempt++;
-      final wait = base * (1 << (attempt - 1)); // 0.3s, 0.6s, 1.2s...
+      final wait = base * (1 << (attempt - 1));
       await async.Future.delayed(wait);
     }
   }
 
-
-  // ===== 로그 무음 실행 헬퍼 =====
+  // ===== 로그 무음 실행 =====
   Future<T> _silencePrints<T>(Future<T> Function() task) {
     return async.runZoned(
       task,
       zoneSpecification: async.ZoneSpecification(
         print: (self, parent, zone, message) {
-          // no-op → 실행 중 print()를 무음 처리
+          /* no-op */
         },
       ),
     );
@@ -98,7 +103,6 @@ class XscSyncService {
     try {
       await _sub?.cancel();
     } catch (_) {
-      // silent
     } finally {
       _sub = null;
     }
@@ -150,7 +154,7 @@ class XscSyncService {
     } catch (_) {}
   }
 
-  // ====== XSC 내부 사운드 경로를 '파일명만'으로 강제 ======
+  // ====== XSC/GTXSC 내부 사운드 경로를 '파일명만'으로 강제 ======
   Future<bool> _rewriteXscMediaPathToBasename({
     required String xscPath,
     required String mediaPath,
@@ -184,7 +188,6 @@ class XscSyncService {
         out = fixTag(out, tag);
       }
 
-      // 절대경로 흔적 → 파일명으로 치환
       final absRe = RegExp(
         r'([A-Za-z]:\\|\/)[^<>\r\n"]+\.(mp3|wav|aif|aiff|flac|m4a|mp4|mov|m4v|mkv|avi)',
         caseSensitive: false,
@@ -199,7 +202,6 @@ class XscSyncService {
     }
   }
 
-  // ====== 폴백 오픈 ======
   Future<void> _openWithFallback({
     required String? localXsc,
     required String mediaPath,
@@ -293,13 +295,13 @@ class XscSyncService {
         forceCopy: true, // Windows 강제 복사
       );
 
-      await _downloadLatestXscIfAny(
+      await _downloadLatestSidecarIfAny(
         studentId: studentId,
         mediaHash: mediaHash,
         intoDir: studentDir,
       );
 
-      var localXsc = await _findLocalLatestXsc(studentDir);
+      var localXsc = await _findLocalLatestSidecar(studentDir);
       if (localXsc != null) {
         await _rewriteXscMediaPathToBasename(
           xscPath: localXsc,
@@ -312,7 +314,7 @@ class XscSyncService {
         mediaPath: linkedOrCopiedMedia,
       );
 
-      await _watchAndSyncXsc(
+      await _watchAndSyncSidecar(
         dir: studentDir,
         studentId: studentId,
         mediaHash: mediaHash,
@@ -351,33 +353,33 @@ class XscSyncService {
         );
       }
 
-      final hasAnyXsc = (await _findLocalLatestXsc(studentDir)) != null;
+      final hasAny = (await _findLocalLatestSidecar(studentDir)) != null;
       final linkedOrCopiedMedia = await _placeMediaForStudent(
         sharedMediaPath: sharedMediaPath,
         studentMediaDir: studentDir,
-        forceCopy: Platform.isWindows || !hasAnyXsc,
+        forceCopy: Platform.isWindows || !hasAny,
       );
 
-      await _downloadLatestXscIfAny(
+      await _downloadLatestSidecarIfAny(
         studentId: studentId,
         mediaHash: mediaHash,
         intoDir: studentDir,
       );
 
-      var localXsc = await _findLocalLatestXsc(studentDir);
-      if (localXsc != null) {
+      var localSidecar = await _findLocalLatestSidecar(studentDir);
+      if (localSidecar != null) {
         await _rewriteXscMediaPathToBasename(
-          xscPath: localXsc,
+          xscPath: localSidecar,
           mediaPath: linkedOrCopiedMedia,
         );
       }
 
       await _openWithFallback(
-        localXsc: localXsc,
+        localXsc: localSidecar,
         mediaPath: linkedOrCopiedMedia,
       );
 
-      await _watchAndSyncXsc(
+      await _watchAndSyncSidecar(
         dir: studentDir,
         studentId: studentId,
         mediaHash: mediaHash,
@@ -484,7 +486,11 @@ class XscSyncService {
       if (!await d.exists()) return null;
       final xs = await d
           .list(followLinks: true)
-          .where((e) => e is File && e.path.toLowerCase().endsWith('.xsc'))
+          .where(
+            (e) =>
+                e is File &&
+                _xscExts.any((ext) => e.path.toLowerCase().endsWith(ext)),
+          )
           .cast<File>()
           .toList();
       if (xs.isEmpty) return null;
@@ -603,8 +609,8 @@ class XscSyncService {
   Future<String> _ensureStudentRoot(String studentId) async =>
       _ensureDir(p.join(_workspace(), studentId));
 
-  // ---------- remote XSC download ----------
-  Future<String?> _downloadLatestXscIfAny({
+  // ---------- Remote sidecar download (xsc/gtxsc) ----------
+  Future<String?> _downloadLatestSidecarIfAny({
     required String studentId,
     required String mediaHash,
     required String intoDir,
@@ -614,7 +620,6 @@ class XscSyncService {
         final prefix = '$studentId/$mediaHash/';
         final store = _sb.storage.from(studentXscBucket);
 
-        // ★ list 재시도
         final List<FileObject> objs = await _withRetry(
           () => store.list(
             path: prefix,
@@ -632,28 +637,33 @@ class XscSyncService {
           return DateTime.fromMillisecondsSinceEpoch(0);
         }
 
+        // 1) 우선순위: current.gtxsc > current.xsc
+        FileObject? pick;
+        for (final cand in ['current.gtxsc', 'current.xsc']) {
+          try {
+            pick = objs.firstWhere((o) => o.name.toLowerCase() == cand);
+            if (pick != null) break;
+          } catch (_) {}
+        }
+
+        // 2) 없으면 updated_at 최신
         objs.sort(
           (a, b) => parseTime(b.updatedAt).compareTo(parseTime(a.updatedAt)),
         );
+        pick ??= objs.first;
 
-        FileObject current = objs.firstWhere(
-          (o) => (o.name).toLowerCase() == 'current.xsc',
-          orElse: () => objs.first,
-        );
-
-        final key = '$prefix${current.name}';
-
-        // ★ download 재시도
+        final key = '$prefix${pick!.name}';
         final bytes = await _withRetry(() => store.download(key));
 
-        final local = File(p.join(intoDir, 'current.xsc'));
+        final ext = p.extension(pick!.name).toLowerCase();
+        final local = File(p.join(intoDir, 'current$ext'));
         await local.writeAsBytes(bytes, flush: true);
 
         // sidecar meta — updated_at만 사용
-        final metaPath = p.join(intoDir, '.current.xsc.meta.json');
+        final metaPath = p.join(intoDir, '.current$ext.meta.json');
         final meta = <String, dynamic>{
           'remote_key': key,
-          'updated_at': parseTime(current.updatedAt).toIso8601String(),
+          'updated_at': parseTime(pick!.updatedAt).toIso8601String(),
           'etag': '',
           'saved_at': DateTime.now().toIso8601String(),
         };
@@ -665,13 +675,17 @@ class XscSyncService {
     });
   }
 
-  Future<String?> _findLocalLatestXsc(String dir) async {
+  Future<String?> _findLocalLatestSidecar(String dir) async {
     try {
       final d = Directory(dir);
       if (!await d.exists()) return null;
       final xs = await d
           .list(followLinks: true)
-          .where((e) => e is File && e.path.toLowerCase().endsWith('.xsc'))
+          .where(
+            (e) =>
+                e is File &&
+                _xscExts.any((ext) => e.path.toLowerCase().endsWith(ext)),
+          )
           .cast<File>()
           .toList();
       if (xs.isEmpty) return null;
@@ -682,17 +696,15 @@ class XscSyncService {
     }
   }
 
-  // ---------- Watch & upload ----------
-  Future<void> _watchAndSyncXsc({
+  // ---------- Watch & upload (xsc/gtxsc) ----------
+  Future<void> _watchAndSyncSidecar({
     required String dir,
     required String studentId,
     required String mediaHash,
   }) async {
     await disposeWatcher();
     final folder = Directory(dir);
-    if (!await folder.exists()) {
-      return;
-    }
+    if (!await folder.exists()) return;
 
     final Map<String, async.Timer> debounces = {};
 
@@ -706,12 +718,17 @@ class XscSyncService {
       return false;
     }
 
-    Future<Map<String, dynamic>> readSidecarMeta() async =>
-        _readJsonFile(p.join(dir, '.current.xsc.meta.json'));
+    String _sidecarMetaPath(String ext) =>
+        p.join(dir, '.current$ext.meta.json');
 
-    Future<void> writeSidecarMetaFromRemote(FileObject? remoteObj) async {
+    Future<Map<String, dynamic>> readSidecarMeta(String ext) async =>
+        _readJsonFile(_sidecarMetaPath(ext));
+
+    Future<void> writeSidecarMetaFromRemote(
+      FileObject? remoteObj,
+      String ext,
+    ) async {
       try {
-        final metaPath = p.join(dir, '.current.xsc.meta.json');
         DateTime toTime(dynamic v) {
           if (v is DateTime) return v;
           if (v is String) {
@@ -722,21 +739,19 @@ class XscSyncService {
         }
 
         final meta = <String, dynamic>{
-          'remote_key': '$studentId/$mediaHash/current.xsc',
+          'remote_key': '$studentId/$mediaHash/current$ext',
           'updated_at': toTime(remoteObj?.updatedAt).toIso8601String(),
           'etag': '',
           'saved_at': DateTime.now().toIso8601String(),
         };
-        await _writeJsonFile(metaPath, meta);
+        await _writeJsonFile(_sidecarMetaPath(ext), meta);
       } catch (_) {}
     }
 
-    Future<FileObject?> findRemoteCurrentMeta() async {
+    Future<FileObject?> findRemoteCurrentMeta(String ext) async {
       try {
         final store = _sb.storage.from(studentXscBucket);
         final prefix = '$studentId/$mediaHash/';
-
-        // ★ list 재시도
         final List<FileObject> objs = await _withRetry(
           () => store.list(
             path: prefix,
@@ -744,7 +759,7 @@ class XscSyncService {
           ),
         );
         for (final o in objs) {
-          if (o.name.toLowerCase() == 'current.xsc') return o;
+          if (o.name.toLowerCase() == 'current$ext') return o;
         }
       } catch (_) {}
       return null;
@@ -783,6 +798,9 @@ class XscSyncService {
       if (cool != null && now.difference(cool) < _cooldownDur) return;
       if (_uploading[path] == true) return;
 
+      final String ext = p.extension(path).toLowerCase();
+      if (!_xscExts.contains(ext)) return;
+
       _uploading[path] = true;
       try {
         final f = File(path);
@@ -794,7 +812,7 @@ class XscSyncService {
           await async.Future.delayed(const Duration(milliseconds: 200));
         }
 
-        // 업로드 직전 normalize (미디어 없으면 스킵)
+        // 업로드 직전 normalize (미디어 없으면 스킵 아님)
         final media = await firstMediaInDir();
         if (media != null) {
           await _rewriteXscMediaPathToBasename(xscPath: path, mediaPath: media);
@@ -803,9 +821,9 @@ class XscSyncService {
         final store = _sb.storage.from(studentXscBucket);
         final prefix = '$studentId/$mediaHash/';
 
-        // 0) 충돌 감지 — updatedAt만 비교
-        final remote = await findRemoteCurrentMeta();
-        final sidecar = await readSidecarMeta();
+        // 0) 충돌 감지 — sidecar별로 updatedAt 비교
+        final remote = await findRemoteCurrentMeta(ext);
+        final sidecar = await readSidecarMeta(ext);
 
         DateTime toTime(dynamic v) {
           if (v is DateTime) return v;
@@ -826,12 +844,11 @@ class XscSyncService {
             localBaseUpdated != null &&
             remoteUpdated != localBaseUpdated;
 
-        // 1) 항상 백업
+        // 1) 항상 백업 (확장자 맞춰 저장)
         final ts = DateTime.now().toIso8601String().replaceAll(':', '-');
         final backupKey =
-            '${prefix}backups/$ts${conflict ? '-branch' : ''}.xsc';
+            '${prefix}backups/$ts${conflict ? '-branch' : ''}$ext';
 
-        // (옵션) 업로드에도 재시도 적용하고 싶다면 아래도 _withRetry로 감싸도 안전함
         await _withRetry(
           () => store.upload(
             backupKey,
@@ -849,12 +866,12 @@ class XscSyncService {
               flush: true,
             );
           } catch (_) {}
-          await writeSidecarMetaFromRemote(remote);
+          await writeSidecarMetaFromRemote(remote, ext);
           return;
         }
 
-        // 3) 정상 교체 (upsert)
-        final curKey = '${prefix}current.xsc';
+        // 3) 정상 교체 (upsert to current.<ext>)
+        final curKey = '${prefix}current$ext';
         await _withRetry(
           () => store.upload(
             curKey,
@@ -863,9 +880,10 @@ class XscSyncService {
           ),
         );
 
-        final after = await findRemoteCurrentMeta();
-        if (after != null) await writeSidecarMetaFromRemote(after);
+        final after = await findRemoteCurrentMeta(ext);
+        if (after != null) await writeSidecarMetaFromRemote(after, ext);
 
+        // lesson_links 메타 갱신 (실제 확장자 반영)
         await LessonLinksService().touchXscUpdatedAt(
           studentId: studentId,
           mp3Hash: mediaHash,
@@ -873,7 +891,7 @@ class XscSyncService {
         await LessonLinksService().upsertAttachmentXscMeta(
           studentId: studentId,
           mp3Hash: mediaHash,
-          xscStoragePath: 'student_xsc/$studentId/$mediaHash/current.xsc',
+          xscStoragePath: 'student_xsc/$studentId/$mediaHash/current$ext',
         );
       } catch (_) {
         // silent
@@ -885,7 +903,8 @@ class XscSyncService {
 
     void scheduleUpload(String path) {
       final lower = path.toLowerCase();
-      if (!lower.endsWith('.xsc')) return;
+      final isSidecar = _xscExts.any((e) => lower.endsWith(e));
+      if (!isSidecar) return;
       if (isTempOrHidden(path)) return;
 
       debounces[path]?.cancel();
@@ -906,12 +925,92 @@ class XscSyncService {
         .listen(
           (evt) {
             final pth = evt.path.toString();
-            if (pth.toLowerCase().endsWith('.xsc') && !isTempOrHidden(pth)) {
-              scheduleUpload(pth);
-            }
+            scheduleUpload(pth);
           },
           onError: (_) {},
           onDone: () {},
         );
   }
+   // ===== Built-in player 준비 /감시 진입점 =====
+  // 미디어/사이드카를 로컬에 준비만 하고 열지는 않음.
+  // 반환: 로컬 학생 폴더/미디어 경로/사이드카 경로/해시
+  Future<PreparedPlayback> prepareForBuiltInPlayer({
+    required ResourceFile resource,
+    required String studentId,
+  }) async {
+    await _silencePrints(() async {
+      try { await StudentService().attachMeToStudent(studentId); } catch (_) {}
+    });
+
+    final sharedMediaPath = await _ensureSharedMedia(resource);
+    final mediaHash = await _sha1OfFile(sharedMediaPath);
+    final studentRoot = await _ensureStudentRoot(studentId);
+    final studentDir = await _ensureDir(p.join(studentRoot, mediaHash));
+
+    final migrated = await _migrateCacheXscIfExists(
+      cacheMediaPath: sharedMediaPath,
+      studentDir: studentDir,
+    );
+    if (migrated != null) {
+      await _rewriteXscMediaPathToBasename(
+        xscPath: migrated,
+        mediaPath: sharedMediaPath,
+      );
+    }
+
+    final hasAny = (await _findLocalLatestSidecar(studentDir)) != null;
+    final linkedOrCopiedMedia = await _placeMediaForStudent(
+      sharedMediaPath: sharedMediaPath,
+      studentMediaDir: studentDir,
+      forceCopy: Platform.isWindows || !hasAny,
+    );
+
+    await _downloadLatestSidecarIfAny(
+      studentId: studentId,
+      mediaHash: mediaHash,
+      intoDir: studentDir,
+    );
+
+    final localSidecar = await _findLocalLatestSidecar(studentDir);
+    if (localSidecar != null) {
+      await _rewriteXscMediaPathToBasename(
+        xscPath: localSidecar,
+        mediaPath: linkedOrCopiedMedia,
+      );
+    }
+
+    return PreparedPlayback(
+      studentId: studentId,
+      mediaHash: mediaHash,
+      studentDir: studentDir,
+      mediaPath: linkedOrCopiedMedia,
+      sidecarPath: localSidecar,
+    );
+  }
+
+  // 내장 플레이어가 떠 있는 동안, 해당 폴더 감시/업로드를 시작
+  Future<void> startWatcherForBuiltIn(PreparedPlayback prep) async {
+    await _watchAndSyncSidecar(
+      dir: prep.studentDir,
+      studentId: prep.studentId,
+      mediaHash: prep.mediaHash,
+    );
+  }
+}
+
+// ===== DTO =====
+class PreparedPlayback {
+  final String studentId;
+  final String mediaHash;
+  final String studentDir;
+  final String mediaPath;
+  final String? sidecarPath;
+
+  PreparedPlayback({
+    required this.studentId,
+    required this.mediaHash,
+    required this.studentDir,
+    required this.mediaPath,
+    required this.sidecarPath,
+  });
 }
