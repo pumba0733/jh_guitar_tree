@@ -1,7 +1,13 @@
-// lib/packages/smart_media_player/smart_media_player_screen.dart
-// v1.85.1 | Waveform 디그레이드 캐시(결정론) + 단축키 오타 수정(keyS)
-// - v1.85 기능/UX 유지, just_waveform API 불일치 이슈 임시 우회
-// - 추후 v1.85.2에서 실제 추출 로직로 교체 예정
+// lib/packages/smart_media_player/ui/smart_media_player_screen.dart
+// v1.87.0 | Markers + QuickLoop + Waveform Zoom
+//
+// - NEW: 북마크(마커) 추가/목록/점프/삭제 (M, Alt+1..9)
+// - NEW: 퀵루프 Z(±2s)/X(±5s)/C(±10s)
+// - NEW: 파형 줌/스크롤 (= 줌인, - 줌아웃, 미니맵 슬라이더)
+// - NEW: 루프 엣지 미세이동 Shift+, / Shift+. (±100ms)
+// - KEEP: v1.86 오디오/사이드카/핫키/파형 캐시
+//
+// 사이드카 저장 포맷 markers: [{ "t": <ms>, "label": "M1" }]
 
 import 'dart:async';
 import 'dart:convert';
@@ -15,6 +21,18 @@ import 'package:path/path.dart' as p;
 
 import 'waveform/waveform_cache.dart';
 import 'widgets/waveform_view.dart';
+
+class MarkerPoint {
+  final Duration t;
+  final String label;
+  MarkerPoint(this.t, this.label);
+
+  Map<String, dynamic> toJson() => {'t': t.inMilliseconds, 'label': label};
+  static MarkerPoint fromJson(Map<String, dynamic> m) => MarkerPoint(
+    Duration(milliseconds: (m['t'] ?? 0) as int),
+    (m['label'] ?? '') as String,
+  );
+}
 
 class SmartMediaPlayerScreen extends StatefulWidget {
   final String studentId;
@@ -69,6 +87,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   final _player = AudioPlayer();
   StreamSubscription<Duration>? _posSub;
   StreamSubscription<PlayerState>? _stateSub;
+  StreamSubscription<Duration?>? _durSub;
 
   // UI 상태
   double _speed = 1.0;
@@ -80,12 +99,19 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   Duration? _loopB;
   bool _loopEnabled = false;
 
+  // 마커
+  final List<MarkerPoint> _markers = [];
+
   // 자동 저장 디바운스
   Timer? _saveDebounce;
 
   // 파형 데이터(0..1)
   List<double> _peaks = const [];
   double _waveProgress = 0; // 0..1
+
+  // 파형 뷰포트(줌/스크롤): 0..1
+  double _viewStart = 0.0;
+  double _viewWidth = 1.0; // 1.0=전체, 0.1=10%만 보기
 
   // 사이드카 경로
   String get _sidecarPath => p.join(widget.studentDir, 'current.gtxsc');
@@ -115,6 +141,12 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     await _player.setFilePath(widget.mediaPath);
     _duration = _player.duration ?? Duration.zero;
 
+    _durSub = _player.durationStream.listen((d) {
+      if (!mounted) return;
+      setState(() => _duration = d ?? Duration.zero);
+      _normalizeLoopOrder();
+    });
+
     _posSub = _player.positionStream.listen((pos) async {
       if (!mounted) return;
       setState(() => _position = pos);
@@ -122,7 +154,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       if (_loopEnabled && _loopA != null && _loopB != null) {
         final a = _loopA!;
         final b = _loopB!;
-        if (pos >= b) {
+        if (b > Duration.zero && pos >= b) {
           await _player.seek(a);
         }
       }
@@ -136,12 +168,12 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
   Future<void> _buildWaveform() async {
     try {
-      setState(() => _waveProgress = 0.1);
-      // 🔧 임시: 결정론 가짜 파형(캐시 파일로 저장/로드는 동일 키 기반)
-      final peaks = await WaveformCache.instance.loadOrBuildDegraded(
+      setState(() => _waveProgress = 0.05);
+      final peaks = await WaveformCache.instance.loadOrBuild(
+        mediaPath: widget.mediaPath,
         cacheDir: _cacheDir,
         cacheKey: widget.mediaHash,
-        bars: 800,
+        targetBars: 800,
         onProgress: (p) {
           if (!mounted) return;
           setState(() => _waveProgress = p);
@@ -156,7 +188,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('파형 준비 실패(임시 모드): $e')));
+      ).showSnackBar(SnackBar(content: Text('파형 생성 실패: $e')));
     }
   }
 
@@ -171,11 +203,19 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         final b = (m['loopB'] ?? 0).toInt();
         final sp = (m['speed'] ?? 1.0).toDouble();
         final posMs = (m['positionMs'] ?? 0).toInt();
+        final mk = (m['markers'] as List?)?.cast<dynamic>() ?? const [];
         setState(() {
           _loopA = a > 0 ? Duration(milliseconds: a) : null;
           _loopB = b > 0 ? Duration(milliseconds: b) : null;
           _loopEnabled = (m['loopOn'] ?? false) == true;
           _speed = sp.clamp(0.5, 1.5);
+          _markers
+            ..clear()
+            ..addAll(
+              mk.whereType<Map>().map(
+                (e) => MarkerPoint.fromJson(Map<String, dynamic>.from(e)),
+              ),
+            );
         });
 
         _normalizeLoopOrder();
@@ -183,19 +223,20 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         await _player.setSpeed(_speed);
         if (posMs > 0) {
           final d = Duration(milliseconds: posMs);
-          if (_duration == Duration.zero) {
+          if (_player.duration == null) {
             WidgetsBinding.instance.addPostFrameCallback((_) async {
-              if (_player.duration != null && d < _player.duration!) {
+              final dur = _player.duration;
+              if (dur != null && d < dur) {
                 await _player.seek(d);
               }
             });
-          } else if (d < _duration) {
+          } else if (d < (_player.duration ?? Duration.zero)) {
             await _player.seek(d);
           }
         }
       }
     } catch (_) {
-      /* ignore */
+      /* ignore sidecar parse error */
     }
   }
 
@@ -204,14 +245,13 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         _loopB != null &&
         !_loopA!.isNegative &&
         !_loopB!.isNegative) {
+      if (_player.duration == null || _player.duration == Duration.zero) return;
+      final trackDur = _player.duration!;
       if (_loopA! >= _loopB!) {
         final two = const Duration(seconds: 2);
-        final trackDur = _duration == Duration.zero ? null : _duration;
-        final newB = trackDur != null
-            ? ((_loopA! + two) < trackDur
-                  ? _loopA! + two
-                  : (trackDur - const Duration(milliseconds: 1)))
-            : _loopA;
+        final newB = ((_loopA! + two) < trackDur)
+            ? _loopA! + two
+            : (trackDur - const Duration(milliseconds: 1));
         setState(() => _loopB = newB);
       }
     }
@@ -228,8 +268,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       'positionMs': _position.inMilliseconds,
       'savedAt': DateTime.now().toIso8601String(),
       'media': p.basename(widget.mediaPath),
-      'version': 'v1.85.1',
-      'markers': <Map<String, dynamic>>[],
+      'version': 'v1.87.0',
+      'markers': _markers.map((e) => e.toJson()).toList(),
       'notes': '',
     };
     try {
@@ -254,7 +294,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   void _debouncedSave() {
     _saveDebounce?.cancel();
     _saveDebounce = Timer(
-      const Duration(milliseconds: 1500),
+      const Duration(milliseconds: 1200),
       () => _saveSidecar(toast: false),
     );
   }
@@ -265,6 +305,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     unawaited(_saveSidecar(toast: false));
     _posSub?.cancel();
     _stateSub?.cancel();
+    _durSub?.cancel();
     _player.dispose();
     super.dispose();
   }
@@ -281,7 +322,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     final now = _position;
     var target = now + delta;
     if (target < Duration.zero) target = Duration.zero;
-    if (_duration > Duration.zero && target > _duration) target = _duration;
+    final dur = _player.duration ?? _duration;
+    if (dur > Duration.zero && target > dur) target = dur;
     await _player.seek(target);
   }
 
@@ -292,6 +334,83 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     } else {
       await _player.play();
     }
+  }
+
+  void _quickLoopAround(Duration halfSpan) {
+    final dur = _player.duration ?? _duration;
+    if (dur == Duration.zero) return;
+    final center = _position;
+    var a = center - halfSpan;
+    var b = center + halfSpan;
+    if (a < Duration.zero) a = Duration.zero;
+    if (b > dur) b = dur - const Duration(milliseconds: 1);
+    setState(() {
+      _loopA = a;
+      _loopB = b;
+      _loopEnabled = true;
+    });
+    _debouncedSave();
+  }
+
+  void _nudgeLoopEdge({required bool isA, required int deltaMs}) {
+    if (_player.duration == null || _player.duration == Duration.zero) return;
+    var a = _loopA;
+    var b = _loopB;
+    if (isA && a != null) {
+      a += Duration(milliseconds: deltaMs);
+      if (a < Duration.zero) a = Duration.zero;
+      _loopA = a;
+    } else if (!isA && b != null) {
+      b += Duration(milliseconds: deltaMs);
+      if (b > _player.duration!)
+        b = _player.duration! - const Duration(milliseconds: 1);
+      _loopB = b;
+    }
+    _normalizeLoopOrder();
+    setState(() {});
+    _debouncedSave();
+  }
+
+  void _addMarker() {
+    final idx = _markers.length + 1;
+    final label = 'M$idx';
+    setState(() => _markers.add(MarkerPoint(_position, label)));
+    _debouncedSave();
+  }
+
+  void _jumpToMarkerIndex(int i1based) async {
+    final i = i1based - 1;
+    if (i < 0 || i >= _markers.length) return;
+    final d = _markers[i].t;
+    await _player.seek(d);
+  }
+
+  void _deleteMarker(int index) {
+    if (index < 0 || index >= _markers.length) return;
+    setState(() => _markers.removeAt(index));
+    _debouncedSave();
+  }
+
+  void _zoom(double factor) {
+    // factor>1 => zoom in (viewWidth smaller)
+    const minWidth = 0.02; // 2% (= 약 1/50)
+    const maxWidth = 1.0;
+    final centerT = (_duration.inMilliseconds == 0)
+        ? 0.5
+        : (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0);
+    var newWidth = (_viewWidth / factor).clamp(minWidth, maxWidth);
+    // center 유지하도록 viewStart 조정
+    var newStart = (centerT - newWidth / 2).clamp(0.0, 1.0 - newWidth);
+    setState(() {
+      _viewWidth = newWidth;
+      _viewStart = newStart;
+    });
+  }
+
+  void _scrollTo(double start) {
+    if (start < 0) start = 0;
+    if (start > 1 - _viewWidth) start = 1 - _viewWidth;
+    setState(() => _viewStart = start);
   }
 
   PreferredSizeWidget _buildTopBar(bool playing, String title) {
@@ -306,7 +425,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
             ),
           ),
         Tooltip(
-          message: '사이드카 저장 (S)',
+          message: '저장 (S)',
           child: IconButton(
             onPressed: _saveSidecar,
             icon: const Icon(Icons.save),
@@ -321,6 +440,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     final playing = _player.playerState.playing;
     final title = p.basename(widget.mediaPath);
 
+    // 뷰어 핫키 매핑
     return Shortcuts(
       shortcuts: <LogicalKeySet, Intent>{
         LogicalKeySet(LogicalKeyboardKey.space): const ActivateIntent(),
@@ -332,7 +452,37 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
             const _ToggleLoopIntent(),
         LogicalKeySet(LogicalKeyboardKey.keyA): const _SetLoopIntent(true),
         LogicalKeySet(LogicalKeyboardKey.keyB): const _SetLoopIntent(false),
-        LogicalKeySet(LogicalKeyboardKey.keyS): const _SaveIntent(), // ✅ 오타 수정
+        LogicalKeySet(LogicalKeyboardKey.keyS): const _SaveIntent(),
+        LogicalKeySet(LogicalKeyboardKey.keyM): const _AddMarkerIntent(),
+        LogicalKeySet(LogicalKeyboardKey.keyZ): const _QuickLoopIntent(2000),
+        LogicalKeySet(LogicalKeyboardKey.keyX): const _QuickLoopIntent(5000),
+        LogicalKeySet(LogicalKeyboardKey.keyC): const _QuickLoopIntent(10000),
+        LogicalKeySet(LogicalKeyboardKey.equal): const _ZoomIntent(true), // =
+        LogicalKeySet(LogicalKeyboardKey.minus): const _ZoomIntent(false), // -
+        LogicalKeySet(LogicalKeyboardKey.shift, LogicalKeyboardKey.comma):
+            const _NudgeIntent(true, -100),
+        LogicalKeySet(LogicalKeyboardKey.shift, LogicalKeyboardKey.period):
+            const _NudgeIntent(false, 100),
+
+        // Alt+1..9 → 마커 점프
+        LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.digit1):
+            const _JumpMarkerIntent(1),
+        LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.digit2):
+            const _JumpMarkerIntent(2),
+        LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.digit3):
+            const _JumpMarkerIntent(3),
+        LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.digit4):
+            const _JumpMarkerIntent(4),
+        LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.digit5):
+            const _JumpMarkerIntent(5),
+        LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.digit6):
+            const _JumpMarkerIntent(6),
+        LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.digit7):
+            const _JumpMarkerIntent(7),
+        LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.digit8):
+            const _JumpMarkerIntent(8),
+        LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.digit9):
+            const _JumpMarkerIntent(9),
       },
       child: Actions(
         actions: <Type, Action<Intent>>{
@@ -372,6 +522,36 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
           _SaveIntent: CallbackAction<_SaveIntent>(
             onInvoke: (_) {
               _saveSidecar();
+              return null;
+            },
+          ),
+          _AddMarkerIntent: CallbackAction<_AddMarkerIntent>(
+            onInvoke: (_) {
+              _addMarker();
+              return null;
+            },
+          ),
+          _QuickLoopIntent: CallbackAction<_QuickLoopIntent>(
+            onInvoke: (i) {
+              _quickLoopAround(Duration(milliseconds: i.halfSpanMs));
+              return null;
+            },
+          ),
+          _ZoomIntent: CallbackAction<_ZoomIntent>(
+            onInvoke: (i) {
+              _zoom(i.zoomIn ? 1.25 : 0.8);
+              return null;
+            },
+          ),
+          _NudgeIntent: CallbackAction<_NudgeIntent>(
+            onInvoke: (i) {
+              _nudgeLoopEdge(isA: i.isA, deltaMs: i.deltaMs);
+              return null;
+            },
+          ),
+          _JumpMarkerIntent: CallbackAction<_JumpMarkerIntent>(
+            onInvoke: (i) {
+              _jumpToMarkerIndex(i.i1based);
               return null;
             },
           ),
@@ -427,7 +607,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                         .toDouble(),
                     min: 0,
                     max:
-                        (_duration.inMilliseconds > 0
+                        ((_duration.inMilliseconds > 0)
                                 ? _duration.inMilliseconds
                                 : 1)
                             .toDouble(),
@@ -439,7 +619,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
                   const SizedBox(height: 8),
 
-                  // Transport
+                  // Transport + Speed + QuickLoop + Zoom
                   Row(
                     children: [
                       FilledButton.icon(
@@ -454,6 +634,38 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                         label: const Text('처음으로'),
                       ),
                       const Spacer(),
+                      // Quick loop
+                      Wrap(
+                        spacing: 6,
+                        children: [
+                          Tooltip(
+                            message: '퀵루프 ±2s (Z)',
+                            child: OutlinedButton(
+                              onPressed: () =>
+                                  _quickLoopAround(const Duration(seconds: 2)),
+                              child: const Text('±2s'),
+                            ),
+                          ),
+                          Tooltip(
+                            message: '퀵루프 ±5s (X)',
+                            child: OutlinedButton(
+                              onPressed: () =>
+                                  _quickLoopAround(const Duration(seconds: 5)),
+                              child: const Text('±5s'),
+                            ),
+                          ),
+                          Tooltip(
+                            message: '퀵루프 ±10s (C)',
+                            child: OutlinedButton(
+                              onPressed: () =>
+                                  _quickLoopAround(const Duration(seconds: 10)),
+                              child: const Text('±10s'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 12),
+                      // Speed
                       Row(
                         children: [
                           const Text('속도'),
@@ -482,14 +694,34 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                           ),
                         ],
                       ),
+                      const SizedBox(width: 12),
+                      // Zoom
+                      Row(
+                        children: [
+                          Tooltip(
+                            message: '줌아웃 (-)',
+                            child: IconButton(
+                              onPressed: () => _zoom(0.8),
+                              icon: const Icon(Icons.zoom_out),
+                            ),
+                          ),
+                          Tooltip(
+                            message: '줌인 (=)',
+                            child: IconButton(
+                              onPressed: () => _zoom(1.25),
+                              icon: const Icon(Icons.zoom_in),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
 
                   const Divider(height: 24),
 
-                  // Waveform section
+                  // Waveform section with viewport + markers
                   SizedBox(
-                    height: 96,
+                    height: 120,
                     child: _peaks.isEmpty
                         ? Row(
                             children: [
@@ -513,13 +745,35 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                             loopA: _loopA,
                             loopB: _loopB,
                             loopOn: _loopEnabled,
+                            markers: _markers.map((e) => e.t).toList(),
+                            viewStart: _viewStart,
+                            viewWidth: _viewWidth,
                             onSeek: (d) async => _player.seek(d),
                           ),
                   ),
 
-                  const SizedBox(height: 16),
+                  // Mini-map / viewport slider
+                  if (_duration > Duration.zero) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Text('뷰'),
+                        Expanded(
+                          child: Slider(
+                            value: _viewStart,
+                            min: 0,
+                            max: (1 - _viewWidth).clamp(0.0, 1.0),
+                            onChanged: (v) => _scrollTo(v),
+                          ),
+                        ),
+                        Text('${(_viewWidth * 100).round()}%'),
+                      ],
+                    ),
+                  ],
 
-                  // A/B loop
+                  const SizedBox(height: 12),
+
+                  // A/B loop + nudge
                   Row(
                     children: [
                       OutlinedButton(
@@ -530,7 +784,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                         },
                         child: Text(
                           _loopA == null
-                              ? 'A 지점 설정 (A)'
+                              ? 'A 지점 (A)'
                               : 'A 재설정 (${_fmt(_loopA!)})',
                         ),
                       ),
@@ -543,9 +797,36 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                         },
                         child: Text(
                           _loopB == null
-                              ? 'B 지점 설정 (B)'
+                              ? 'B 지점 (B)'
                               : 'B 재설정 (${_fmt(_loopB!)})',
                         ),
+                      ),
+                      const SizedBox(width: 8),
+                      Row(
+                        children: [
+                          const Text('미세이동'),
+                          const SizedBox(width: 6),
+                          Tooltip(
+                            message: 'A -100ms (Shift+,)',
+                            child: IconButton(
+                              onPressed: () =>
+                                  _nudgeLoopEdge(isA: true, deltaMs: -100),
+                              icon: const Icon(
+                                Icons.keyboard_double_arrow_left,
+                              ),
+                            ),
+                          ),
+                          Tooltip(
+                            message: 'B +100ms (Shift+.)',
+                            child: IconButton(
+                              onPressed: () =>
+                                  _nudgeLoopEdge(isA: false, deltaMs: 100),
+                              icon: const Icon(
+                                Icons.keyboard_double_arrow_right,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(width: 12),
                       Row(
@@ -576,6 +857,41 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                   ),
 
                   const SizedBox(height: 12),
+
+                  // Marker chips/list
+                  Row(
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _addMarker,
+                        icon: const Icon(Icons.add),
+                        label: const Text('마커 추가 (M)'),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (int i = 0; i < _markers.length; i++)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: InputChip(
+                                    label: Text(
+                                      '${_markers[i].label} ${_fmt(_markers[i].t)}',
+                                    ),
+                                    onPressed: () =>
+                                        _player.seek(_markers[i].t),
+                                    onDeleted: () => _deleteMarker(i),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 8),
                   Text(
                     '사이드카: ${p.basename(_sidecarPath)}  •  폴더: ${widget.studentDir}',
                     style: Theme.of(context).textTheme.bodySmall,
@@ -590,6 +906,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   }
 }
 
+// ---- Intents ----
 class _SeekIntent extends Intent {
   final int deltaMs;
   const _SeekIntent(this.deltaMs);
@@ -606,4 +923,29 @@ class _SetLoopIntent extends Intent {
 
 class _SaveIntent extends Intent {
   const _SaveIntent();
+}
+
+class _AddMarkerIntent extends Intent {
+  const _AddMarkerIntent();
+}
+
+class _QuickLoopIntent extends Intent {
+  final int halfSpanMs;
+  const _QuickLoopIntent(this.halfSpanMs);
+}
+
+class _ZoomIntent extends Intent {
+  final bool zoomIn;
+  const _ZoomIntent(this.zoomIn);
+}
+
+class _NudgeIntent extends Intent {
+  final bool isA;
+  final int deltaMs;
+  const _NudgeIntent(this.isA, this.deltaMs);
+}
+
+class _JumpMarkerIntent extends Intent {
+  final int i1based;
+  const _JumpMarkerIntent(this.i1based);
 }

@@ -1,5 +1,9 @@
 // lib/services/xsc_sync_service.dart
 //
+// v1.86.1 | 로컬 최신본 선택 규칙 강화 + 안정화 유지
+// - CHANGE: _findLocalLatestSidecar()가 "current.gtxsc > current.xsc > updated_at 최신" 우선순위 반영
+// - KEEP  : .xsc/.gtxsc dual 동기화, 백오프/무음/쿨다운/백업/충돌 처리 그대로 유지
+//
 // v1.83 | XSC/GTXSC dual support + resilient sync
 // - NEW: .gtxsc 동기화(다운로드/감시/업로드/백업) 추가
 // - CHANGE: 최신본 선택 규칙 = current.gtxsc > current.xsc > updated_at 최신
@@ -301,7 +305,7 @@ class XscSyncService {
         intoDir: studentDir,
       );
 
-      var localXsc = await _findLocalLatestSidecar(studentDir);
+      final localXsc = await _findLocalLatestSidecar(studentDir);
       if (localXsc != null) {
         await _rewriteXscMediaPathToBasename(
           xscPath: localXsc,
@@ -366,7 +370,7 @@ class XscSyncService {
         intoDir: studentDir,
       );
 
-      var localSidecar = await _findLocalLatestSidecar(studentDir);
+      final localSidecar = await _findLocalLatestSidecar(studentDir);
       if (localSidecar != null) {
         await _rewriteXscMediaPathToBasename(
           xscPath: localSidecar,
@@ -630,10 +634,9 @@ class XscSyncService {
 
         DateTime parseTime(dynamic v) {
           if (v is DateTime) return v;
-          if (v is String) {
+          if (v is String)
             return DateTime.tryParse(v) ??
                 DateTime.fromMillisecondsSinceEpoch(0);
-          }
           return DateTime.fromMillisecondsSinceEpoch(0);
         }
 
@@ -675,10 +678,20 @@ class XscSyncService {
     });
   }
 
+  // ---------- 로컬 최신본 선택 (우선순위 반영) ----------
   Future<String?> _findLocalLatestSidecar(String dir) async {
     try {
       final d = Directory(dir);
       if (!await d.exists()) return null;
+
+      // (1) 명시 우선순위 파일 탐색
+      final prefer = <String>['current.gtxsc', 'current.xsc'];
+      for (final name in prefer) {
+        final f = File(p.join(dir, name));
+        if (await f.exists()) return f.path;
+      }
+
+      // (2) 없으면 수정시각 최신
       final xs = await d
           .list(followLinks: true)
           .where(
@@ -720,7 +733,6 @@ class XscSyncService {
 
     String _sidecarMetaPath(String ext) =>
         p.join(dir, '.current$ext.meta.json');
-
     Future<Map<String, dynamic>> readSidecarMeta(String ext) async =>
         _readJsonFile(_sidecarMetaPath(ext));
 
@@ -731,10 +743,9 @@ class XscSyncService {
       try {
         DateTime toTime(dynamic v) {
           if (v is DateTime) return v;
-          if (v is String) {
+          if (v is String)
             return DateTime.tryParse(v) ??
                 DateTime.fromMillisecondsSinceEpoch(0);
-          }
           return DateTime.fromMillisecondsSinceEpoch(0);
         }
 
@@ -812,7 +823,7 @@ class XscSyncService {
           await async.Future.delayed(const Duration(milliseconds: 200));
         }
 
-        // 업로드 직전 normalize (미디어 없으면 스킵 아님)
+        // 업로드 직전 normalize
         final media = await firstMediaInDir();
         if (media != null) {
           await _rewriteXscMediaPathToBasename(xscPath: path, mediaPath: media);
@@ -827,10 +838,9 @@ class XscSyncService {
 
         DateTime toTime(dynamic v) {
           if (v is DateTime) return v;
-          if (v is String) {
+          if (v is String)
             return DateTime.tryParse(v) ??
                 DateTime.fromMillisecondsSinceEpoch(0);
-          }
           return DateTime.fromMillisecondsSinceEpoch(0);
         }
 
@@ -931,15 +941,16 @@ class XscSyncService {
           onDone: () {},
         );
   }
-   // ===== Built-in player 준비 /감시 진입점 =====
-  // 미디어/사이드카를 로컬에 준비만 하고 열지는 않음.
-  // 반환: 로컬 학생 폴더/미디어 경로/사이드카 경로/해시
+
+  // ===== Built-in player 준비 / 감시 진입점 =====
   Future<PreparedPlayback> prepareForBuiltInPlayer({
     required ResourceFile resource,
     required String studentId,
   }) async {
     await _silencePrints(() async {
-      try { await StudentService().attachMeToStudent(studentId); } catch (_) {}
+      try {
+        await StudentService().attachMeToStudent(studentId);
+      } catch (_) {}
     });
 
     final sharedMediaPath = await _ensureSharedMedia(resource);
@@ -988,7 +999,6 @@ class XscSyncService {
     );
   }
 
-  // 내장 플레이어가 떠 있는 동안, 해당 폴더 감시/업로드를 시작
   Future<void> startWatcherForBuiltIn(PreparedPlayback prep) async {
     await _watchAndSyncSidecar(
       dir: prep.studentDir,
