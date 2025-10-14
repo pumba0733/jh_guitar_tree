@@ -1,7 +1,9 @@
-// v1.7.1 | Workspace watcher (Windows + macOS 지원) — 컨테이너 우선 폴백 강화
-// - macOS 샌드박스에서 HOME 직접 쓰기 시도 회피: AppSupport(컨테이너) 경로를 최우선
-// - USERPROFILE/HOME 후보는 실패 시 조용히 스킵, 최종 임시 폴더로 폴백
-// - 나머지 기능 동일
+// v1.7.0 | Workspace watcher (Windows + macOS 지원)
+// - macOS 전용 가드 제거 → Windows도 감시/업로드 활성화
+// - 워크스페이스 경로 탐색에 USERPROFILE(Win) 지원 추가
+// - 숨김/임시 파일 필터 보강(Thumbs.db, desktop.ini 등)
+// - 파일 안정화 폴링/디바운스 유지, XSC는 제외( XscSyncService 담당 )
+// - lesson_attachments 버킷 업로드 후 오늘 레슨 링크 자동 생성
 
 import 'dart:async';
 import 'dart:io';
@@ -12,6 +14,7 @@ import 'file_key_util.dart';
 import '../supabase/supabase_tables.dart';
 import '../models/resource.dart';
 import 'lesson_links_service.dart';
+
 import 'package:path_provider/path_provider.dart' as pp;
 
 class WorkspaceService {
@@ -20,6 +23,7 @@ class WorkspaceService {
 
   StreamSubscription<FileSystemEvent>? _sub;
 
+  // 경로별 디바운스(중복 업로드 방지)
   final Map<String, Timer> _debounces = {};
   void _schedule(String path, void Function() run) {
     _debounces[path]?.cancel();
@@ -29,6 +33,7 @@ class WorkspaceService {
     });
   }
 
+  // ⚠️ .xsc 제거: XscSyncService가 관리
   static const _allowExt = {
     '.m4a',
     '.mp3',
@@ -44,24 +49,16 @@ class WorkspaceService {
 
   bool get isRunning => _sub != null;
 
-  // ===== 컨테이너(AppSupport) 우선 경로 탐색 =====
+    // ===== 신규: 워크스페이스 자동 결정 (Win/mac 공통, 권한 실패 시 자동 다음 후보) =====
   Future<Directory> _ensureWorkspaceDir() async {
     final fromDefine = const String.fromEnvironment('WORKSPACE_DIR').trim();
+
     final home = Platform.environment['HOME'];
     final userProfile = Platform.environment['USERPROFILE'];
     final String? osHome = (Platform.isWindows ? userProfile : home);
 
-    final candidates = <String>[];
-
-    // 0) AppSupport(샌드박스 내 컨테이너) — 최우선
-    try {
-      final support = await pp.getApplicationSupportDirectory();
-      candidates.add(p.join(support.path, 'GuitarTreeWorkspace'));
-    } catch (_) {}
-
-    // 1) dart-define
-    if (fromDefine.isNotEmpty) {
-      var fixed = fromDefine;
+    String _fixYouTemplate(String path) {
+      var fixed = path;
       if (!Platform.isWindows && fixed.startsWith('/Users/you/')) {
         if (osHome != null && osHome.startsWith('/Users/')) {
           fixed = p.join(osHome, fixed.substring('/Users/you/'.length));
@@ -72,27 +69,39 @@ class WorkspaceService {
       if (Platform.isWindows && fixed.toLowerCase().contains(r'\you\')) {
         if (osHome != null && osHome.isNotEmpty) {
           final idx = fixed.toLowerCase().indexOf(r'\you\');
-          final marker = r'\you\';
           final tail = idx >= 0
-              ? fixed.substring(idx + marker.length)
+              ? fixed.substring(idx + r'\you\'.length)
               : r'\GuitarTreeWorkspace';
           fixed = p.join(osHome, tail);
         }
       }
-      candidates.add(fixed);
+      return fixed;
     }
 
-    // 2) 사용자 홈 하위(권한 없으면 스킵됨)
-    if (osHome != null && osHome.isNotEmpty) {
-      candidates.add(p.join(osHome, 'GuitarTreeWorkspace'));
-      if (!Platform.isWindows) {
-        candidates.add(p.join(osHome, 'Downloads', 'GuitarTreeWorkspace'));
-      }
-    }
+    // 후보 리스트: 권한 없는 경로는 건너뛰도록 "쓰기 테스트"로 필터링
+    final candidates = <String>[
+      if (fromDefine.isNotEmpty) _fixYouTemplate(fromDefine),
+      if (osHome != null && osHome.isNotEmpty) p.join(osHome, 'GuitarTreeWorkspace'),
+      if (!Platform.isWindows && osHome != null && osHome.isNotEmpty)
+        p.join(osHome, 'Downloads', 'GuitarTreeWorkspace'),
+      // 앱 지원 디렉토리(항상 존재하진 않음)
+      (() {
+        try {
+          // 동기 호출 불가라서 나중에 추가
+          return '';
+        } catch (_) {
+          return '';
+        }
+      })(),
+    ].where((e) => e.isNotEmpty).toList();
 
-    // 후보 검증
-    for (final path in candidates) {
-      if (path.isEmpty) continue;
+    // 앱 지원 디렉토리 후보 추가 (비동기)
+    try {
+      final support = await pp.getApplicationSupportDirectory();
+      candidates.add(p.join(support.path, 'GuitarTreeWorkspace'));
+    } catch (_) {}
+
+    Future<bool> _writable(String path) async {
       try {
         final dir = Directory(path);
         if (!await dir.exists()) {
@@ -100,43 +109,44 @@ class WorkspaceService {
           if (await parent.exists()) {
             await dir.create(recursive: true);
           } else {
-            if (Platform.isWindows) {
-              // Windows는 홈 하위면 생성 허용
-              if (osHome != null && p.isWithin(osHome, path)) {
-                await dir.create(recursive: true);
-              } else {
-                continue;
-              }
+            // 홈 하위만 새로 만들 수 있게 제한
+            if (osHome != null && p.isWithin(osHome, path)) {
+              await dir.create(recursive: true);
             } else {
-              // macOS 샌드박스는 홈 외부/상위 생성 금지 → 스킵
-              continue;
+              return false;
             }
           }
         }
         final probe = File(p.join(dir.path, '.gt_write_test'));
         await probe.writeAsString('ok', flush: true);
         await probe.delete();
-        return dir;
+        return true;
       } catch (_) {
-        // 권한/샌드박스 오류 → 다음 후보
+        return false;
       }
     }
 
-    // 마지막 수단: 시스템 임시
-    final fallback = Directory.systemTemp.createTempSync(
-      'GuitarTreeWorkspace_',
-    );
+    for (final path in candidates) {
+      if (await _writable(path)) {
+        return Directory(path);
+      }
+    }
+
+    // 최후: 시스템 임시
+    final fallback = Directory.systemTemp.createTempSync('GuitarTreeWorkspace_');
     return fallback;
   }
 
+
+  // ===== 공통: 파일 필터 =====
   bool _isHiddenOrTemp(String path) {
     final name = p.basename(path).toLowerCase();
-    if (name.startsWith('.')) return true;
-    if (name.startsWith('.sb-')) return true;
-    if (name.endsWith('~')) return true;
-    if (name.endsWith('.tmp')) return true;
-    if (name == 'thumbs.db') return true;
-    if (name == 'desktop.ini') return true;
+    if (name.startsWith('.')) return true; // macOS 숨김
+    if (name.startsWith('.sb-')) return true; // 임시 프리픽스
+    if (name.endsWith('~')) return true; // foo~
+    if (name.endsWith('.tmp')) return true; // foo.tmp
+    if (name == 'thumbs.db') return true; // Windows
+    if (name == 'desktop.ini') return true; // Windows
     return false;
   }
 
@@ -146,17 +156,18 @@ class WorkspaceService {
     return sha1.convert(bytes).toString();
   }
 
-  // ===== A) 루트 재귀 감시 =====
+  // ===== A) 루트 재귀 감시: 경로 규칙으로 학생 자동 매칭 (Win/mac 공통) =====
   Future<void> startRoot({String? folderPath}) async {
     await stop();
-
-    final baseDir = folderPath != null
-        ? Directory(folderPath)
-        : await _ensureWorkspaceDir();
+    Directory baseDir;
+    try {
+      baseDir = folderPath != null ? Directory(folderPath) : await _ensureWorkspaceDir();
+    } catch (_) {
+      // 최후 보호: 시스템 임시로라도
+      baseDir = Directory.systemTemp.createTempSync('GuitarTreeWorkspace_');
+    }
     if (!await baseDir.exists()) {
-      try {
-        await baseDir.create(recursive: true);
-      } catch (_) {}
+      try { await baseDir.create(recursive: true); } catch (_) {}
     }
 
     _sub = baseDir
@@ -169,6 +180,8 @@ class WorkspaceService {
         )
         .listen((evt) async {
           final path = evt.path;
+
+          // 파일만 처리
           try {
             final st = await File(path).stat();
             if (st.type != FileSystemEntityType.file) return;
@@ -178,7 +191,7 @@ class WorkspaceService {
           if (_isHiddenOrTemp(path)) return;
 
           final ext = p.extension(path).toLowerCase();
-          if (ext == '.xsc') return;
+          if (ext == '.xsc') return; // ❗ XSC는 여기서 다루지 않음
           if (!_allowExt.contains(ext)) return;
 
           _schedule(path, () async {
@@ -186,12 +199,14 @@ class WorkspaceService {
               final studentId = await _resolveStudentIdFromPath(path);
               if (studentId == null || studentId.isEmpty) return;
               await _handleFileUploadAndLink(path: path, studentId: studentId);
-            } catch (_) {}
+            } catch (_) {
+              // 조용히 무시
+            }
           });
         });
   }
 
-  // ===== B) 단일 학생용 감시 =====
+  // ===== B) 단일 학생용 감시(기존 호환, Win/mac 공통) =====
   Future<void> start({String? folderPath, required String studentId}) async {
     await stop();
 
@@ -199,9 +214,7 @@ class WorkspaceService {
         ? Directory(folderPath)
         : await _ensureWorkspaceDir();
     if (!await baseDir.exists()) {
-      try {
-        await baseDir.create(recursive: true);
-      } catch (_) {}
+      await baseDir.create(recursive: true);
     }
 
     _sub = baseDir
@@ -223,13 +236,15 @@ class WorkspaceService {
           if (_isHiddenOrTemp(path)) return;
 
           final ext = p.extension(path).toLowerCase();
-          if (ext == '.xsc') return;
+          if (ext == '.xsc') return; // ❗ XSC 제외
           if (!_allowExt.contains(ext)) return;
 
           _schedule(path, () async {
             try {
               await _handleFileUploadAndLink(path: path, studentId: studentId);
-            } catch (_) {}
+            } catch (_) {
+              // 조용히 무시
+            }
           });
         });
   }
@@ -243,12 +258,15 @@ class WorkspaceService {
     _debounces.clear();
   }
 
+  // ===== 내부 유틸 =====
+
   Future<void> _handleFileUploadAndLink({
     required String path,
     required String studentId,
   }) async {
     final file = File(path);
 
+    // 파일 크기 안정화(폴링)
     var last = -1;
     for (int i = 0; i < 24; i++) {
       final len = await file.length();
@@ -261,11 +279,16 @@ class WorkspaceService {
     final ext = p.extension(name).toLowerCase();
     final now = DateTime.now();
 
-    if (ext == '.xsc') return;
+    // === .xsc는 여기서 무시(XscSyncService 담당) ===
+    if (ext == '.xsc') {
+      return;
+    }
 
+    // === 오디오/영상 → lesson_attachments 버킷 업로드 후 "오늘 레슨 링크" 생성 ===
     final y = now.year.toString().padLeft(4, '0');
     final m = now.month.toString().padLeft(2, '0');
 
+    // 안전한 파일명(키용)으로 교체
     final safeName = FileKeyUtil.keySafe(name);
     final storagePath = '$y-$m/$studentId/$safeName';
 
@@ -278,21 +301,23 @@ class WorkspaceService {
       fileOptions: const FileOptions(upsert: true, cacheControl: '3600'),
     );
 
+    // ResourceFile로 감싼 뒤 "오늘 레슨 링크"로 전송
     final rf = ResourceFile.fromMap({
       'id': '',
       'curriculum_node_id': null,
-      'title': name,
+      'title': name, // UI 표시: 원본 파일명
       'filename': name,
       'mime_type': null,
       'size_bytes': await file.length(),
       'storage_bucket': SupabaseBuckets.lessonAttachments,
-      'storage_path': storagePath,
+      'storage_path': storagePath, // ASCII-safe 키
       'created_at': now.toIso8601String(),
     });
 
     final links = LessonLinksService();
     await links.sendResourceToTodayLesson(studentId: studentId, resource: rf);
 
+    // (선택) lesson_attachments 테이블에도 메타 insert — 통계/관리용
     try {
       final lessonId = await links.getTodayLessonIdEnsure(studentId);
       if (lessonId != null) {
@@ -307,7 +332,9 @@ class WorkspaceService {
           'media_name': name,
         });
       }
-    } catch (_) {}
+    } catch (_) {
+      // RLS/권한 상황에 따라 실패할 수 있으므로 조용히 무시
+    }
   }
 
   Future<String?> _resolveStudentIdFromPath(String fullPath) async {
@@ -333,7 +360,7 @@ class WorkspaceService {
 
   (String, String)? _findNameLast4InPath(String path) {
     final segments = p.split(path);
-    final reg = RegExp(r'^(.+)[_\s-](\d{4})$');
+    final reg = RegExp(r'^(.+)[_\s-](\d{4})$'); // 이름_1234 / 이름-1234 / 이름 1234
     for (final seg in segments.reversed) {
       final m = reg.firstMatch(seg);
       if (m != null) {
@@ -355,7 +382,9 @@ class WorkspaceService {
         'find_student',
         params: {'p_name': name, 'p_phone_last4': phoneLast4},
       );
-      if (res is Map && res['id'] != null) return res['id'] as String;
+      if (res is Map && res['id'] != null) {
+        return res['id'] as String;
+      }
       if (res is List && res.isNotEmpty && res.first is Map) {
         final first = res.first as Map;
         final id = first['id'];
