@@ -2,15 +2,22 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>com.apple.security.app-sandbox</key>
-	<true/>
-	<key>com.apple.security.files.downloads.read-write</key>
-	<true/>
-	<key>com.apple.security.files.user-selected.read-write</key>
-	<true/>
-	<key>com.apple.security.network.client</key>
-	<true/>
-	<key>com.apple.security.network.server</key>
-	<true/>
+  <!-- 샌드박스 사용 -->
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+
+  <!-- 파일 접근(사용자 선택 파일/다운로드 폴더) -->
+  <key>com.apple.security.files.downloads.read-write</key>
+  <true/>
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+
+  <!-- 네트워크 클라이언트만 필요하면 이 정도면 충분 -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+
+  <!-- (개발용) 외부/비서명 dylib 로딩 허용: 번들에 동봉된 dylib 로딩 이슈 회피 -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
 </dict>
 </plist>
