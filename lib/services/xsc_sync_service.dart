@@ -1006,6 +1006,47 @@ class XscSyncService {
       mediaHash: prep.mediaHash,
     );
   }
+
+  // ==== notes sync bus (TodayLesson <-> SMP) ====
+  String? _lastNotes; // 최근 값 캐시
+  late final async.StreamController<String> _notesBus =
+      async.StreamController<String>.broadcast(
+        // 새 리스너가 붙을 때, 최근 값을 한 번 즉시 재생(Seed)
+        onListen: () {
+          final v = _lastNotes;
+          if (v == null) return;
+          // reentrancy 방지: 마이크로태스크로 미뤄서 안전하게 emit
+          async.scheduleMicrotask(() {
+            try {
+              if (!_notesBus.isClosed) _notesBus.add(v);
+            } catch (_) {}
+          });
+        },
+      );
+
+  /// 현재 최신 메모(옵션): 초기 부트스트랩에 직접 읽어도 됨.
+  String? get currentNotes => _lastNotes;
+
+  /// 메모 브로드캐스트(중복/노이즈 억제 포함)
+  void pushNotes(String text) {
+    try {
+      final norm = text; // 필요하면 .trim() 등 정규화
+      if (_lastNotes == norm) return; // 동일내용 중복 푸시 방지
+      _lastNotes = norm;
+      if (!_notesBus.isClosed) _notesBus.add(norm);
+    } catch (_) {}
+  }
+
+  Stream<String> get notesStream => _notesBus.stream;
+
+  Future<void> disposeAll() async {
+    try {
+      await disposeWatcher();
+    } catch (_) {}
+    try {
+      await _notesBus.close();
+    } catch (_) {}
+  }
 }
 
 // ===== DTO =====

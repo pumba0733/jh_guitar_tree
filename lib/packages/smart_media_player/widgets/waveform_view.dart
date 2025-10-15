@@ -1,5 +1,6 @@
 // lib/packages/smart_media_player/widgets/waveform_view.dart
-// v1.98.0 | Bipolar, dpr-aware per-pixel sampling, LR-safe, normalized-aware
+// v2.00.0 | Icon-first rail (filled Start▼, outlined Loop▽ + left/right bracket), label opt-in, label-on-top, muted colors
+//          Bipolar, dpr-aware per-pixel sampling, LR-safe, normalized-aware
 
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -47,6 +48,14 @@ class WaveformView extends StatefulWidget {
   /// peaks가 이미 (0..1)로 정규화/압축되어 있으면 true
   final bool peaksAreNormalized;
 
+  /// NEW: 레일 텍스트(시작점/Start/End) 표시 (기본 false)
+  final bool showLabels;
+
+  /// NEW: 레이블 문자열 (국문/영문 선택)
+  final String startCueLabel; // 기본 '시작점'
+  final String loopStartLabel; // 기본 'Start'
+  final String loopEndLabel; // 기본 'End'
+
   const WaveformView({
     super.key,
     required this.peaks,
@@ -78,6 +87,10 @@ class WaveformView extends StatefulWidget {
     this.onLoopAChanged,
     this.onLoopBChanged,
     this.peaksAreNormalized = false,
+    this.showLabels = false,
+    this.startCueLabel = '시작점',
+    this.loopStartLabel = 'Start',
+    this.loopEndLabel = 'End',
   });
 
   @override
@@ -104,7 +117,6 @@ class _WaveformViewState extends State<WaveformView> {
   bool _isInRail(Offset localPos, double railH) => localPos.dy <= railH;
 
   int _hitMarkerInRail(Offset localPos, double w, double railH) {
-    // ✅ Rail 밖이면 바로 탈출
     if (!_isInRail(localPos, railH)) return -1;
     if (widget.duration == Duration.zero || widget.markers.isEmpty) return -1;
 
@@ -169,7 +181,7 @@ class _WaveformViewState extends State<WaveformView> {
 
   @override
   Widget build(BuildContext context) {
-    final dpr = MediaQuery.of(context).devicePixelRatio; // ✅ dpr 전달
+    final dpr = MediaQuery.of(context).devicePixelRatio;
 
     return LayoutBuilder(
       builder: (context, c) {
@@ -288,7 +300,7 @@ class _WaveformViewState extends State<WaveformView> {
           child: CustomPaint(
             size: Size(w, h),
             painter: _WavePainter(
-              devicePixelRatio: dpr, // ✅
+              devicePixelRatio: dpr,
               peaksL: widget.peaks,
               peaksR: widget.peaksRight,
               duration: widget.duration,
@@ -307,8 +319,10 @@ class _WaveformViewState extends State<WaveformView> {
               colorLoop: Theme.of(
                 context,
               ).colorScheme.secondary.withValues(alpha: 0.28),
+              // NEW: 루프 엣지(아웃라인) 기본색 — 덜 튀는 중립톤
+              colorLoopEdge: Theme.of(context).colorScheme.onSurfaceVariant,
               colorMarker: Theme.of(context).colorScheme.error,
-              textColor: Theme.of(context).colorScheme.onSurfaceVariant,
+              textColor: Colors.black, // 요구사항: 텍스트는 블랙 통일
               selectionA: widget.selectionA,
               selectionB: widget.selectionB,
               colorSelection: Theme.of(
@@ -317,10 +331,12 @@ class _WaveformViewState extends State<WaveformView> {
               railHeight: railH,
               startCue: widget.startCue,
               startCueColor: Theme.of(context).colorScheme.primary,
-              abHandleColor: Theme.of(
-                context,
-              ).colorScheme.primary.withValues(alpha: 0.95),
               peaksAreNormalized: widget.peaksAreNormalized,
+              // NEW: 라벨 on/off + 문자열
+              showLabels: widget.showLabels,
+              startCueLabel: widget.startCueLabel,
+              loopStartLabel: widget.loopStartLabel,
+              loopEndLabel: widget.loopEndLabel,
             ),
           ),
         );
@@ -330,7 +346,7 @@ class _WaveformViewState extends State<WaveformView> {
 }
 
 class _WavePainter extends CustomPainter {
-  final double devicePixelRatio; // ✅
+  final double devicePixelRatio;
   final List<double> peaksL;
   final List<double>? peaksR;
 
@@ -349,6 +365,7 @@ class _WavePainter extends CustomPainter {
   final Color colorBarBg;
   final Color colorCursor;
   final Color colorLoop;
+  final Color colorLoopEdge; // NEW: 루프 엣지 색(중립)
   final Color colorMarker;
   final Color textColor;
 
@@ -360,8 +377,12 @@ class _WavePainter extends CustomPainter {
   final Duration startCue;
   final Color startCueColor;
 
-  final Color abHandleColor;
   final bool peaksAreNormalized;
+
+  final bool showLabels; // NEW
+  final String startCueLabel; // NEW
+  final String loopStartLabel; // NEW
+  final String loopEndLabel; // NEW
 
   _WavePainter({
     required this.devicePixelRatio,
@@ -381,6 +402,7 @@ class _WavePainter extends CustomPainter {
     required this.colorBarBg,
     required this.colorCursor,
     required this.colorLoop,
+    required this.colorLoopEdge,
     required this.colorMarker,
     required this.textColor,
     required this.selectionA,
@@ -389,24 +411,25 @@ class _WavePainter extends CustomPainter {
     required this.railHeight,
     required this.startCue,
     required this.startCueColor,
-    required this.abHandleColor,
     required this.peaksAreNormalized,
+    required this.showLabels,
+    required this.startCueLabel,
+    required this.loopStartLabel,
+    required this.loopEndLabel,
   });
 
-  // 더 강한 dB 압축: 작은 신호는 확 줄이고, 큰 신호만 길게.
   double _dbMap(double a) {
     const eps = 1e-6;
-    final db = 20 * math.log(a + eps) / math.ln10; // 0..-∞
+    final db = 20 * math.log(a + eps) / math.ln10;
     final norm = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
     return math.pow(norm, 2.2).toDouble();
   }
 
   double _loud(double a) {
-    if (peaksAreNormalized) return a.clamp(0.0, 1.0); // 이미 0..1 → 그대로
-    return _dbMap(a).clamp(0.0, 1.0); // 비정규화만 dB 맵핑
+    if (peaksAreNormalized) return a.clamp(0.0, 1.0);
+    return _dbMap(a).clamp(0.0, 1.0);
   }
 
-  // 말풍선 사각형(상단으로 띄움)
   static Rect computeBubbleRect({
     required double tx,
     required double w,
@@ -429,6 +452,100 @@ class _WavePainter extends CustomPainter {
     return Rect.fromLTWH(dx, dy, pillW, pillH);
   }
 
+  // ▼ 채워진(필드) 다운 삼각형 (시작점)
+  void _drawFilledDownTriangle(
+    Canvas canvas,
+    double tx,
+    double w,
+    double topY,
+    double bottomY, {
+    required Color fill,
+    Color? stroke,
+    double strokeWidth = 1.2,
+    required double widthPx,
+  }) {
+    final halfW = (widthPx / 2.0).clamp(4.0, 28.0);
+    final path = Path()
+      ..moveTo(tx, bottomY) // 아래 꼭짓점
+      ..lineTo((tx - halfW).clamp(0.0, w), topY) // 좌상단
+      ..lineTo((tx + halfW).clamp(0.0, w), topY) // 우상단
+      ..close();
+    final fillPaint = Paint()..color = fill;
+    canvas.drawPath(path, fillPaint);
+    if (stroke != null && strokeWidth > 0) {
+      final strokePaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..color = stroke;
+      canvas.drawPath(path, strokePaint);
+    }
+  }
+
+  // ▽ 외곽선 다운 삼각형 (루프 엣지)
+  void _drawStrokedDownTriangle(
+    Canvas canvas,
+    double tx,
+    double w,
+    double topY,
+    double bottomY, {
+    required Color stroke,
+    double strokeWidth = 1.6,
+    required double widthPx,
+  }) {
+    final halfW = (widthPx / 2.0).clamp(4.0, 24.0);
+    final path = Path()
+      ..moveTo(tx, bottomY)
+      ..lineTo((tx - halfW).clamp(0.0, w), topY)
+      ..lineTo((tx + halfW).clamp(0.0, w), topY)
+      ..close();
+    final p = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..color = stroke;
+    canvas.drawPath(path, p);
+  }
+
+  // 루프 시작/끝 방향 브래킷(|) 표시
+  void _drawBracket(
+    Canvas canvas, {
+    required double x,
+    required double topY,
+    required bool left,
+    required Color color,
+  }) {
+    final len = 7.0;
+    final p = Paint()
+      ..strokeWidth = 2.0
+      ..color = color;
+    final dx = left ? (x - 10.0) : (x + 10.0);
+    canvas.drawLine(Offset(dx, topY), Offset(dx, topY + len), p);
+  }
+
+  // 라벨(옵션) — 상단에, 블랙 고정
+  void _drawTopLabel(
+    Canvas canvas,
+    double tx,
+    double w,
+    double railTop,
+    String text,
+  ) {
+    if (!showLabels || text.isEmpty) return;
+    final style = TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w700,
+      color: textColor,
+    );
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+      ellipsis: '…',
+    )..layout(maxWidth: 80);
+    final x = (tx - tp.width / 2).clamp(2.0, w - tp.width - 2.0);
+    final y = railTop + 2.0;
+    tp.paint(canvas, Offset(x, y));
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
@@ -446,7 +563,7 @@ class _WavePainter extends CustomPainter {
 
     if (peaksL.isEmpty) return;
 
-    // ----- 채널별 가시 구간 계산 (LR 길이 달라도 정렬 정확) -----
+    // ----- 가시 구간 계산 -----
     final nL = peaksL.length;
     final nR = peaksR?.length ?? 0;
 
@@ -465,13 +582,15 @@ class _WavePainter extends CustomPainter {
     }
 
     // 파형 영역
-    final waveTop = railHeight + 2;
+    final railTop = 0.0;
+    final railBottom = railHeight;
+    final waveTop = railBottom + 2;
     final waveHeight = (h - waveTop).clamp(0.0, h);
     final half = waveHeight / 2;
     final centerY = waveTop + half;
-    final gap = (half * 0.08).clamp(2.0, 8.0); // 가운데 빈 공간
+    final gap = (half * 0.08).clamp(2.0, 8.0);
 
-    // 선택/루프 먼저
+    // 선택/루프 배경
     if (selectionA != null && selectionB != null && duration > Duration.zero) {
       final a = (selectionA!.inMilliseconds / duration.inMilliseconds).clamp(
         0.0,
@@ -514,9 +633,8 @@ class _WavePainter extends CustomPainter {
       }
     }
 
-    // ----- per-pixel 샘플링 (dpr 반영) + bipolar 바 그리기 -----
+    // 파형 (픽셀당 샘플)
     final barPaint = Paint()..color = colorBar;
-
     final pixelBars = (w * devicePixelRatio).floor().clamp(1, 200000);
     final stepL = visCountL / pixelBars;
     final stepR = (nR > 0) ? (visCountR / pixelBars) : 0.0;
@@ -534,15 +652,13 @@ class _WavePainter extends CustomPainter {
       return peaksR![idx].clamp(0.0, 1.0);
     }
 
-    final barW = 1.0 / devicePixelRatio; // 물리 1px
+    final barW = 1.0 / devicePixelRatio;
 
     for (int i = 0; i < pixelBars; i++) {
-      // L 채널
       final pL = pickL(i);
       final loudL = (pL <= 0.0) ? 0.0 : _loud(pL);
       final hL = (half - gap) * loudL;
 
-      // R 채널 (없으면 모노 미러)
       double? hR;
       if (nR > 0) {
         final pR = pickR(i);
@@ -552,7 +668,6 @@ class _WavePainter extends CustomPainter {
 
       final x = (i / devicePixelRatio);
 
-      // 위(Left)
       if (hL > 0.5) {
         canvas.drawRRect(
           RRect.fromRectAndRadius(
@@ -563,7 +678,6 @@ class _WavePainter extends CustomPainter {
         );
       }
 
-      // 아래(Right 또는 모노 미러)
       final drawH = hR ?? hL;
       if (drawH > 0.5) {
         canvas.drawRRect(
@@ -576,52 +690,82 @@ class _WavePainter extends CustomPainter {
       }
     }
 
-
-    // ---- Marker Rail (마지막에 그려 오버랩 방지) ----
+    // ---- Marker Rail 배경 약간 오버레이 ----
     final railPaint = Paint()..color = colorBarBg.withValues(alpha: 0.92);
-    canvas.drawRect(Rect.fromLTWH(0, 0, w, railHeight), railPaint);
+    canvas.drawRect(Rect.fromLTWH(0, railTop, w, railHeight), railPaint);
 
-    // start cue
-    if (duration > Duration.zero) {
-      final t = (startCue.inMilliseconds / duration.inMilliseconds).clamp(
-        0.0,
-        1.0,
-      );
-      final tx = ((t - viewStart) / viewWidth).clamp(0.0, 1.0) * w;
-      final cuePath = Path()
-        ..moveTo(tx, railHeight - 3)
-        ..lineTo(tx - 8, 3)
-        ..lineTo(tx + 8, 3)
-        ..close();
-      final cuePaint = Paint()..color = startCueColor;
-      canvas.drawPath(cuePath, cuePaint);
-    }
-
-    // A/B handles
-    void drawABHandle(Duration? d, Color c, {required bool up}) {
-      if (d == null || duration == Duration.zero) return;
+    // ---- 좌표 유틸
+    double txFor(Duration d) {
       final t = (d.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0);
-      final tx = ((t - viewStart) / viewWidth) * w;
-      if (tx < 0 || tx > w) return;
-      final path = Path();
-      if (up) {
-        path.moveTo(tx, railHeight - 3);
-        path.lineTo(tx - 8, railHeight * 0.35);
-        path.lineTo(tx + 8, railHeight * 0.35);
-      } else {
-        path.moveTo(tx, 3);
-        path.lineTo(tx - 8, railHeight * 0.65);
-        path.lineTo(tx + 8, railHeight * 0.65);
-      }
-      path.close();
-      final paint = Paint()..color = c;
-      canvas.drawPath(path, paint);
+      return ((t - viewStart) / viewWidth).clamp(0.0, 1.0) * w;
     }
 
-    drawABHandle(loopA, abHandleColor, up: true);
-    drawABHandle(loopB, abHandleColor, up: false);
+    // ---- START (큰, 채워진 ▼ + 블랙 얇은 외곽선)
+    if (duration > Duration.zero) {
+      final txStart = txFor(startCue);
+      final topY = railTop + 8.0; // 위쪽으로 올림
+      final bottomY = railBottom - 4.0;
+      _drawFilledDownTriangle(
+        canvas,
+        txStart,
+        w,
+        topY,
+        bottomY,
+        fill: startCueColor,
+        stroke: Colors.black.withValues(alpha: 0.35),
+        widthPx: 22,
+      );
+      _drawTopLabel(canvas, txStart, w, railTop, startCueLabel);
+    }
 
-    // markers + 말풍선(위로 띄움)
+    // ---- LOOP EDGES (중간, 외곽선 ▽ + 좌/우 브래킷)
+    if (loopA != null && duration > Duration.zero) {
+      final txA = txFor(loopA!);
+      final topY = railTop + 10.0;
+      final bottomY = railBottom - 5.0;
+      _drawStrokedDownTriangle(
+        canvas,
+        txA,
+        w,
+        topY,
+        bottomY,
+        stroke: colorLoopEdge,
+        widthPx: 18,
+      );
+      _drawBracket(
+        canvas,
+        x: txA,
+        topY: topY - 6.0,
+        left: true,
+        color: colorLoopEdge,
+      );
+      _drawTopLabel(canvas, txA, w, railTop, loopStartLabel);
+    }
+
+    if (loopB != null && duration > Duration.zero) {
+      final txB = txFor(loopB!);
+      final topY = railTop + 10.0;
+      final bottomY = railBottom - 5.0;
+      _drawStrokedDownTriangle(
+        canvas,
+        txB,
+        w,
+        topY,
+        bottomY,
+        stroke: colorLoopEdge,
+        widthPx: 18,
+      );
+      _drawBracket(
+        canvas,
+        x: txB,
+        topY: topY - 6.0,
+        left: false,
+        color: colorLoopEdge,
+      );
+      _drawTopLabel(canvas, txB, w, railTop, loopEndLabel);
+    }
+
+    // ---- Markers (기존 스타일 유지, 말풍선은 상단 배치 그대로)
     if (duration > Duration.zero && markers.isNotEmpty) {
       for (int i = 0; i < markers.length; i++) {
         final m = markers[i];
@@ -636,7 +780,7 @@ class _WavePainter extends CustomPainter {
             ..color = mkColor
             ..strokeWidth = 3.0;
           canvas.drawLine(
-            Offset(tx, railHeight - 3),
+            Offset(tx, railHeight - 6),
             Offset(tx, railHeight),
             mPaint,
           );
@@ -681,7 +825,7 @@ class _WavePainter extends CustomPainter {
       }
     }
 
-    // cursor
+    // ---- Cursor
     if (duration != Duration.zero) {
       final t = (position.inMilliseconds / duration.inMilliseconds).clamp(
         0.0,
@@ -726,6 +870,7 @@ class _WavePainter extends CustomPainter {
         old.colorBar != colorBar ||
         old.colorCursor != colorCursor ||
         old.colorLoop != colorLoop ||
+        old.colorLoopEdge != colorLoopEdge ||
         old.colorBarBg != colorBarBg ||
         old.colorMarker != colorMarker ||
         old.textColor != textColor ||
@@ -735,7 +880,10 @@ class _WavePainter extends CustomPainter {
         old.railHeight != railHeight ||
         old.startCue != startCue ||
         old.startCueColor != startCueColor ||
-        old.abHandleColor != abHandleColor ||
-        old.peaksAreNormalized != peaksAreNormalized;
+        old.peaksAreNormalized != peaksAreNormalized ||
+        old.showLabels != showLabels ||
+        old.startCueLabel != startCueLabel ||
+        old.loopStartLabel != loopStartLabel ||
+        old.loopEndLabel != loopEndLabel;
   }
 }

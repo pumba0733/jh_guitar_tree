@@ -34,13 +34,25 @@ dependencies:
   mime: ^2.0.0
   uuid: ^4.5.1
   unorm_dart: ^0.3.0
+
+  # Audio / Video
   just_audio: ^0.9.40
   audio_session: ^0.1.21
   just_waveform: ^0.0.7
   ffi: ^2.1.4
-  just_audio_media_kit: ^2.1.0     # ← 최신 계열 사용
+
+  # media_kit core + bridge + libs
   media_kit: ^1.1.10
-  media_kit_libs_macos_audio: ^1.0.4  # macOS 네이티브 오디오 라이브러리
+  media_kit_video: ^1.1.10
+  just_audio_media_kit: ^2.1.0
+
+
+  # ✅ macOS는 video 번들만 사용
+  media_kit_libs_macos_video: ^1.1.4
+
+  # ✅ 다른 플랫폼용 공용 번들(유지)
+  media_kit_libs_video: ^1.0.4
+
   window_manager: ^0.3.9
   video_player: ^2.9.1
 
@@ -50,7 +62,7 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   hive_generator: ^2.0.1
   build_runner: ^2.4.6
-  flutter_launcher_icons: ^0.14.4   # 최신 권장 버전
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true

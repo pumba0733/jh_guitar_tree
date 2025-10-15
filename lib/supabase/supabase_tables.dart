@@ -31,4 +31,5 @@ class SupabaseBuckets {
   static const String lessonAttachments = 'lesson_attachments';
   // ✅ 추가: 학생별 XSC 버킷
   static const String studentXsc = 'student_xsc';
+  static const String playerSidecars = 'player_sidecars';
 }

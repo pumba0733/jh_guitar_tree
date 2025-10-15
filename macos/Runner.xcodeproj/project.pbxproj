@@ -22,6 +22,9 @@
 
 /* Begin PBXBuildFile section */
 		1F79C2CB2E8F4E420079BF2D /* libsoundtouch_ffi.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 1F79C2CA2E8F4E420079BF2D /* libsoundtouch_ffi.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		1FC4B2DC2E9E85FA00FDB7A6 /* libfftw3f.3.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 1FC4B2D92E9E85FA00FDB7A6 /* libfftw3f.3.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		1FC4B2DD2E9E85FA00FDB7A6 /* librubberband.3.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 1FC4B2DA2E9E85FA00FDB7A6 /* librubberband.3.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		1FC4B2DE2E9E85FA00FDB7A6 /* libsamplerate.0.2.2.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 1FC4B2DB2E9E85FA00FDB7A6 /* libsamplerate.0.2.2.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C80D7294CF71000263BE5 /* RunnerTests.swift */; };
 		335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */; };
 		33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC10F02044A3C60003C045 /* AppDelegate.swift */; };
@@ -60,6 +63,18 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		1FC4B2D82E9E83EA00FDB7A6 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 12;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				1FC4B2DC2E9E85FA00FDB7A6 /* libfftw3f.3.dylib in CopyFiles */,
+				1FC4B2DD2E9E85FA00FDB7A6 /* librubberband.3.dylib in CopyFiles */,
+				1FC4B2DE2E9E85FA00FDB7A6 /* libsamplerate.0.2.2.dylib in CopyFiles */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		33CC110E2044A8840003C045 /* Bundle Framework */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -77,6 +92,9 @@
 		1AE8D40E1ED8DFC3A9353D45 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
 		1F79C2CA2E8F4E420079BF2D /* libsoundtouch_ffi.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libsoundtouch_ffi.dylib; path = ../native/build/libsoundtouch_ffi.dylib; sourceTree = "<group>"; };
 		1FB6A4062E5F2B8E00599094 /* Profile.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Profile.xcconfig; sourceTree = "<group>"; };
+		1FC4B2D92E9E85FA00FDB7A6 /* libfftw3f.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfftw3f.3.dylib; path = ../../../../../../opt/homebrew/Cellar/fftw/3.3.10_2/lib/libfftw3f.3.dylib; sourceTree = "<group>"; };
+		1FC4B2DA2E9E85FA00FDB7A6 /* librubberband.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = librubberband.3.dylib; path = ../../../../../../opt/homebrew/Cellar/rubberband/4.0.0/lib/librubberband.3.dylib; sourceTree = "<group>"; };
+		1FC4B2DB2E9E85FA00FDB7A6 /* libsamplerate.0.2.2.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libsamplerate.0.2.2.dylib; path = ../../../../../../opt/homebrew/Cellar/libsamplerate/0.2.2/lib/libsamplerate.0.2.2.dylib; sourceTree = "<group>"; };
 		2754B0ADFA6F78E12B755C04 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C80D5294CF71000263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C80D7294CF71000263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
@@ -145,6 +163,9 @@
 		33CC10E42044A3C60003C045 = {
 			isa = PBXGroup;
 			children = (
+				1FC4B2D92E9E85FA00FDB7A6 /* libfftw3f.3.dylib */,
+				1FC4B2DA2E9E85FA00FDB7A6 /* librubberband.3.dylib */,
+				1FC4B2DB2E9E85FA00FDB7A6 /* libsamplerate.0.2.2.dylib */,
 				1F79C2CA2E8F4E420079BF2D /* libsoundtouch_ffi.dylib */,
 				33FAB671232836740065AC1E /* Runner */,
 				33CEB47122A05771004F2AC0 /* Flutter */,
@@ -254,8 +275,10 @@
 				33CC10EB2044A3C60003C045 /* Resources */,
 				33CC110E2044A8840003C045 /* Bundle Framework */,
 				3399D490228B24CF009A79C7 /* ShellScript */,
-				2CE8A66891633210461B8D20 /* [CP] Embed Pods Frameworks */,
 				1F79C2C92E8F4D670079BF2D /* CopyFiles */,
+				1FC4B2D82E9E83EA00FDB7A6 /* CopyFiles */,
+				1FC4B2DF2E9E863000FDB7A6 /* ShellScript */,
+				2CE8A66891633210461B8D20 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -338,6 +361,23 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		1FC4B2DF2E9E863000FDB7A6 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# === Stage & Sign RubberBand dylibs ===\nset -e\n\nAPP=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nFWK=\"$APP/Contents/Frameworks\"\n\nmkdir -p \"$FWK\"\n\n# Homebrew 기본 경로 (Apple Silicon / Intel 순서)\nHB_ARM=\"/opt/homebrew/lib\"\nHB_X86=\"/usr/local/lib\"\n\n# 원본 경로 탐색 함수\npick_src() {\n  local name=\"$1\"\n  if [ -f \"$HB_ARM/$name\" ]; then echo \"$HB_ARM/$name\"; return 0; fi\n  if [ -f \"$HB_X86/$name\" ]; then echo \"$HB_X86/$name\"; return 0; fi\n  return 1\n}\n\n# 필수 dylib 경로들\nRUBBERBAND_SRC=\"$(pick_src 'librubberband.dylib' || pick_src 'librubberband.3.dylib')\"\nSAMPLERATE_SRC=\"$(pick_src 'libsamplerate.dylib' || pick_src 'libsamplerate.0.2.2.dylib')\"\nFFTW_SRC=\"$(pick_src 'libfftw3f.3.dylib' || pick_src 'libfftw3.3.dylib')\"\n\ncopy_and_fix() {\n  local src=\"$1\"\n  [ -z \"$src\" ] && return 0\n  local base=\"$(basename \"$src\")\"\n  cp -f \"$src\" \"$FWK/$base\"\n  install_name_tool -id \"@rpath/$base\" \"$FWK/$base\" 2>/dev/null || true\n  install_name_tool -add_rpath \"@loader_path/.\" \"$FWK/$base\" 2>/dev/null || true\n  codesign --force --sign - --timestamp=none \"$FWK/$base\" 2>/dev/null || true\n  echo \"✓ Staged $base\"\n}\n\ncopy_and_fix \"$RUBBERBAND_SRC\"\ncopy_and_fix \"$SAMPLERATE_SRC\"\ncopy_and_fix \"$FFTW_SRC\"\n\necho \"RubberBand dylibs staged → $FWK\"\n";
+		};
 		2CE8A66891633210461B8D20 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;

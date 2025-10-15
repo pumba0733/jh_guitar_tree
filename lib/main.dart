@@ -44,34 +44,28 @@ Future<void> _initDesktopWindow() async {
 }
 
 void _initAudioBackend() {
-  // just_audio ← media_kit 백엔드 연결
   JustAudioMediaKit.protocolWhitelist = const ['file', 'https', 'http'];
   JustAudioMediaKit.pitch = true;
 
-  // ⬇️ macOS 명시 활성화 필수
-  JustAudioMediaKit.ensureInitialized(
-    macOS: true,
-    // windows/linux는 기본 true라 별도 지정 불필요
-  );
+  // 동기 API라 await 금지
+  JustAudioMediaKit.ensureInitialized(macOS: true);
 }
 
 Future<void> main() async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
 
-  // 데스크톱 창 먼저 세팅
-  unawaited(_initDesktopWindow());
-
-  // just_audio 백엔드 초기화
+  // ✅ 동기 호출 (await 없음)
   _initAudioBackend();
+
+  // 창 세팅은 비동기 — 필요하면 기다리지 않고 백그라운드로
+  unawaited(_initDesktopWindow());
 
   // 전역 에러 핸들러
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.dumpErrorToConsole(details);
-    // TODO: Sentry/Crashlytics 연동
   };
   binding.platformDispatcher.onError = (Object error, StackTrace stack) {
     debugPrint('Uncaught platform error: $error\n$stack');
-    // TODO: Sentry/Crashlytics 연동
     return true;
   };
 
@@ -86,7 +80,7 @@ Future<void> main() async {
 
   final supa = Supabase.instance.client;
 
-  // 익명 로그인 보정
+  // 익명 로그인 (기존 그대로)
   if (supa.auth.currentUser == null) {
     try {
       await supa.auth.signInAnonymously();
@@ -95,7 +89,7 @@ Future<void> main() async {
     }
   }
 
-  // 부팅 직후 세션 존재 시 1회 동기화 + 상태 복원
+  // 부팅 시 세션 복원 / 리스너 등록 (기존 그대로)
   final initialEmail = supa.auth.currentUser?.email;
   if (initialEmail != null && initialEmail.isNotEmpty) {
     try {
@@ -125,7 +119,7 @@ Future<void> main() async {
     }
   }
 
-  // 단일 세션 리스너
+  // 세션 리스너 (기존 그대로)
   supa.auth.onAuthStateChange.listen((state) async {
     final event = state.event;
     final email = state.session?.user.email ?? '';
@@ -164,3 +158,4 @@ Future<void> main() async {
 
   runApp(const App());
 }
+
