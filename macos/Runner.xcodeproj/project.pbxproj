@@ -381,9 +381,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -403,10 +407,11 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/fix_rpath_done",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# === Fix @rpath & Deep-sign (Project-local dylibs are already copied by Copy Files) ===\nset -e\n\nAPP=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nBIN=\"$APP/Contents/MacOS/${PRODUCT_NAME}\"\nFWK=\"$APP/Contents/Frameworks\"\n\n# 1) 번들 내부 dylib들의 id를 @rpath로 보정 (중복 호출 무시)\nfor N in libfftw3f.3.dylib librubberband.3.dylib libsamplerate.0.2.2.dylib; do\n  [ -f \"$FWK/$N\" ] || continue\n  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/install_name_tool \\\n    -id \"@rpath/$N\" \"$FWK/$N\" 2>/dev/null || true\ndone\n\n# 2) 실행 파일에 남아 있을 수 있는 외부 경로 참조를 @rpath로 교정\nfixref() {\n  local from=\"$1\" to=\"$2\"\n  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/install_name_tool \\\n    -change \"$from\" \"$to\" \"$BIN\" 2>/dev/null || true\n}\n\n# fftw\nfixref \"/opt/homebrew/opt/fftw/lib/libfftw3f.3.dylib\"  \"@rpath/libfftw3f.3.dylib\"\nfixref \"/usr/local/opt/fftw/lib/libfftw3f.3.dylib\"     \"@rpath/libfftw3f.3.dylib\"\n\n# rubberband\nfixref \"/opt/homebrew/opt/rubberband/lib/librubberband.3.dylib\" \"@rpath/librubberband.3.dylib\"\nfixref \"/usr/local/opt/rubberband/lib/librubberband.3.dylib\"    \"@rpath/librubberband.3.dylib\"\n\n# libsamplerate (버전/심볼릭 모두 대비)\nfixref \"/opt/homebrew/opt/libsamplerate/lib/libsamplerate.0.2.2.dylib\" \"@rpath/libsamplerate.0.2.2.dylib\"\nfixref \"/usr/local/opt/libsamplerate/lib/libsamplerate.0.2.2.dylib\"    \"@rpath/libsamplerate.0.2.2.dylib\"\nfixref \"/opt/homebrew/opt/libsamplerate/lib/libsamplerate.0.dylib\"     \"@rpath/libsamplerate.0.2.2.dylib\"\nfixref \"/usr/local/opt/libsamplerate/lib/libsamplerate.0.dylib\"        \"@rpath/libsamplerate.0.2.2.dylib\"\n\n# 3) rpath 보강(이미 있으면 조용히 통과)\nfor R in \"@executable_path/../Frameworks\" \"@loader_path/../Frameworks\"; do\n  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/install_name_tool \\\n    -add_rpath \"$R\" \"$BIN\" 2>/dev/null || true\ndone\n\n# 4) 최종 서명\n/usr/bin/codesign --force --deep -s - \"$APP\"\necho \"✓ Fixed @rpath and deep-signed: $APP\"\n";
+			shellScript = "# === Fix @rpath & Deep-sign (Project-local dylibs are already copied by Copy Files) ===\nset -e\n\nAPP=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nBIN=\"$APP/Contents/MacOS/${PRODUCT_NAME}\"\nFWK=\"$APP/Contents/Frameworks\"\n\n# 1) 번들 내부 dylib들의 id를 @rpath로 보정 (중복 호출 무시)\nfor N in libfftw3f.3.dylib librubberband.3.dylib libsamplerate.0.2.2.dylib; do\n  [ -f \"$FWK/$N\" ] || continue\n  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/install_name_tool \\\n    -id \"@rpath/$N\" \"$FWK/$N\" 2>/dev/null || true\ndone\n\n# 2) 실행 파일에 남아 있을 수 있는 외부 경로 참조를 @rpath로 교정\nfixref() {\n  local from=\"$1\" to=\"$2\"\n  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/install_name_tool \\\n    -change \"$from\" \"$to\" \"$BIN\" 2>/dev/null || true\n}\n\n# fftw\nfixref \"/opt/homebrew/opt/fftw/lib/libfftw3f.3.dylib\"  \"@rpath/libfftw3f.3.dylib\"\nfixref \"/usr/local/opt/fftw/lib/libfftw3f.3.dylib\"     \"@rpath/libfftw3f.3.dylib\"\n\n# rubberband\nfixref \"/opt/homebrew/opt/rubberband/lib/librubberband.3.dylib\" \"@rpath/librubberband.3.dylib\"\nfixref \"/usr/local/opt/rubberband/lib/librubberband.3.dylib\"    \"@rpath/librubberband.3.dylib\"\n\n# libsamplerate (버전/심볼릭 모두 대비)\nfixref \"/opt/homebrew/opt/libsamplerate/lib/libsamplerate.0.2.2.dylib\" \"@rpath/libsamplerate.0.2.2.dylib\"\nfixref \"/usr/local/opt/libsamplerate/lib/libsamplerate.0.2.2.dylib\"    \"@rpath/libsamplerate.0.2.2.dylib\"\nfixref \"/opt/homebrew/opt/libsamplerate/lib/libsamplerate.0.dylib\"     \"@rpath/libsamplerate.0.2.2.dylib\"\nfixref \"/usr/local/opt/libsamplerate/lib/libsamplerate.0.dylib\"        \"@rpath/libsamplerate.0.2.2.dylib\"\n\n# 3) rpath 보강(이미 있으면 조용히 통과)\nfor R in \"@executable_path/../Frameworks\" \"@loader_path/../Frameworks\"; do\n  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/install_name_tool \\\n    -add_rpath \"$R\" \"$BIN\" 2>/dev/null || true\ndone\n\n# 4) 최종 서명\n/usr/bin/codesign --force --deep -s - \"$APP\"\necho \"✓ Fixed @rpath and deep-signed: $APP\"\necho \"STAMP\" > \"${TARGET_BUILD_DIR}/fix_rpath_done\"\n";
 		};
 		33CC111E2044C6BF0003C045 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;

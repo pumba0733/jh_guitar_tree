@@ -1,5 +1,5 @@
 // Waveform Analyzer (FFTW) — Dart wrapper (옵션)
-import './fftw_bridge.dart';
+import 'package:guitartree/packages/smart_media_player/waveform/analyzer/fftw_bridge.dart';
 
 class BandEnergySeries {
   final List<List<double>> left; // [frame][band]

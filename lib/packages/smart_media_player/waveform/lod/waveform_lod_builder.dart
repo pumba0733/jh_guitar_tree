@@ -1,5 +1,7 @@
 // 아주 단순한 LOD 생성기 (FFTW band 에너지 → 저/중/고 해상도 시퀀스)
-import '../analyzer/waveform_analyzer_fftw.dart';
+import '../analyzer/waveform_analyzer_fftw.dart'
+    show WaveformAnalyzerFftw, WaveformAnalyzerFftwOptions, BandEnergySeries;
+
 
 class _LodOut {
   final List<double> lowL, midL, highL;

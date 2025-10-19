@@ -20,7 +20,9 @@ import 'package:path/path.dart' as p;
 // Local
 import './waveform_tuning.dart';
 // FFTW Analyzer / LOD (상대 경로로 통일)
-import './analyzer/waveform_analyzer_fftw.dart';
+import 'analyzer/waveform_analyzer_fftw.dart'
+    show WaveformAnalyzerFftw, WaveformAnalyzerFftwOptions, BandEnergySeries;
+
 import './lod/waveform_lod_builder.dart';
 
 
