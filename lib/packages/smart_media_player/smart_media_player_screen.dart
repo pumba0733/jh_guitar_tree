@@ -13,22 +13,14 @@
 // 필요 의존: supabase_flutter, player_sidecar_storage_service.dart, lesson_service.dart
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
-// [PIP] 사이즈 보간용
-import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
-
-import 'waveform/waveform_cache.dart';
-import 'widgets/waveform_view.dart';
 import '../../ui/components/save_status_indicator.dart';
 
 import '../../services/lesson_service.dart';
-import '../../services/player_sidecar_storage_service.dart'; // [SYNC]
 import 'package:supabase_flutter/supabase_flutter.dart'; // [SYNC]
 import '../../services/xsc_sync_service.dart';
 
@@ -36,47 +28,20 @@ import '../../services/xsc_sync_service.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
-class MarkerPoint {
-  Duration t;
-  String label;
-  String? note;
-  Color? color;
-  MarkerPoint(this.t, this.label, {this.note, this.color});
+// NEW
+import 'waveform/system/waveform_system.dart';
+import 'waveform/system/waveform_panel.dart';
 
-  Map<String, dynamic> toJson() => {
-    't': t.inMilliseconds,
-    'label': label,
-    if (note != null) 'note': note,
-    if (color != null) 'color': _colorToHex(color!),
-  };
+import 'models/marker_point.dart';
+import 'sync/sidecar_sync.dart';
+import 'sync/lesson_memo_sync.dart';
+import 'audio/rubberband_mpv_engine.dart';
+import 'utils/debounced_saver.dart';
+import 'video/sticky_video_overlay.dart';
 
-  static MarkerPoint fromJson(Map<String, dynamic> m) => MarkerPoint(
-    Duration(milliseconds: (m['t'] ?? 0) as int),
-    (m['label'] ?? '') as String,
-    note: (m['note'] as String?),
-    color: _tryParseColor(m['color'] as String?),
-  );
 
-  static Color? _tryParseColor(String? hex) {
-    if (hex == null || hex.isEmpty) return null;
-    try {
-      var v = hex.toUpperCase().replaceAll('#', '');
-      if (v.length == 6) v = 'FF$v';
-      final n = int.parse(v, radix: 16);
-      return Color(n);
-    } catch (_) {
-      return null;
-    }
-  }
 
-  static String _colorToHex(Color c) {
-    final argb = c.toARGB32();
-    final r = ((argb >> 16) & 0xFF).toRadixString(16).padLeft(2, '0');
-    final g = ((argb >> 8) & 0xFF).toRadixString(16).padLeft(2, '0');
-    final b = (argb & 0xFF).toRadixString(16).padLeft(2, '0');
-    return '#${(r + g + b).toUpperCase()}';
-  }
-}
+
 
 class SmartMediaPlayerScreen extends StatefulWidget {
   final String studentId;
@@ -84,6 +49,7 @@ class SmartMediaPlayerScreen extends StatefulWidget {
   final String mediaPath;
   final String studentDir;
   final String? initialSidecar;
+
 
   const SmartMediaPlayerScreen({
     super.key,
@@ -123,12 +89,18 @@ class SmartMediaPlayerScreen extends StatefulWidget {
     );
   }
 
+  // ==== Zoom constants (one source of truth) ====
+  static const double _zoomMax = 50.0; // 최대 50x
+  static const double _minViewWidth = 1.0 / _zoomMax; // viewWidth 하한 (50x에 해당)
+
+
   @override
   State<SmartMediaPlayerScreen> createState() => _SmartMediaPlayerScreenState();
 }
 
 // ⛳️ 기존 SaveState enum 제거하고 SaveStatusIndicator의 SaveStatus 사용
 class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
+  late final DebouncedSaver _saver;
   // media_kit
   late final Player _player;
   VideoController? _videoCtrl;
@@ -138,6 +110,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   StreamSubscription<Duration>? _posSub;
   StreamSubscription<Duration>? _durSub;
   StreamSubscription<bool>? _playingSub;
+  StreamSubscription<bool>? _completedSub;
   StreamSubscription<String>? _notesBusSub;
 
   // [SYNC] lessons.memo Realtime
@@ -149,6 +122,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
   // [PIP] 스크롤 컨트롤러 (영상 오버레이 축소/고정)
   final ScrollController _scrollCtl = ScrollController();
+
+
+  final WaveformController _wf = WaveformController();
 
   // 파라미터
   double _speed = 1.0;
@@ -193,18 +169,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   DateTime? _lastSavedAt;
   int _pendingRetryCount = 0;
 
-  // 파형
-  List<double> _peaks = const [];
-  List<double> _peaksR = const [];
-  double _waveProgress = 0;
-
   // 뷰포트
   double _viewStart = 0.0;
   double _viewWidth = 1.0;
-
-  // 선택 드래그
-  Duration? _selectStart;
-  Duration? _selectEnd;
 
   // 워치독
   Timer? _posWatchdog;
@@ -226,13 +193,12 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
   // ===== 사이드카 경로(로컬) =====
   Future<String> _resolveLocalSidecarPath() async {
-    final gtx = File(p.join(widget.studentDir, 'current.gtxsc'));
-    if (await gtx.exists()) return gtx.path;
-    final xsc = File(p.join(widget.studentDir, 'current.xsc'));
-    if (await xsc.exists()) return xsc.path;
-    // 기본은 gtxsc 경로로 씀
-    return gtx.path;
+    return SidecarSync.instance.resolveLocalPath(
+      widget.studentDir,
+      initial: widget.initialSidecar,
+    );
   }
+
 
   String get _cacheDir {
     final wsRoot = Directory(widget.studentDir).parent.parent.path;
@@ -242,6 +208,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   @override
   void initState() {
     super.initState();
+    _saver = DebouncedSaver(delay: const Duration(milliseconds: 800));
     MediaKit.ensureInitialized();
 
     _loopRepeatCtl = TextEditingController(text: _loopRepeat.toString());
@@ -252,9 +219,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _player = Player();
     if (_isVideo) _videoCtrl = VideoController(_player);
 
-    _openMedia().then((_) {
-      if (mounted) _buildWaveform();
-    });
+    // 🔧 비동기 초기화는 분리
+    _initAsync();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focusNode.requestFocus();
@@ -263,8 +229,77 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _initNotesAndSidecarSync(); // [SYNC]
     _subscribeLocalNotesBus(); // [NOTES BUS]
     _startPosWatchdog();
-    
+
+    // 초기 브릿지
+    _wf.setViewport(start: _viewStart, width: _viewWidth);
+    _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled, repeat: _loopRepeat);
+    _wf.setStartCue(_startCue);
+    _wf.setMarkers(
+      _markers.map((m) => WfMarker(m.t, m.label, color: m.color)).toList(),
+    );
+
+    // 컨트롤러 콜백 → 저장 디바운스 연결
+    _wf.onViewportChanged = (s, w) {
+      setState(() {
+        _viewStart = s;
+        _viewWidth = w;
+      });
+      _debouncedSave();
+    };
+    _wf.onLoopChanged = (a, b, on) {
+      setState(() {
+        _loopA = a;
+        _loopB = b;
+        _loopEnabled = on;
+        _loopRemaining = -1;
+        if (_loopEnabled) _syncStartCueToAIfPossible();
+      });
+      _debouncedSave();
+    };
+    _wf.onStartCueChanged = (d) {
+      setState(() => _startCue = d);
+      _debouncedSave();
+    };
+    _wf.onMarkersChanged = (list) {
+      setState(() {
+        _markers
+          ..clear()
+          ..addAll(list.map((e) => MarkerPoint(e.t, e.label, color: e.color)));
+      });
+      _debouncedSave();
+    };
+    _wf.onSeek = (d) async {
+      setState(() {
+        _loopEnabled = false;
+        _loopRemaining = -1;
+        _startCue = _clamp(d, Duration.zero, _duration);
+      });
+      await _seekBoth(d);
+      _debouncedSave();
+    };
+    _saver.addListener(() {
+      if (!mounted) return;
+      setState(() {
+        _saveStatus = _saver.status;
+        _lastSavedAt = _saver.lastSavedAt;
+        _pendingRetryCount = _saver.pendingRetryCount;
+      });
+    });
+
   }
+
+  Future<void> _initAsync() async {
+    await _openMedia();
+
+    // ⬇️ duration 스트림 구독은 여기서 안전하게
+    _durSub = _player.stream.duration.listen((d) {
+      if (!mounted) return;
+      setState(() => _duration = d);
+      _normalizeLoopOrder();
+      _wf.updateFromPlayer(pos: _position, dur: d);
+    });
+  }
+
 
   // =========================
   // [SYNC] 초기 동기화 시퀀스
@@ -306,53 +341,37 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   }
 
   void _subscribeLessonMemoRealtime() {
-    _lessonChan?.unsubscribe();
-    final supa = Supabase.instance.client;
-
-    _lessonChan = supa
-        .channel('lessons-memo-${widget.studentId}-${_todayDateStr}')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'lessons',
-          callback: (payload) {
-            final newRow = payload.newRecord;
-            if (newRow == null) return;
-            final sid = (newRow['student_id'] ?? '').toString();
-            final dateStr = (newRow['date'] ?? '').toString();
-            final isToday = dateStr == _todayDateStr;
-            if (sid == widget.studentId && isToday) {
-              final memo = (newRow['memo'] ?? '').toString();
-              if (memo != _notes && mounted) {
-                _hydratingMemo = true;
-                setState(() {
-                  _notes = memo;
-                  _notesCtl.text = memo;
-                });
-                // ✅ DB 에코 저장은 금지하고, 로컬/Storage만 즉시 동기화
-                _saveSidecar(saveToDb: false, uploadToStorage: true);
-                Future.delayed(
-                  const Duration(milliseconds: 50),
-                  () => _hydratingMemo = false,
-                );
-              }
-            }
-          },
-        )
-        .subscribe();
+    final today = _todayDateStr;
+    LessonMemoSync.instance.subscribeRealtime(
+      studentId: widget.studentId,
+      dateISO: today,
+      onMemoChanged: (memo) {
+        if (memo != _notes && mounted) {
+          _hydratingMemo = true;
+          setState(() {
+            _notes = memo;
+            _notesCtl.text = memo;
+          });
+          _saveSidecar(saveToDb: false, uploadToStorage: true);
+          Future.delayed(
+            const Duration(milliseconds: 50),
+            () => _hydratingMemo = false,
+          );
+        }
+      },
+    );
   }
 
+
   void _subscribeLocalNotesBus() {
-    _notesBusSub?.cancel();
-    _notesBusSub = XscSyncService.instance.notesStream.listen((text) {
+    LessonMemoSync.instance.subscribeLocalBus((text) {
       if (!mounted) return;
-      if (text == _notes) return; // 중복 무시
+      if (text == _notes) return;
       _hydratingMemo = true;
       setState(() {
         _notes = text;
         _notesCtl.text = text;
       });
-      // DB 에코 저장은 금지, 로컬/Storage만 동기화
       _saveSidecar(saveToDb: false, uploadToStorage: true);
       Future.delayed(
         const Duration(milliseconds: 50),
@@ -360,6 +379,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       );
     });
   }
+
 
   @override
   void dispose() {
@@ -371,6 +391,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _posSub?.cancel();
     _durSub?.cancel();
     _playingSub?.cancel();
+    _completedSub?.cancel();
     _reverseTick?.cancel();
     _player.dispose();
     _loopRepeatCtl.dispose();
@@ -379,47 +400,25 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _posWatchdog?.cancel();
     _scrollCtl.removeListener(_onScrollTick);
     _scrollCtl.dispose(); // [PIP]
+    LessonMemoSync.instance.dispose();
+    _saver.dispose();
     super.dispose();
+    
   }
 
   // ====== 사이드카 로드 (원격/로컬 LWW) ======
   Future<void> _loadSidecarLatest() async {
-    final localPath = widget.initialSidecar ?? await _resolveLocalSidecarPath();
-
-    Map<String, dynamic>? localJson;
-    if (await File(localPath).exists()) {
-      try {
-        localJson =
-            jsonDecode(await File(localPath).readAsString())
-                as Map<String, dynamic>;
-      } catch (_) {}
-    }
-
-    Map<String, dynamic>? remoteJson;
-    try {
-      remoteJson = await PlayerSidecarStorageService.instance.downloadCurrent(
-        widget.studentId,
-        widget.mediaHash,
-      );
-    } catch (_) {}
-
-    final latest = PlayerSidecarStorageService.instance.pickLatest(
-      localJson,
-      remoteJson,
+    final latest = await SidecarSync.instance.loadLatest(
+      studentId: widget.studentId,
+      mediaHash: widget.mediaHash,
+      studentDir: widget.studentDir,
+      initial: widget.initialSidecar,
     );
-
     if (latest.isNotEmpty) {
-      // 화면 상태에 반영
       _applySidecarMap(latest);
-      // 최신본을 로컬에도 기록(캐시 일치)
-      try {
-        await File(localPath).writeAsString(
-          const JsonEncoder.withIndent('  ').convert(latest),
-          flush: true,
-        );
-      } catch (_) {}
     }
   }
+
 
   void _applySidecarMap(Map<String, dynamic> m) {
     final a = (m['loopA'] ?? 0);
@@ -476,6 +475,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     }
 
     _normalizeLoopOrder();
+    _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled, repeat: _loopRepeat);
+    _wf.setStartCue(_startCue);
+    _wf.setMarkers(_markers.map((e) => WfMarker(e.t, e.label, color: e.color)).toList());
+
   }
 
   // ==== 이하 재생/체인/파형/루프/마커/키핸들 ===
@@ -520,13 +523,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
     await _player.open(Media(widget.mediaPath), play: false);
 
-    _durSub = _player.stream.duration.listen((Duration d) {
-      if (!mounted) return;
-      setState(() => _duration = d);
-      _normalizeLoopOrder();
-    });
-
     _posSub = _player.stream.position.listen((pos) async {
+      _wf.updateFromPlayer(pos: pos, dur: _duration);
       if (!mounted) return;
       setState(() => _position = pos);
 
@@ -560,17 +558,39 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         }
       }
 
-      // 끝 처리
+      // 끝 처리: (루프 OFF일 때) 파일 끝에 닿아도 정지하지 않도록 여기서는 아무 것도 하지 않음.
+      // 실제 되감기+재생은 _player.stream.completed 구독에서 확정적으로 처리.
       final dur = _duration;
       if (!_loopEnabled && dur > Duration.zero && pos >= dur) {
-        await _player.pause();
-        await _seekBoth(_clamp(_startCue, Duration.zero, dur));
+        // no-op; completed 이벤트에서 처리
+        return;
       }
+
     });
 
     _playingSub = _player.stream.playing.listen((_) {
       if (!mounted) return;
       setState(() {});
+    });
+
+    _completedSub = _player.stream.completed.listen((done) async {
+      if (!mounted || !done) return;
+
+      // 루프 기능이 켜져 있으면 기존 A–B 루프 로직에 맡김
+      if (_loopEnabled) return;
+
+      final dur = _duration;
+      if (dur <= Duration.zero) return;
+
+      // 시작점으로 안전하게 점프(1ms 오프셋으로 튕김 방지) 후 즉시 재생
+      final cue = _clamp(_startCue, Duration.zero, dur);
+      const eps = Duration(milliseconds: 1);
+      final target = (dur > eps)
+          ? _clamp(cue + eps, Duration.zero, dur - eps)
+          : Duration.zero;
+
+      await _seekBoth(target);
+      await _player.play();
     });
 
     await _applyAudioChain();
@@ -583,95 +603,17 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   }
 
   Future<void> _applyAudioChain() async {
-    try {
-      final dynamic plat = _player.platform;
-
-      // mute/volume
-      try {
-        await plat?.setProperty('mute', _muted ? 'yes' : 'no');
-      } catch (_) {}
-
-      final S = _speed.clamp(0.5, 1.5);
-      final pitchRatio = math.pow(2.0, _pitchSemi / 12.0).toDouble();
-      final totalRate = (S * pitchRatio).clamp(0.25, 4.0);
-      await _player.setRate(totalRate);
-
-      final v = _volume.clamp(0, 150);
-      final baseVol = v <= 100 ? v : 100;
-      try {
-        await plat?.setProperty('volume', '$baseVol');
-      } catch (_) {}
-
-      // af 재구성
-      try {
-        await plat?.setProperty('af', '');
-      } catch (_) {}
-      await Future.delayed(const Duration(milliseconds: 1));
-
-      final List<String> af = [];
-      if (_pitchSemi == 0) {
-        if ((S - 1.0).abs() >= 0.0001) {
-          if (S <= 0.60) {
-            final invS = (1.0 / S).clamp(0.5, 2.0);
-            af.add(
-              'lavfi=[rubberband=pitch=${invS.toStringAsFixed(6)}:formant=1:transients=smooth:phase=laminar:detector=compound:channels=linked:precision=high]',
-            );
-          } else {
-            af.add('scaletempo2');
-          }
-        }
-      } else {
-        final invPitch = (1.0 / pitchRatio).clamp(0.5, 2.0);
-        af.add('atempo=${invPitch.toStringAsFixed(6)}');
-      }
-
-      if (v > 100) {
-        final ratio = v / 100.0;
-        final gainDb = 20.0 * math.log(ratio) / math.ln10;
-        af.add('lavfi=[volume=${gainDb.toStringAsFixed(2)}dB]');
-      }
-
-      if (af.isNotEmpty) {
-        await plat?.setProperty('af', af.join(','));
-        debugPrint('[mpv] af=${af.join(',')}');
-      }
-    } catch (e) {
-      debugPrint('[SMP] _applyAudioChain error: $e');
-    }
+    await RubberbandMpvEngine.I.apply(
+      player: _player,
+      isVideo: _isVideo,
+      muted: _muted,
+      volumePercent: _volume,
+      speed: _speed,
+      pitchSemi: _pitchSemi,
+    );
   }
 
-  // === 파형 생성 ===
-  Future<void> _buildWaveform() async {
-    try {
-      setState(() => _waveProgress = 0.05);
 
-      final secs = (_duration.inMilliseconds / 1000).clamp(0.2, 60 * 60 * 3);
-      final target = (secs * 512).round().clamp(2048, 100000);
-
-      final (left, right) = await WaveformCache.instance.loadOrBuildStereo(
-        mediaPath: widget.mediaPath,
-        cacheDir: _cacheDir,
-        cacheKey: widget.mediaHash,
-        targetBars: target,
-        onProgress: (p) {
-          if (!mounted) return;
-          setState(() => _waveProgress = p);
-        },
-      );
-
-      if (!mounted) return;
-      setState(() {
-        _peaks = left;
-        _peaksR = right;
-        _waveProgress = 1.0;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('파형 생성 실패: $e')));
-    }
-  }
 
   // ===== 분리된 패널 UI =====
   Widget _buildVolumePanel(BuildContext context) {
@@ -870,6 +812,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
               SizedBox(height: 8),
               Text('  =  키를 누르고 있는 동안 2x 재생'),
               Text('  -  키를 누르고 있는 동안 2x 역재생'),
+              Text('줌인/줌아웃: Alt+=  /  Alt+-'),
+              Text('줌 리셋: Alt+0'),
             ],
           ),
         ),
@@ -893,7 +837,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     bool saveToDb = true,
     bool uploadToStorage = true, // [SYNC]
   }) async {
-    final path = await _resolveLocalSidecarPath();
     final now = DateTime.now();
     final map = {
       'studentId': widget.studentId,
@@ -915,24 +858,16 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     };
 
     try {
-      // 로컬 기록
-      await File(path).writeAsString(
-        const JsonEncoder.withIndent('  ').convert(map),
-        flush: true,
+      // 🔁 (교체 포인트) 로컬 기록 + Storage 업로드를 모듈로 이관
+      await SidecarSync.instance.save(
+        studentId: widget.studentId,
+        mediaHash: widget.mediaHash,
+        studentDir: widget.studentDir,
+        json: map,
+        uploadToStorage: uploadToStorage,
       );
 
-      // [SYNC] Storage 업로드(+백업)
-      if (uploadToStorage) {
-        unawaited(
-          PlayerSidecarStorageService.instance.uploadWithBackup(
-            studentId: widget.studentId,
-            mediaHash: widget.mediaHash,
-            json: Map<String, dynamic>.from(map),
-          ),
-        );
-      }
-
-      // lessons.memo 업서트
+      // lessons.memo 업서트 (옵션)
       if (saveToDb && !_hydratingMemo) {
         unawaited(_saveLessonMemoToSupabase());
       }
@@ -941,7 +876,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         setState(() {
           _saveStatus = SaveStatus.saved;
           _lastSavedAt = now;
-          // 재시도 큐를 쓰고 있다면 여기서 _pendingRetryCount 갱신
           _pendingRetryCount = 0;
         });
       }
@@ -960,25 +894,24 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     }
   }
 
+
   Future<void> _saveLessonMemoToSupabase() async {
     try {
-      await LessonService().upsert({
-        'student_id': widget.studentId,
-        'date': _todayDateStr,
-        'memo': _notes,
-      });
+      await LessonMemoSync.instance.upsertMemo(
+        studentId: widget.studentId,
+        dateISO: _todayDateStr,
+        memo: _notes,
+      );
     } catch (_) {}
   }
 
+
   void _debouncedSave({bool saveToDb = true}) {
-    _saveDebounce?.cancel();
-    final flagDb = saveToDb;
-    setState(() => _saveStatus = SaveStatus.saving);
-    _saveDebounce = Timer(const Duration(milliseconds: 800), () {
-      _saveSidecar(saveToDb: flagDb, uploadToStorage: true);
-      // 완료 시점은 _saveSidecar 내부에서 saved/failed로 세팅
+    _saver.schedule(() async {
+      await _saveSidecar(saveToDb: saveToDb, uploadToStorage: true);
     });
   }
+
 
   // ===== 2x 정/역재생(홀드) =====
   Future<void> _startHoldFastForward() async {
@@ -1039,6 +972,21 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
   // 키 업/다운 핸들 (=-)
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent evt) {
+    // ⛔ Alt / Ctrl / Meta 눌린 상태면 (=/-) 홀드를 무시해서
+    //    Shortcuts(Alt+= / Alt+-)로 이벤트가 넘어가도록 한다.
+    final mods = HardwareKeyboard.instance.logicalKeysPressed;
+    final hasBlockMods =
+        mods.contains(LogicalKeyboardKey.alt) ||
+        mods.contains(LogicalKeyboardKey.altLeft) ||
+        mods.contains(LogicalKeyboardKey.altRight) ||
+        mods.contains(LogicalKeyboardKey.control) ||
+        mods.contains(LogicalKeyboardKey.meta);
+
+    if (hasBlockMods) {
+      return KeyEventResult.ignored; // ← 중요: Shortcuts로 전달
+    }
+
+    // = 키 홀드 → 2x 전진
     if (evt.logicalKey == LogicalKeyboardKey.equal) {
       if (evt is KeyDownEvent) {
         _startHoldFastForward();
@@ -1047,6 +995,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       }
       return KeyEventResult.handled;
     }
+
+    // - 키 홀드 → 2x 역재생
     if (evt.logicalKey == LogicalKeyboardKey.minus) {
       if (evt is KeyDownEvent) {
         _startHoldFastReverse();
@@ -1055,97 +1005,21 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       }
       return KeyEventResult.handled;
     }
+
     return KeyEventResult.ignored;
   }
-
-  // [PIP] 오버레이 비디오 위젯 (스크롤에 따라 크기/위치 보간)
-  Widget _buildStickyVideoOverlay({
-    required double viewportWidth,
-    required double viewportHeight,
-  }) {
-    // _buildStickyVideoOverlay(...) 내부
-
-    if (!_isVideo || _videoCtrl == null) return const SizedBox.shrink();
-
-    final double maxWidth = viewportWidth;
-    const double miniWidth = 360.0; // ← 축소 최종 폭(320~360 권장)
-    final double hMax = maxWidth * 9 / 16;
-    final double hMin = miniWidth * 9 / 16;
-
-    // 스크롤 얼마나 하면 완전 축소되는지 (작을수록 빨리 우하단으로 감)
-    const double collapseScrollPx = 480.0; // 360(빠름) ~ 640(느림) 사이 취향대로
-
-    final double raw = _scrollCtl.hasClients ? _scrollCtl.offset : 0.0;
-    final double t = Curves.easeOut.transform(
-      (raw / collapseScrollPx).clamp(0.0, 1.0),
-    );
-
-    // 크기 보간
-    final double w = lerpDouble(maxWidth, miniWidth, t)!;
-    final double h = lerpDouble(hMax, hMin, t)!;
-
-    // 위치 보간 (상단 중앙 → 우하단 16px)
-    const double rightMargin = 16.0;
-    const double bottomMargin = 16.0;
-    final double leftAt0 = (viewportWidth - w) / 2.0; // 중앙정렬
-    const double topAt0 = 0.0;
-    final double leftAt1 = viewportWidth - w - rightMargin; // 우측 여백
-    final double topAt1 = viewportHeight - h - bottomMargin;
-
-    final double left = lerpDouble(leftAt0, leftAt1, t)!;
-    final double top = lerpDouble(topAt0, topAt1, t)!;
-
-    // 둥근 모서리 고정
-    const radius = 14.0;
-
-    return Positioned(
-      top: top,
-      left: left,
-      width: w,
-      height: h,
-      child: IgnorePointer(
-        ignoring: true,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Colors.black,
-            borderRadius: BorderRadius.circular(radius),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.25 * (0.5 + 0.5 * t)),
-                blurRadius: lerpDouble(8, 18, t) ?? 12,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(radius),
-            child: Video(controller: _videoCtrl!),
-          ),
-        ),
-      ),
-    );
-
-  }
-
 
   @override
   Widget build(BuildContext context) {
     final title = p.basename(widget.mediaPath);
-
-    final markerDurations = _markers.map((e) => e.t).toList();
-    final markerLabels = _markers.map((e) => e.label).toList();
-    final markerColors = _markers.map((e) => e.color).toList();
-
     const speedPresets = <double>[0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2];
-
-    final bool viewSliderUsable = _viewWidth < 0.999;
 
     return Listener(
       onPointerDown: (_) {
         if (!_focusNode.hasFocus) _focusNode.requestFocus();
       },
       child: Shortcuts(
-        shortcuts: <LogicalKeySet, Intent>{
+        shortcuts: <ShortcutActivator, Intent>{
           LogicalKeySet(LogicalKeyboardKey.space):
               const _PlayFromStartOrPauseIntent(),
 
@@ -1176,6 +1050,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
               const _PrevNextMarkerIntent(false),
           LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.arrowRight):
               const _PrevNextMarkerIntent(true),
+          
 
           // 피치(키 조정)
           LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.arrowUp):
@@ -1208,6 +1083,24 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
               const _TempoNudgeIntent(-5),
           LogicalKeySet(LogicalKeyboardKey.bracketRight):
               const _TempoNudgeIntent(5),
+
+          // === ZOOM: Alt 기반(플랫폼 공통) — SingleActivator로 좌/우 Alt 모두 인식 ===
+          const SingleActivator(LogicalKeyboardKey.equal, alt: true):
+              _ZoomIntent(true), // Alt+=
+          const SingleActivator(LogicalKeyboardKey.minus, alt: true):
+              _ZoomIntent(false), // Alt+-
+          const SingleActivator(LogicalKeyboardKey.digit0, alt: true):
+              _ZoomResetIntent(), // Alt+0
+          // (보조)
+          const SingleActivator(LogicalKeyboardKey.comma, alt: true):
+              _ZoomIntent(false), // Alt+,
+          const SingleActivator(LogicalKeyboardKey.period, alt: true):
+              _ZoomIntent(true), // Alt+.
+
+
+
+
+
         },
         child: Actions(
           actions: <Type, Action<Intent>>{
@@ -1291,6 +1184,14 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                 return null;
               },
             ),
+            _ZoomResetIntent: CallbackAction<_ZoomResetIntent>(
+              onInvoke: (_) {
+                _zoomReset();
+                return null;
+              },
+            ),
+
+    
           },
           child: Focus(
             focusNode: _focusNode,
@@ -1300,18 +1201,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
               appBar: AppBar(
                 title: Text('스마트 미디어 플레이어 — $title'),
                 actions: [
-                  if (_waveProgress < 1.0)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 14,
-                      ),
-                      child: Center(
-                        child: Text(
-                          '파형 ${(_waveProgress * 100).toStringAsFixed(0)}%',
-                        ),
-                      ),
-                    ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Center(
@@ -1353,12 +1242,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                             children: [
                               // [PIP] 비디오가 오버레이로 올라가므로 자리만 확보
                               if (_isVideo && _videoCtrl != null) ...[
-                                SizedBox(
-                                  height: videoMaxHeight,
-                                  width: viewportW,
-                                ),
+                                SizedBox(height: videoMaxHeight, width: viewportW),
                                 const SizedBox(height: 12),
                               ],
+
 
                               // 중앙 타임바 + 2x 버튼들
                               Center(
@@ -1407,7 +1294,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                         .toDouble(),
                                 onChanged: (v) async {
                                   final d = Duration(milliseconds: v.toInt());
-                                  await _seekBoth(d);
+                                  await _wf.onSeek?.call(
+                                    d,
+                                  ); // 내부에서 _seekBoth + save와 동일 동작
                                 },
                               ),
 
@@ -1445,6 +1334,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                             );
                                           });
                                           _debouncedSave();
+                                          _wf.setStartCue(_startCue);
                                         },
                                         child: const Text('시작점=현재'),
                                       ),
@@ -1463,6 +1353,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                             });
                                             _debouncedSave();
                                           }
+                                          _wf.setStartCue(_startCue);
                                         },
                                         child: const Text('시작점=A'),
                                       ),
@@ -1504,155 +1395,82 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                               const Divider(height: 24),
 
                               // Waveform
-                              SizedBox(
-                                height: 190,
-                                child: _peaks.isEmpty
-                                    ? Row(
-                                        children: [
-                                          const SizedBox(
-                                            width: 24,
-                                            height: 24,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Text(
-                                            '파형 준비 중… ${(_waveProgress * 100).toStringAsFixed(0)}%',
-                                          ),
-                                        ],
-                                      )
-                                    : WaveformView(
-                                        peaks: _peaks,
-                                        peaksRight: _peaksR,
-                                        peaksAreNormalized: true,
-                                        duration: _duration,
-                                        position: _position,
-                                        loopA: _loopA,
-                                        loopB: _loopB,
-                                        loopOn: _loopEnabled,
-                                        markers: markerDurations,
-                                        markerLabels: markerLabels,
-                                        markerColors: markerColors,
-                                        viewStart: _viewStart,
-                                        viewWidth: _viewWidth,
-                                        selectionMode: true,
-                                        selectionA: _selectStart,
-                                        selectionB: _selectEnd,
-                                        onSeek: (d) async {
-                                          setState(() {
-                                            _loopEnabled = false;
-                                            _loopRemaining = -1;
-                                            _startCue = _clamp(
-                                              d,
-                                              Duration.zero,
-                                              _duration,
-                                            );
-                                          });
-                                          await _seekBoth(d);
-                                          _debouncedSave();
-                                        },
-                                        onSelectStart: (d) => setState(() {
-                                          _selectStart = d;
-                                          _selectEnd = null;
-                                        }),
-                                        onSelectUpdate: (d) =>
-                                            setState(() => _selectEnd = d),
-                                        onSelectEnd: (a, b) {
-                                          if (a == null || b == null) return;
-                                          final A = a <= b ? a : b;
-                                          var B = b >= a ? b : a;
-                                          setState(() {
-                                            _loopA = A;
-                                            _loopB =
-                                                (B -
-                                                const Duration(
-                                                  milliseconds: 1,
-                                                ));
-                                            if (_loopB! <= _loopA!) {
-                                              _loopB =
-                                                  A +
-                                                  const Duration(
-                                                    milliseconds: 500,
-                                                  );
-                                            }
-                                            _loopEnabled = true;
-                                            _loopRemaining = -1;
-                                            _startCue = _clamp(
-                                              A,
-                                              Duration.zero,
-                                              _duration,
-                                            );
-                                            _selectStart = null;
-                                            _selectEnd = null;
-                                          });
-                                          _debouncedSave();
-                                        },
-                                        markerRailHeight: 44,
-                                        startCue: _startCue,
-                                        onStartCueChanged: (d) {
-                                          setState(() {
-                                            _startCue = _clamp(
-                                              d,
-                                              Duration.zero,
-                                              _duration,
-                                            );
-                                          });
-                                          _debouncedSave();
-                                        },
-                                        onRailTapToSeek: (d) async {
-                                          await _seekBoth(d);
-                                        },
-                                        onMarkerDragStart: (i) {},
-                                        onMarkerDragUpdate: (i, d) {
-                                          setState(() {
-                                            _markers[i].t = _clamp(
-                                              d,
-                                              Duration.zero,
-                                              _duration,
-                                            );
-                                          });
-                                        },
-                                        onMarkerDragEnd: (i, d) {
-                                          _debouncedSave();
-                                        },
-                                        onLoopAChanged: (d) {
-                                          setState(() {
-                                            _loopA = _clamp(
-                                              d,
-                                              Duration.zero,
-                                              _duration,
-                                            );
-                                            _normalizeLoopOrder();
-                                            _loopRemaining = -1;
-                                            if (_loopEnabled) {
-                                              _syncStartCueToAIfPossible();
-                                            }
-                                          });
-                                          _debouncedSave();
-                                        },
-                                        onLoopBChanged: (d) {
-                                          setState(() {
-                                            _loopB = _clamp(
-                                              d,
-                                              Duration.zero,
-                                              _duration,
-                                            );
-                                            _normalizeLoopOrder();
-                                            _loopRemaining = -1;
-                                          });
-                                          _debouncedSave();
-                                        },
-                                      ),
+                              WaveformPanel(
+                                controller: _wf,
+                                mediaPath: widget.mediaPath,
+                                mediaHash: widget.mediaHash,
+                                cacheDir: _cacheDir,
+                                onStateDirty: () => _debouncedSave(),
                               ),
 
                               if (_duration > Duration.zero) ...[
                                 const SizedBox(height: 6),
-                                // viewWidth=100%일 때 텍스트 대체
-                                if (viewSliderUsable)
+
+                                // === ZOOM 슬라이더 (절대 배율: 1.0x ~ SmartMediaPlayerScreen._zoomMax) ===
+                                Row(
+                                  children: [
+                                    const Text('줌'),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Slider(
+                                        value: (1.0 / _viewWidth).clamp(
+                                          1.0,
+                                          SmartMediaPlayerScreen._zoomMax,
+                                        ),
+                                        min: 1.0,
+                                        max: SmartMediaPlayerScreen._zoomMax,
+                                        divisions:
+                                            (SmartMediaPlayerScreen._zoomMax -
+                                                    1)
+                                                .toInt(),
+                                        label:
+                                            '${(1.0 / _viewWidth).clamp(1.0, SmartMediaPlayerScreen._zoomMax).toStringAsFixed(1)}x',
+                                        onChanged: (zoom) {
+                                          _setZoom(zoom);
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '${(1.0 / _viewWidth).clamp(1.0, SmartMediaPlayerScreen._zoomMax).toStringAsFixed(1)}x',
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Tooltip(
+                                          message: '줌아웃 (Alt+-)',
+                                          child: IconButton(
+                                            onPressed: () => _zoom(0.8),
+                                            icon: const Icon(Icons.zoom_out),
+                                          ),
+                                        ),
+                                        Tooltip(
+                                          message: '줌인 (Alt+=)',
+                                          child: IconButton(
+                                            onPressed: () => _zoom(1.25),
+                                            icon: const Icon(Icons.zoom_in),
+                                          ),
+                                        ),
+                                        Tooltip(
+                                          message: '줌 리셋 (Alt+0)',
+                                          child: IconButton(
+                                            onPressed: _zoomReset,
+                                            icon: const Icon(Icons.fullscreen),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+
+
+                                // === 위치(팬) 슬라이더: 확대 상태에서만 노출 ===
+                                if (_viewWidth < 0.999) ...[
+                                  const SizedBox(height: 8),
                                   Row(
                                     children: [
-                                      const Text('뷰'),
+                                      const Text('위치'),
                                       Expanded(
                                         child: Slider(
                                           value: _viewStart,
@@ -1661,29 +1479,23 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                             0.0,
                                             1.0 - 1e-9,
                                           ),
-                                          onChanged: (v) => setState(() {
-                                            _viewStart = v.clamp(
-                                              0.0,
-                                              (1 - _viewWidth).clamp(0.0, 1.0),
+                                          onChanged: (v) {
+                                            final maxStart = (1 - _viewWidth).clamp(0.0, 1.0);
+                                            final clamped = v.clamp(0.0, maxStart).toDouble();
+                                            setState(
+                                              () => _viewStart = clamped,
                                             );
-                                          }),
+                                            _wf.setViewport(
+                                              start: _viewStart,
+                                            ); // ✅ 컨트롤러에도 반영
+                                          },    
                                         ),
                                       ),
-                                      Text('${(_viewWidth * 100).round()}%'),
-                                    ],
-                                  )
-                                else
-                                  Row(
-                                    children: const [
-                                      Text('뷰'),
-                                      SizedBox(width: 12),
-                                      Icon(Icons.fullscreen),
-                                      SizedBox(width: 6),
-                                      Text('전체'),
-                                      Spacer(),
-                                      // 퍼센트 표시는 동일
+                                      // 전체 대비 현재 뷰의 좌측 경계 퍼센트(가독을 원하면 삭제 가능)
+                                      Text('${(_viewStart * 100).round()}%'),
                                     ],
                                   ),
+                                ],
                               ],
 
                               const SizedBox(height: 12),
@@ -1733,6 +1545,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                             _loopRemaining = -1;
                                             if (v) _syncStartCueToAIfPossible();
                                           });
+                                          _wf.setLoop(on: v);
                                           _debouncedSave();
                                         },
                                       ),
@@ -1800,27 +1613,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                           ).textTheme.bodySmall,
                                         ),
                                       ],
-                                    ],
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const SizedBox(width: 12),
-                                      Tooltip(
-                                        message: '줌아웃',
-                                        child: IconButton(
-                                          onPressed: () => _zoom(0.8),
-                                          icon: const Icon(Icons.zoom_out),
-                                        ),
-                                      ),
-                                      Tooltip(
-                                        message: '줌인',
-                                        child: IconButton(
-                                          onPressed: () => _zoom(1.25),
-                                          icon: const Icon(Icons.zoom_in),
-                                        ),
-                                      ),
                                     ],
                                   ),
                                 ],
@@ -1931,7 +1723,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                       ? p.basename(snap.data!)
                                       : 'current.gtxsc';
                                   return Text(
-                                    '사이드카: $scName  •  폴더: ${widget.studentDir}',
+                                    '사이드카: $scName  •  폴더: $widget.studentDir',
                                     style: Theme.of(
                                       context,
                                     ).textTheme.bodySmall,
@@ -1945,9 +1737,12 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
                       // === 비디오 오버레이 (위 레이어) ===
                       if (_isVideo && _videoCtrl != null)
-                        _buildStickyVideoOverlay(
-                          viewportWidth: viewportW,
-                          viewportHeight: viewportH,
+                        StickyVideoOverlay(
+                          controller: _videoCtrl!,
+                          scrollController: _scrollCtl,
+                          viewportSize: Size(viewportW, viewportH),
+                          collapseScrollPx: 480.0,
+                         miniWidth: 360.0,
                         ),
                     ],
                   );
@@ -1980,9 +1775,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     final dynamic plat = _player.platform;
     try {
       final st = _player.state;
-      debugPrint(
-        '[SMP] before play: pos=${st.position}, playing=${st.playing}',
-      );
+      debugPrint('[SMP] before play: pos=$st.position, playing=$st.playing');
       debugPrint("[SMP] mpv.pause(before)=${await plat?.getProperty('pause')}");
       debugPrint("[SMP] mpv.af(before)=${await plat?.getProperty('af')}");
     } catch (_) {}
@@ -2038,22 +1831,72 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       _normalizeLoopOrder();
       _loopRemaining = -1;
     });
+    _wf.setLoop(
+      a: isA ? _loopA : null,
+      b: isA ? null : _loopB,
+      on: _loopEnabled,
+    );
     _debouncedSave();
   }
 
   void _zoom(double factor) {
-    const minWidth = 0.02;
-    const maxWidth = 1.0;
-    final centerT = (_duration.inMilliseconds == 0)
+    const double maxWidth = 1.0; // 전체 보기
+    final double centerT = (_duration.inMilliseconds == 0)
         ? 0.5
         : (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0);
-    var newWidth = (_viewWidth / factor).clamp(minWidth, maxWidth);
-    var newStart = (centerT - newWidth / 2).clamp(0.0, 1.0 - newWidth);
+
+    final double newWidth = (_viewWidth / factor).clamp(
+      SmartMediaPlayerScreen._minViewWidth,
+      maxWidth,
+    );
+    final double newStart = (centerT - newWidth / 2).clamp(0.0, 1.0 - newWidth);
+
     setState(() {
       _viewWidth = newWidth;
       _viewStart = newStart;
     });
+    _wf.setViewport(start: _viewStart, width: _viewWidth);
   }
+
+ 
+  // 전체 보기를 기본값으로 되돌림
+  void _zoomReset() {
+    setState(() {
+      _viewWidth = 1.0;
+      _viewStart = 0.0;
+    });
+    _wf.setViewport(start: _viewStart, width: _viewWidth);
+  }
+
+  // 절대 줌 배율로 세팅 (zoom = 1.0은 전체 보기, 값이 커질수록 더 확대)
+  // anchorT: 0.0~1.0 앵커(기준점). null이면 현재 재생 위치(_position) 기준.
+  void _setZoom(double zoom, {double? anchorT}) {
+    const double maxWidth = 1.0; // 전체 보기
+    final double targetWidth = (1.0 / zoom).clamp(
+      SmartMediaPlayerScreen._minViewWidth,
+      maxWidth,
+    );
+
+    final double t =
+        anchorT ??
+        ((_duration.inMilliseconds == 0)
+            ? 0.5
+            : (_position.inMilliseconds / _duration.inMilliseconds).clamp(
+                0.0,
+                1.0,
+              ));
+
+    final double newStart = (t - targetWidth / 2).clamp(0.0, 1.0 - targetWidth);
+
+    setState(() {
+      _viewWidth = targetWidth;
+      _viewStart = newStart;
+    });
+    _wf.setViewport(start: _viewStart, width: _viewWidth);
+  }
+
+
+
 
   Future<void> _setSpeed(double v) async {
     setState(() => _speed = double.parse(v.clamp(0.5, 1.5).toStringAsFixed(2)));
@@ -2102,6 +1945,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     final idx = _markers.length + 1;
     final label = _lettersForIndex(idx);
     setState(() => _markers.add(MarkerPoint(_position, label)));
+    _wf.setMarkers(
+      _markers.map((m) => WfMarker(m.t, m.label, color: m.color)).toList(),
+    );
     _debouncedSave();
   }
 
@@ -2148,6 +1994,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
           m.label = newLabel;
         }
       });
+      _wf.setMarkers(_markers.map((e) => WfMarker(e.t, e.label, color: e.color)).toList());
       _debouncedSave();
     }
   }
@@ -2213,6 +2060,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   void _deleteMarker(int index) {
     if (index < 0 || index >= _markers.length) return;
     setState(() => _markers.removeAt(index));
+    _wf.setMarkers(_markers.map((e) => WfMarker(e.t, e.label, color: e.color)).toList());
     _debouncedSave();
   }
 }
@@ -2266,6 +2114,10 @@ class _SpeedPresetIntent extends Intent {
 class _VolumeIntent extends Intent {
   final int delta;
   const _VolumeIntent(this.delta);
+}
+
+class _ZoomResetIntent extends Intent {
+  const _ZoomResetIntent();
 }
 
 // ---- UI helpers ----

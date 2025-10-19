@@ -21,10 +21,13 @@
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
-		1F79C2CB2E8F4E420079BF2D /* libsoundtouch_ffi.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 1F79C2CA2E8F4E420079BF2D /* libsoundtouch_ffi.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		1FC4B2DC2E9E85FA00FDB7A6 /* libfftw3f.3.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 1FC4B2D92E9E85FA00FDB7A6 /* libfftw3f.3.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		1FC4B2DD2E9E85FA00FDB7A6 /* librubberband.3.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 1FC4B2DA2E9E85FA00FDB7A6 /* librubberband.3.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		1FC4B2DE2E9E85FA00FDB7A6 /* libsamplerate.0.2.2.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 1FC4B2DB2E9E85FA00FDB7A6 /* libsamplerate.0.2.2.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		1FC819BE2EA4951B006F4B06 /* libfftw3f.3.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FE9CE9B2EA329E0002AAFE3 /* libfftw3f.3.dylib */; };
+		1FC819BF2EA4951B006F4B06 /* librubberband.3.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FE9CEA52EA3369E002AAFE3 /* librubberband.3.dylib */; };
+		1FC819C02EA4951B006F4B06 /* libsamplerate.0.2.2.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FE9CEA42EA3369E002AAFE3 /* libsamplerate.0.2.2.dylib */; };
+		1FC819C42EA49532006F4B06 /* libsamplerate.0.2.2.dylib in Copy 3rd-Party Dylibs */ = {isa = PBXBuildFile; fileRef = 1FC819C12EA49531006F4B06 /* libsamplerate.0.2.2.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		1FC819C52EA49532006F4B06 /* librubberband.3.dylib in Copy 3rd-Party Dylibs */ = {isa = PBXBuildFile; fileRef = 1FC819C22EA49532006F4B06 /* librubberband.3.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		1FC819C62EA49532006F4B06 /* libfftw3f.3.dylib in Copy 3rd-Party Dylibs */ = {isa = PBXBuildFile; fileRef = 1FC819C32EA49532006F4B06 /* libfftw3f.3.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		1FD8C5292EA42488009E0FEE /* fftw_bridge.c in Sources */ = {isa = PBXBuildFile; fileRef = 1FD8C5282EA42488009E0FEE /* fftw_bridge.c */; };
 		331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C80D7294CF71000263BE5 /* RunnerTests.swift */; };
 		335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */; };
 		33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC10F02044A3C60003C045 /* AppDelegate.swift */; };
@@ -53,36 +56,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		1F79C2C92E8F4D670079BF2D /* CopyFiles */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				1F79C2CB2E8F4E420079BF2D /* libsoundtouch_ffi.dylib in CopyFiles */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		1FC4B2D82E9E83EA00FDB7A6 /* CopyFiles */ = {
+		1FC4B2D82E9E83EA00FDB7A6 /* Copy 3rd-Party Dylibs */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 12;
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				1FC4B2DC2E9E85FA00FDB7A6 /* libfftw3f.3.dylib in CopyFiles */,
-				1FC4B2DD2E9E85FA00FDB7A6 /* librubberband.3.dylib in CopyFiles */,
-				1FC4B2DE2E9E85FA00FDB7A6 /* libsamplerate.0.2.2.dylib in CopyFiles */,
+				1FC819C42EA49532006F4B06 /* libsamplerate.0.2.2.dylib in Copy 3rd-Party Dylibs */,
+				1FC819C52EA49532006F4B06 /* librubberband.3.dylib in Copy 3rd-Party Dylibs */,
+				1FC819C62EA49532006F4B06 /* libfftw3f.3.dylib in Copy 3rd-Party Dylibs */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		33CC110E2044A8840003C045 /* Bundle Framework */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-			);
-			name = "Bundle Framework";
+			name = "Copy 3rd-Party Dylibs";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -90,11 +74,16 @@
 /* Begin PBXFileReference section */
 		09E1F02022E7093C4820F3C7 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		1AE8D40E1ED8DFC3A9353D45 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
-		1F79C2CA2E8F4E420079BF2D /* libsoundtouch_ffi.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libsoundtouch_ffi.dylib; path = ../native/build/libsoundtouch_ffi.dylib; sourceTree = "<group>"; };
 		1FB6A4062E5F2B8E00599094 /* Profile.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Profile.xcconfig; sourceTree = "<group>"; };
-		1FC4B2D92E9E85FA00FDB7A6 /* libfftw3f.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfftw3f.3.dylib; path = ../../../../../../opt/homebrew/Cellar/fftw/3.3.10_2/lib/libfftw3f.3.dylib; sourceTree = "<group>"; };
-		1FC4B2DA2E9E85FA00FDB7A6 /* librubberband.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = librubberband.3.dylib; path = ../../../../../../opt/homebrew/Cellar/rubberband/4.0.0/lib/librubberband.3.dylib; sourceTree = "<group>"; };
-		1FC4B2DB2E9E85FA00FDB7A6 /* libsamplerate.0.2.2.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libsamplerate.0.2.2.dylib; path = ../../../../../../opt/homebrew/Cellar/libsamplerate/0.2.2/lib/libsamplerate.0.2.2.dylib; sourceTree = "<group>"; };
+		1FC819C12EA49531006F4B06 /* libsamplerate.0.2.2.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libsamplerate.0.2.2.dylib; path = ThirdParty/libsamplerate.0.2.2.dylib; sourceTree = "<group>"; };
+		1FC819C22EA49532006F4B06 /* librubberband.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = librubberband.3.dylib; path = ThirdParty/librubberband.3.dylib; sourceTree = "<group>"; };
+		1FC819C32EA49532006F4B06 /* libfftw3f.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfftw3f.3.dylib; path = ThirdParty/libfftw3f.3.dylib; sourceTree = "<group>"; };
+		1FD8C5282EA42488009E0FEE /* fftw_bridge.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = fftw_bridge.c; path = Runner/fftw_bridge.c; sourceTree = "<group>"; };
+		1FD8C52D2EA42585009E0FEE /* fftw_bridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = fftw_bridge.h; path = Runner/fftw_bridge.h; sourceTree = "<group>"; };
+		1FE1DA292EA1FB7200C9B09B /* libfftw3.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfftw3.3.dylib; path = ../../../../../../opt/homebrew/Cellar/fftw/3.3.10_2/lib/libfftw3.3.dylib; sourceTree = "<group>"; };
+		1FE9CE9B2EA329E0002AAFE3 /* libfftw3f.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfftw3f.3.dylib; path = ThirdParty/libfftw3f.3.dylib; sourceTree = "<group>"; };
+		1FE9CEA42EA3369E002AAFE3 /* libsamplerate.0.2.2.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libsamplerate.0.2.2.dylib; path = ThirdParty/libsamplerate.0.2.2.dylib; sourceTree = "<group>"; };
+		1FE9CEA52EA3369E002AAFE3 /* librubberband.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = librubberband.3.dylib; path = ThirdParty/librubberband.3.dylib; sourceTree = "<group>"; };
 		2754B0ADFA6F78E12B755C04 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C80D5294CF71000263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C80D7294CF71000263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
@@ -134,6 +123,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1FC819BE2EA4951B006F4B06 /* libfftw3f.3.dylib in Frameworks */,
+				1FC819BF2EA4951B006F4B06 /* librubberband.3.dylib in Frameworks */,
+				1FC819C02EA4951B006F4B06 /* libsamplerate.0.2.2.dylib in Frameworks */,
 				F1F6EBED2BFDC6BBD43FD327 /* Pods_Runner.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -163,10 +155,11 @@
 		33CC10E42044A3C60003C045 = {
 			isa = PBXGroup;
 			children = (
-				1FC4B2D92E9E85FA00FDB7A6 /* libfftw3f.3.dylib */,
-				1FC4B2DA2E9E85FA00FDB7A6 /* librubberband.3.dylib */,
-				1FC4B2DB2E9E85FA00FDB7A6 /* libsamplerate.0.2.2.dylib */,
-				1F79C2CA2E8F4E420079BF2D /* libsoundtouch_ffi.dylib */,
+				1FC819C32EA49532006F4B06 /* libfftw3f.3.dylib */,
+				1FC819C22EA49532006F4B06 /* librubberband.3.dylib */,
+				1FC819C12EA49531006F4B06 /* libsamplerate.0.2.2.dylib */,
+				1FD8C52D2EA42585009E0FEE /* fftw_bridge.h */,
+				1FD8C5282EA42488009E0FEE /* fftw_bridge.c */,
 				33FAB671232836740065AC1E /* Runner */,
 				33CEB47122A05771004F2AC0 /* Flutter */,
 				331C80D6294CF71000263BE5 /* RunnerTests */,
@@ -224,6 +217,10 @@
 		AD285CB2FA043BB9441BC6B6 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				1FE9CEA52EA3369E002AAFE3 /* librubberband.3.dylib */,
+				1FE9CEA42EA3369E002AAFE3 /* libsamplerate.0.2.2.dylib */,
+				1FE9CE9B2EA329E0002AAFE3 /* libfftw3f.3.dylib */,
+				1FE1DA292EA1FB7200C9B09B /* libfftw3.3.dylib */,
 				993AFC14F90683D1EA218F4E /* Pods_Runner.framework */,
 				2754B0ADFA6F78E12B755C04 /* Pods_RunnerTests.framework */,
 			);
@@ -273,11 +270,9 @@
 				33CC10E92044A3C60003C045 /* Sources */,
 				33CC10EA2044A3C60003C045 /* Frameworks */,
 				33CC10EB2044A3C60003C045 /* Resources */,
-				33CC110E2044A8840003C045 /* Bundle Framework */,
+				1FE9CEAA2EA33F6A002AAFE3 /* ShellScript */,
+				1FC4B2D82E9E83EA00FDB7A6 /* Copy 3rd-Party Dylibs */,
 				3399D490228B24CF009A79C7 /* ShellScript */,
-				1F79C2C92E8F4D670079BF2D /* CopyFiles */,
-				1FC4B2D82E9E83EA00FDB7A6 /* CopyFiles */,
-				1FC4B2DF2E9E863000FDB7A6 /* ShellScript */,
 				2CE8A66891633210461B8D20 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
@@ -361,7 +356,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		1FC4B2DF2E9E863000FDB7A6 /* ShellScript */ = {
+		1FE9CEAA2EA33F6A002AAFE3 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -376,7 +371,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# === Stage & Sign RubberBand dylibs ===\nset -e\n\nAPP=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nFWK=\"$APP/Contents/Frameworks\"\n\nmkdir -p \"$FWK\"\n\n# Homebrew 기본 경로 (Apple Silicon / Intel 순서)\nHB_ARM=\"/opt/homebrew/lib\"\nHB_X86=\"/usr/local/lib\"\n\n# 원본 경로 탐색 함수\npick_src() {\n  local name=\"$1\"\n  if [ -f \"$HB_ARM/$name\" ]; then echo \"$HB_ARM/$name\"; return 0; fi\n  if [ -f \"$HB_X86/$name\" ]; then echo \"$HB_X86/$name\"; return 0; fi\n  return 1\n}\n\n# 필수 dylib 경로들\nRUBBERBAND_SRC=\"$(pick_src 'librubberband.dylib' || pick_src 'librubberband.3.dylib')\"\nSAMPLERATE_SRC=\"$(pick_src 'libsamplerate.dylib' || pick_src 'libsamplerate.0.2.2.dylib')\"\nFFTW_SRC=\"$(pick_src 'libfftw3f.3.dylib' || pick_src 'libfftw3.3.dylib')\"\n\ncopy_and_fix() {\n  local src=\"$1\"\n  [ -z \"$src\" ] && return 0\n  local base=\"$(basename \"$src\")\"\n  cp -f \"$src\" \"$FWK/$base\"\n  install_name_tool -id \"@rpath/$base\" \"$FWK/$base\" 2>/dev/null || true\n  install_name_tool -add_rpath \"@loader_path/.\" \"$FWK/$base\" 2>/dev/null || true\n  codesign --force --sign - --timestamp=none \"$FWK/$base\" 2>/dev/null || true\n  echo \"✓ Staged $base\"\n}\n\ncopy_and_fix \"$RUBBERBAND_SRC\"\ncopy_and_fix \"$SAMPLERATE_SRC\"\ncopy_and_fix \"$FFTW_SRC\"\n\necho \"RubberBand dylibs staged → $FWK\"\n";
+			shellScript = "echo \"$PRODUCT_NAME.app\" > \"$PROJECT_DIR\"/Flutter/ephemeral/.app_filename && \\\n\"$FLUTTER_ROOT\"/packages/flutter_tools/bin/macos_assemble.sh embed\n";
 		};
 		2CE8A66891633210461B8D20 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -411,7 +406,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "echo \"$PRODUCT_NAME.app\" > \"$PROJECT_DIR\"/Flutter/ephemeral/.app_filename && \"$FLUTTER_ROOT\"/packages/flutter_tools/bin/macos_assemble.sh embed\n";
+			shellScript = "# === Fix @rpath & Deep-sign (Project-local dylibs are already copied by Copy Files) ===\nset -e\n\nAPP=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nBIN=\"$APP/Contents/MacOS/${PRODUCT_NAME}\"\nFWK=\"$APP/Contents/Frameworks\"\n\n# 1) 번들 내부 dylib들의 id를 @rpath로 보정 (중복 호출 무시)\nfor N in libfftw3f.3.dylib librubberband.3.dylib libsamplerate.0.2.2.dylib; do\n  [ -f \"$FWK/$N\" ] || continue\n  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/install_name_tool \\\n    -id \"@rpath/$N\" \"$FWK/$N\" 2>/dev/null || true\ndone\n\n# 2) 실행 파일에 남아 있을 수 있는 외부 경로 참조를 @rpath로 교정\nfixref() {\n  local from=\"$1\" to=\"$2\"\n  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/install_name_tool \\\n    -change \"$from\" \"$to\" \"$BIN\" 2>/dev/null || true\n}\n\n# fftw\nfixref \"/opt/homebrew/opt/fftw/lib/libfftw3f.3.dylib\"  \"@rpath/libfftw3f.3.dylib\"\nfixref \"/usr/local/opt/fftw/lib/libfftw3f.3.dylib\"     \"@rpath/libfftw3f.3.dylib\"\n\n# rubberband\nfixref \"/opt/homebrew/opt/rubberband/lib/librubberband.3.dylib\" \"@rpath/librubberband.3.dylib\"\nfixref \"/usr/local/opt/rubberband/lib/librubberband.3.dylib\"    \"@rpath/librubberband.3.dylib\"\n\n# libsamplerate (버전/심볼릭 모두 대비)\nfixref \"/opt/homebrew/opt/libsamplerate/lib/libsamplerate.0.2.2.dylib\" \"@rpath/libsamplerate.0.2.2.dylib\"\nfixref \"/usr/local/opt/libsamplerate/lib/libsamplerate.0.2.2.dylib\"    \"@rpath/libsamplerate.0.2.2.dylib\"\nfixref \"/opt/homebrew/opt/libsamplerate/lib/libsamplerate.0.dylib\"     \"@rpath/libsamplerate.0.2.2.dylib\"\nfixref \"/usr/local/opt/libsamplerate/lib/libsamplerate.0.dylib\"        \"@rpath/libsamplerate.0.2.2.dylib\"\n\n# 3) rpath 보강(이미 있으면 조용히 통과)\nfor R in \"@executable_path/../Frameworks\" \"@loader_path/../Frameworks\"; do\n  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/install_name_tool \\\n    -add_rpath \"$R\" \"$BIN\" 2>/dev/null || true\ndone\n\n# 4) 최종 서명\n/usr/bin/codesign --force --deep -s - \"$APP\"\necho \"✓ Fixed @rpath and deep-signed: $APP\"\n";
 		};
 		33CC111E2044C6BF0003C045 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -492,6 +487,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1FD8C5292EA42488009E0FEE /* fftw_bridge.c in Sources */,
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
@@ -603,11 +599,12 @@
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CODE_SIGN_IDENTITY = "-";
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = YES;
+				DEAD_CODE_STRIPPING = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				EXCLUDED_ARCHS = "";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -615,6 +612,8 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = "";
+				LIBRARY_SEARCH_PATHS = "";
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = macosx;
@@ -632,12 +631,117 @@
 				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEAD_CODE_STRIPPING = NO;
+				EXCLUDED_ARCHS = "";
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/app_links/app_links.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/audio_session/audio_session.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/desktop_drop/desktop_drop.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/file_picker/file_picker.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/just_audio/just_audio.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/just_waveform/just_waveform.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/media_kit_libs_macos_video/media_kit_libs_macos_video.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/media_kit_video/media_kit_video.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/package_info_plus/package_info_plus.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/path_provider_foundation/path_provider_foundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/screen_retriever/screen_retriever.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/shared_preferences_foundation/shared_preferences_foundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/url_launcher_macos/url_launcher_macos.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/video_player_avfoundation/video_player_avfoundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/volume_controller/volume_controller.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/wakelock_plus/wakelock_plus.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/window_manager/window_manager.framework/Headers\"",
+					/usr/local/opt/fftw/include,
+					/opt/homebrew/opt/fftw/include,
+					"$(PROJECT_DIR)/macos/Runner",
+				);
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+					"$(PROJECT_DIR)/ThirdParty",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					"\"Ass\"",
+					"-framework",
+					"\"Avcodec\"",
+					"-framework",
+					"\"Avfilter\"",
+					"-framework",
+					"\"Avformat\"",
+					"-framework",
+					"\"Avutil\"",
+					"-framework",
+					"\"Dav1d\"",
+					"-framework",
+					"\"Freetype\"",
+					"-framework",
+					"\"Fribidi\"",
+					"-framework",
+					"\"Harfbuzz\"",
+					"-framework",
+					"\"Mbedcrypto\"",
+					"-framework",
+					"\"Mbedtls\"",
+					"-framework",
+					"\"Mbedx509\"",
+					"-framework",
+					"\"Mpv\"",
+					"-framework",
+					"\"Png16\"",
+					"-framework",
+					"\"Swresample\"",
+					"-framework",
+					"\"Swscale\"",
+					"-framework",
+					"\"Uchardet\"",
+					"-framework",
+					"\"Xml2\"",
+					"-framework",
+					"\"app_links\"",
+					"-framework",
+					"\"audio_session\"",
+					"-framework",
+					"\"desktop_drop\"",
+					"-framework",
+					"\"file_picker\"",
+					"-framework",
+					"\"just_audio\"",
+					"-framework",
+					"\"just_waveform\"",
+					"-framework",
+					"\"media_kit_libs_macos_video\"",
+					"-framework",
+					"\"media_kit_video\"",
+					"-framework",
+					"\"package_info_plus\"",
+					"-framework",
+					"\"path_provider_foundation\"",
+					"-framework",
+					"\"screen_retriever\"",
+					"-framework",
+					"\"shared_preferences_foundation\"",
+					"-framework",
+					"\"url_launcher_macos\"",
+					"-framework",
+					"\"video_player_avfoundation\"",
+					"-framework",
+					"\"volume_controller\"",
+					"-framework",
+					"\"wakelock_plus\"",
+					"-framework",
+					"\"window_manager\"",
+					"-Wl,-u,_fftw_analyze_bands_f32",
+				);
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
 			};
@@ -681,11 +785,12 @@
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CODE_SIGN_IDENTITY = "-";
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = YES;
+				DEAD_CODE_STRIPPING = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				EXCLUDED_ARCHS = "";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -699,6 +804,8 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = "";
+				LIBRARY_SEARCH_PATHS = "";
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -737,11 +844,12 @@
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CODE_SIGN_IDENTITY = "-";
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = YES;
+				DEAD_CODE_STRIPPING = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				EXCLUDED_ARCHS = "";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -749,6 +857,8 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = "";
+				LIBRARY_SEARCH_PATHS = "";
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = macosx;
@@ -766,12 +876,117 @@
 				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEAD_CODE_STRIPPING = NO;
+				EXCLUDED_ARCHS = "";
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/app_links/app_links.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/audio_session/audio_session.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/desktop_drop/desktop_drop.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/file_picker/file_picker.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/just_audio/just_audio.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/just_waveform/just_waveform.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/media_kit_libs_macos_video/media_kit_libs_macos_video.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/media_kit_video/media_kit_video.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/package_info_plus/package_info_plus.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/path_provider_foundation/path_provider_foundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/screen_retriever/screen_retriever.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/shared_preferences_foundation/shared_preferences_foundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/url_launcher_macos/url_launcher_macos.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/video_player_avfoundation/video_player_avfoundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/volume_controller/volume_controller.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/wakelock_plus/wakelock_plus.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/window_manager/window_manager.framework/Headers\"",
+					/usr/local/opt/fftw/include,
+					/opt/homebrew/opt/fftw/include,
+					"$(PROJECT_DIR)/macos/Runner",
+				);
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+					"$(PROJECT_DIR)/ThirdParty",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					"\"Ass\"",
+					"-framework",
+					"\"Avcodec\"",
+					"-framework",
+					"\"Avfilter\"",
+					"-framework",
+					"\"Avformat\"",
+					"-framework",
+					"\"Avutil\"",
+					"-framework",
+					"\"Dav1d\"",
+					"-framework",
+					"\"Freetype\"",
+					"-framework",
+					"\"Fribidi\"",
+					"-framework",
+					"\"Harfbuzz\"",
+					"-framework",
+					"\"Mbedcrypto\"",
+					"-framework",
+					"\"Mbedtls\"",
+					"-framework",
+					"\"Mbedx509\"",
+					"-framework",
+					"\"Mpv\"",
+					"-framework",
+					"\"Png16\"",
+					"-framework",
+					"\"Swresample\"",
+					"-framework",
+					"\"Swscale\"",
+					"-framework",
+					"\"Uchardet\"",
+					"-framework",
+					"\"Xml2\"",
+					"-framework",
+					"\"app_links\"",
+					"-framework",
+					"\"audio_session\"",
+					"-framework",
+					"\"desktop_drop\"",
+					"-framework",
+					"\"file_picker\"",
+					"-framework",
+					"\"just_audio\"",
+					"-framework",
+					"\"just_waveform\"",
+					"-framework",
+					"\"media_kit_libs_macos_video\"",
+					"-framework",
+					"\"media_kit_video\"",
+					"-framework",
+					"\"package_info_plus\"",
+					"-framework",
+					"\"path_provider_foundation\"",
+					"-framework",
+					"\"screen_retriever\"",
+					"-framework",
+					"\"shared_preferences_foundation\"",
+					"-framework",
+					"\"url_launcher_macos\"",
+					"-framework",
+					"\"video_player_avfoundation\"",
+					"-framework",
+					"\"volume_controller\"",
+					"-framework",
+					"\"wakelock_plus\"",
+					"-framework",
+					"\"window_manager\"",
+					"-Wl,-u,_fftw_analyze_bands_f32",
+				);
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -787,12 +1002,117 @@
 				CODE_SIGN_ENTITLEMENTS = Runner/Release.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEAD_CODE_STRIPPING = NO;
+				EXCLUDED_ARCHS = "";
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/app_links/app_links.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/audio_session/audio_session.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/desktop_drop/desktop_drop.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/file_picker/file_picker.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/just_audio/just_audio.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/just_waveform/just_waveform.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/media_kit_libs_macos_video/media_kit_libs_macos_video.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/media_kit_video/media_kit_video.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/package_info_plus/package_info_plus.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/path_provider_foundation/path_provider_foundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/screen_retriever/screen_retriever.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/shared_preferences_foundation/shared_preferences_foundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/url_launcher_macos/url_launcher_macos.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/video_player_avfoundation/video_player_avfoundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/volume_controller/volume_controller.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/wakelock_plus/wakelock_plus.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/window_manager/window_manager.framework/Headers\"",
+					/usr/local/opt/fftw/include,
+					/opt/homebrew/opt/fftw/include,
+					"$(PROJECT_DIR)/macos/Runner",
+				);
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+					"$(PROJECT_DIR)/ThirdParty",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					"\"Ass\"",
+					"-framework",
+					"\"Avcodec\"",
+					"-framework",
+					"\"Avfilter\"",
+					"-framework",
+					"\"Avformat\"",
+					"-framework",
+					"\"Avutil\"",
+					"-framework",
+					"\"Dav1d\"",
+					"-framework",
+					"\"Freetype\"",
+					"-framework",
+					"\"Fribidi\"",
+					"-framework",
+					"\"Harfbuzz\"",
+					"-framework",
+					"\"Mbedcrypto\"",
+					"-framework",
+					"\"Mbedtls\"",
+					"-framework",
+					"\"Mbedx509\"",
+					"-framework",
+					"\"Mpv\"",
+					"-framework",
+					"\"Png16\"",
+					"-framework",
+					"\"Swresample\"",
+					"-framework",
+					"\"Swscale\"",
+					"-framework",
+					"\"Uchardet\"",
+					"-framework",
+					"\"Xml2\"",
+					"-framework",
+					"\"app_links\"",
+					"-framework",
+					"\"audio_session\"",
+					"-framework",
+					"\"desktop_drop\"",
+					"-framework",
+					"\"file_picker\"",
+					"-framework",
+					"\"just_audio\"",
+					"-framework",
+					"\"just_waveform\"",
+					"-framework",
+					"\"media_kit_libs_macos_video\"",
+					"-framework",
+					"\"media_kit_video\"",
+					"-framework",
+					"\"package_info_plus\"",
+					"-framework",
+					"\"path_provider_foundation\"",
+					"-framework",
+					"\"screen_retriever\"",
+					"-framework",
+					"\"shared_preferences_foundation\"",
+					"-framework",
+					"\"url_launcher_macos\"",
+					"-framework",
+					"\"video_player_avfoundation\"",
+					"-framework",
+					"\"volume_controller\"",
+					"-framework",
+					"\"wakelock_plus\"",
+					"-framework",
+					"\"window_manager\"",
+					"-Wl,-u,_fftw_analyze_bands_f32",
+				);
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
 			};
