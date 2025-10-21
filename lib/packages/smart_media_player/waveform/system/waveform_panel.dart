@@ -1,34 +1,18 @@
 // lib/packages/smart_media_player/waveform/system/waveform_panel.dart
+// v3.31.4 | 파형 상호작용 복원: 클릭/드래그로 A/B 설정, 핸들 드래그, 더블탭 해제
+
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
-
-import '../waveform_tuning.dart';
 import '../waveform_cache.dart';
 import '../waveform_view.dart';
 import 'waveform_system.dart';
 
-/// SmartMediaPlayer에 의존하지 않는 “독립 파형 모듈”
-/// - 캐시 빌드(loadOrBuildStereoSigned)
-/// - WaveformView 그리기
-/// - 컨트롤러(WaveformController)와 양방향 바인딩
-
- 
 class WaveformPanel extends StatefulWidget {
   final WaveformController controller;
-
-  /// 미디어 식별
   final String mediaPath;
   final String mediaHash;
   final String cacheDir;
-
-  /// 외부 저장/동기화 트리거를 위해 호출자가 받을 수 있는 훅(선택)
-  final VoidCallback? onStateDirty; // 사이드카/메모 등 저장 디바운스 트리거
-
-  /// 시각 모드 고정(Transcribe-like 등)
-  final bool visualExact;
-  final bool useSignedAmplitude;
-  final bool splitStereoQuadrants;
+  final VoidCallback? onStateDirty;
 
   const WaveformPanel({
     super.key,
@@ -37,9 +21,6 @@ class WaveformPanel extends StatefulWidget {
     required this.mediaHash,
     required this.cacheDir,
     this.onStateDirty,
-    this.visualExact = true,
-    this.useSignedAmplitude = true,
-    this.splitStereoQuadrants = true,
   });
 
   @override
@@ -47,245 +28,226 @@ class WaveformPanel extends StatefulWidget {
 }
 
 class _WaveformPanelState extends State<WaveformPanel> {
-  List<double> _l = [];
-  List<double> _r = [];
+  List<double> _rmsL = const [], _rmsR = const [];
   double _progress = 0.0;
+  Future<void>? _loadFut;
+
+  // 드래그 상태
+  bool _draggingA = false;
+  bool _draggingB = false;
+  bool _dragSelecting = false;
+
+  // 제스처 파라미터
+  static const double _handleHitPx = 10; // 핸들 클릭 판정 반경
 
   @override
   void initState() {
     super.initState();
-    _buildWaveform();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureLoaded());
   }
 
-  @override
-  void didUpdateWidget(covariant WaveformPanel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // 다른 파일로 바뀌면 재생성
-    if (oldWidget.mediaPath != widget.mediaPath ||
-        oldWidget.mediaHash != widget.mediaHash ||
-        oldWidget.cacheDir != widget.cacheDir) {
-      _buildWaveform();
-    }
+  void _ensureLoaded() {
+    if (_loadFut != null) return;
+    _loadFut = _load().whenComplete(() => _loadFut = null);
   }
 
-  Future<void> _buildWaveform() async {
-    setState(() {
-      _l = [];
-      _r = [];
-      _progress = 0.02;
-    });
-
+  Future<void> _load() async {
+    setState(() => _progress = 0.03);
     final durHint = widget.controller.duration.value;
-
-    try {
-      final (lSigned, rSigned) = await WaveformCache.instance
-          .loadOrBuildStereoSigned(
-            mediaPath: widget.mediaPath,
-            cacheDir: widget.cacheDir,
-            cacheKey: widget.mediaHash,
-            durationHint: durHint,
-            onProgress: (p) {
-              if (!mounted) return;
-              final v = p.isNaN ? 0.0 : p.clamp(0.0, 1.0);
-              setState(() => _progress = v);
-            },
-          );
-
-      if (!mounted) return;
-      setState(() {
-        _l = lSigned;
-        _r = rSigned;
-        _progress = 1.0;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('파형 생성 실패: $e')));
-    }
+    final res = await WaveformCache.instance.loadOrBuildStereoVectors(
+      mediaPath: widget.mediaPath,
+      cacheDir: widget.cacheDir,
+      cacheKey: widget.mediaHash,
+      durationHint: durHint,
+      onProgress: (p) {
+        if (!mounted) return;
+        setState(() => _progress = p.clamp(0.0, 1.0));
+      },
+    );
+    if (!mounted) return;
+    setState(() {
+      _rmsL = res.rmsL;
+      _rmsR = res.rmsR;
+      _progress = 1.0;
+    });
   }
 
-  @override
-  void dispose() {
-    super.dispose();
+  // === 좌표 <-> 시간 변환 ===
+  Duration _dxToTime(Offset localPos, Size size) {
+    final c = widget.controller;
+    final width = size.width;
+    if (width <= 0 || c.duration.value <= Duration.zero) return Duration.zero;
+
+    final f = (localPos.dx / width).clamp(0.0, 1.0);
+    final viewStart = c.viewStart.value.clamp(0.0, 1.0);
+    final viewWidth = c.viewWidth.value.clamp(0.0, 1.0);
+    final g = (viewStart + f * viewWidth).clamp(0.0, 1.0);
+    final ms = (g * c.duration.value.inMilliseconds).round();
+    return Duration(milliseconds: ms);
+  }
+
+  double _timeToDx(Duration t, Size size) {
+    final c = widget.controller;
+    final width = size.width;
+    final f =
+        t.inMilliseconds /
+        (c.duration.value.inMilliseconds > 0
+            ? c.duration.value.inMilliseconds
+            : 1);
+    final v = ((f - c.viewStart.value) / c.viewWidth.value).clamp(0.0, 1.0);
+    return v * width;
+  }
+
+  bool _isNear(double x, double targetX) => (x - targetX).abs() <= _handleHitPx;
+
+  void _setA(Duration t) {
+    final c = widget.controller;
+    c.selectionA.value = t;
+    if (c.selectionB.value != null && c.selectionB.value! < t) {
+      // A가 B보다 뒤라면 스왑
+      final b = c.selectionB.value!;
+      c.selectionB.value = t;
+      c.selectionA.value = b;
+    }
+    widget.onStateDirty?.call();
+  }
+
+  void _setB(Duration t) {
+    final c = widget.controller;
+    if (c.selectionA.value == null) {
+      c.selectionA.value = t;
+    } else {
+      c.selectionB.value = t;
+      if (c.selectionB.value! < c.selectionA.value!) {
+        final a = c.selectionA.value!;
+        c.selectionA.value = c.selectionB.value;
+        c.selectionB.value = a;
+      }
+    }
+    widget.onStateDirty?.call();
+  }
+
+  void _clearAB() {
+    final c = widget.controller;
+    c.selectionA.value = null;
+    c.selectionB.value = null;
+    widget.onStateDirty?.call();
   }
 
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
 
-    // 컨트롤러의 값들을 즉시 읽어 위젯으로 전달
-    return AnimatedBuilder(
-      animation: Listenable.merge([
-        c.duration,
-        c.position,
-        c.viewStart,
-        c.viewWidth,
-        c.loopA,
-        c.loopB,
-        c.loopOn,
-        c.startCue,
-        c.selA,
-        c.selB,
-        c.markers,
-      ]),
-      builder: (ctx, _) {
-        final duration = c.duration.value;
-        final position = c.position.value;
-        final loopA = c.loopA.value;
-        final loopB = c.loopB.value;
-        final loopOn = c.loopOn.value;
-        final startCue = c.startCue.value;
-        final viewStart = c.viewStart.value;
-        final viewWidth = c.viewWidth.value;
+    return LayoutBuilder(
+      builder: (ctx, box) {
+        final ready = _rmsL.isNotEmpty;
+        final vs = c.viewStart.value.clamp(0.0, 1.0);
+        final vw = c.viewWidth.value.clamp(0.02, 1.0);
 
-        final markers = c.markers.value;
-        final markerDurations = markers.map((e) => e.t).toList();
-        final markerLabels = markers.map((e) => e.label).toList();
-        final markerColors = markers.map((e) => e.color).toList();
+        if (!ready) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              LinearProgressIndicator(
+                value: (_progress > 0 && _progress <= 1.0) ? _progress : null,
+                minHeight: 2,
+              ),
+              const SizedBox(height: 12),
+              const Center(child: Text('파형 로딩 중…')),
+            ],
+          );
+        }
 
-        final ready = _l.isNotEmpty && _r.isNotEmpty;
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onDoubleTap: () {
+            _clearAB();
+            setState(() {}); // 뷰 리드로우
+          },
+          onTapDown: (d) {
+            final local = d.localPosition;
+            final size = Size(box.maxWidth, 160);
+            final t = _dxToTime(local, size);
+            // 탭: 재생 위치 이동 + 시작점(A) 지정
+            c.position.value = t;
+            _setA(t);
+            // 외부 플레이어(있다면)로 seek는 컨트롤러 바인딩 쪽에서 처리됨
+            setState(() {});
+          },
+          onPanStart: (d) {
+            final size = Size(box.maxWidth, 160);
+            final dx = d.localPosition.dx;
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 헤더(파일명/프로그레스)
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    p.basename(widget.mediaPath),
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                if (_progress < 1.0)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text('파형 ${(_progress * 100).toStringAsFixed(0)}%'),
-                  ),
-              ],
+            // 핸들 근접 검사
+            _draggingA = false;
+            _draggingB = false;
+            _dragSelecting = false;
+
+            final a = c.selectionA.value;
+            final b = c.selectionB.value;
+            if (a != null) {
+              final ax = _timeToDx(a, size);
+              if (_isNear(dx, ax)) _draggingA = true;
+            }
+            if (!_draggingA && b != null) {
+              final bx = _timeToDx(b, size);
+              if (_isNear(dx, bx)) _draggingB = true;
+            }
+            if (!_draggingA && !_draggingB) {
+              // 새 구간 선택 시작
+              _dragSelecting = true;
+              final t = _dxToTime(d.localPosition, size);
+              c.selectionA.value = t;
+              c.selectionB.value = null;
+            }
+            setState(() {});
+          },
+          onPanUpdate: (d) {
+            final size = Size(box.maxWidth, 160);
+            final t = _dxToTime(d.localPosition, size);
+
+            if (_draggingA) {
+              _setA(t);
+            } else if (_draggingB) {
+              _setB(t);
+            } else if (_dragSelecting) {
+              _setB(t);
+            }
+            setState(() {});
+          },
+          onPanEnd: (_) {
+            _draggingA = _draggingB = _dragSelecting = false;
+            widget.onStateDirty?.call();
+            setState(() {});
+          },
+          child: SizedBox(
+            height: 160,
+            child: WaveformView(
+              // 호환 필드
+              peaks: _rmsL,
+              peaksRight: null,
+              // 타임라인
+              duration: c.duration.value,
+              position: c.position.value,
+              loopA: c.selectionA.value,
+              loopB: c.selectionB.value,
+              loopOn:
+                  (c.selectionA.value != null && c.selectionB.value != null),
+              markers: const [],
+              // 뷰포트 (오토줌 없음)
+              viewStart: vs,
+              viewWidth: vw,
+              // 렌더 옵션
+              splitStereoQuadrants: false,
+              // 실제 데이터
+              rmsLeft: _rmsL,
+              rmsRight: null,
+              // 핸들 표시 옵션 (뷰 내부에서 그림)
+              showHandles: true,
             ),
-            const SizedBox(height: 8),
-
-            SizedBox(
-              height: WaveformTuning.panelHeight, // e.g. 100~130
-              child: !ready
-                  ? Row(
-                      children: [
-                        const SizedBox(
-                          height: 22,
-                          width: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '파형 준비 중… ${(_progress * 100).toStringAsFixed(0)}%',
-                        ),
-                      ],
-                    )
-                  : ClipRect(
-                      // 오버플로 경고 방지
-                      child: WaveformView(
-                        peaks: _l,
-                        peaksRight: _r,
-                        peaksAreNormalized: true,
-                        visualExact: widget.visualExact,
-                        useSignedAmplitude: widget.useSignedAmplitude,
-                        splitStereoQuadrants: widget.splitStereoQuadrants,
-                        drawMode: WaveDrawMode.path,
-                        pathSwitchBarsPerPixel: 9999,
-                        candleSwitchBarsPerPixel: 9999,
-
-                        duration: duration,
-                        position: position,
-                        loopA: loopA,
-                        loopB: loopB,
-                        loopOn: loopOn,
-                        markers: markerDurations,
-                        markerLabels: markerLabels,
-                        markerColors: markerColors,
-                        viewStart: viewStart,
-                        viewWidth: viewWidth,
-                        selectionMode: true,
-                        selectionA: c.selA.value,
-                        selectionB: c.selB.value,
-                        startCue: startCue,
-
-
-                      // === 이벤트 바인딩: 컨트롤러로 되돌림 ===
-                      onSeek: (d) async {
-                        await widget.controller.onSeek?.call(d);
-                        widget.onStateDirty?.call();
-                      },
-                      onStartCueChanged: (d) {
-                        c.setStartCue(_clampDur(d, duration));
-                        widget.onStateDirty?.call();
-                      },
-                      onLoopAChanged: (d) {
-                        c.setLoop(a: _clampDur(d, duration));
-                        widget.onStateDirty?.call();
-                      },
-                      onLoopBChanged: (d) {
-                        c.setLoop(b: _clampDur(d, duration));
-                        widget.onStateDirty?.call();
-                      },
-                      onRailTapToSeek: (d) async {
-                        await widget.controller.onSeek?.call(d);
-                      },
-                      onMarkerDragStart: (_) {},
-                      onMarkerDragUpdate: (i, d) {
-                        final list = List<WfMarker>.from(c.markers.value);
-                        if (i >= 0 && i < list.length) {
-                          list[i].t = _clampDur(d, duration);
-                          c.setMarkers(list);
-                        }
-                      },
-                      onMarkerDragEnd: (_, __) => widget.onStateDirty?.call(),
-                      onSelectStart: (d) => c.selA.value = d,
-                      onSelectUpdate: (d) => c.selB.value = d,
-                      onSelectEnd: (a, b) {
-                        if (a == null || b == null) return;
-                        final A = a <= b ? a : b;
-                        final B = b >= a ? b : a;
-                        c.setLoop(
-                          a: A,
-                          b: _safeLoopB(A, B, duration),
-                          on: true,
-                        );
-                        c.selA.value = null;
-                        c.selB.value = null;
-                        c.setStartCue(A);
-                        widget.onStateDirty?.call();
-                      },
-                    ),
-                  ),
-            ),
-          ],
+          ),
         );
       },
     );
-  }
-
-  Duration _clampDur(Duration v, Duration max) {
-    if (v < Duration.zero) return Duration.zero;
-    if (v > max && max > Duration.zero)
-      return max - const Duration(milliseconds: 1);
-    return v;
-  }
-
-  Duration _safeLoopB(Duration a, Duration b, Duration dur) {
-    var B = b - const Duration(milliseconds: 1);
-    if (B <= a) {
-      B = a + const Duration(milliseconds: 500);
-      if (dur > Duration.zero && B >= dur) {
-        final maxAllowed = dur - const Duration(milliseconds: 1);
-        if (maxAllowed <= Duration.zero) {
-          B = Duration.zero;
-        } else {
-          B = maxAllowed;
-        }
-      }
-    }
-    return B;
   }
 }

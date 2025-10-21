@@ -156,7 +156,7 @@ __attribute__((used, visibility("default"))) int fftw_analyze_bands_f32(
             }
             fftwf_execute(plan);
 
-            // bands: RMS(power) → dB → [0..1]
+            // bands: POWER mean → dB → [0..1]
             for (int b = 0; b < bands; b++)
             {
                 double pow_sum = 0.0;
@@ -178,10 +178,9 @@ __attribute__((used, visibility("default"))) int fftw_analyze_bands_f32(
                 if (bins < 1)
                     bins = 1;
                 const double mean_power = pow_sum / (double)bins;
-                const double rms = sqrt(fmax(mean_power, 1e-24));
 
-                // dBFS-ish (relative)
-                const double db = 10.0 * log10(fmax(rms, 1e-24));
+                // dBFS-ish: 10*log10(power)
+                const double db = 10.0 * log10(fmax(mean_power, 1e-24));
                 double norm = (db - (double)DB_MIN) / (double)DB_SPAN; // map [-80..0] → [0..1]
                 if (norm < 0.0)
                     norm = 0.0;

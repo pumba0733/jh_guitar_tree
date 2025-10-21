@@ -2,7 +2,6 @@
 import '../analyzer/waveform_analyzer_fftw.dart'
     show WaveformAnalyzerFftw, WaveformAnalyzerFftwOptions, BandEnergySeries;
 
-
 class _LodOut {
   final List<double> lowL, midL, highL;
   _LodOut(this.lowL, this.midL, this.highL);

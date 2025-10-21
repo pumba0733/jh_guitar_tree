@@ -1,3 +1,5 @@
+//lib/packages/smart_media_player/waveform/analyzer/fftw_bridge.dart
+
 // Native bridge (macOS: process symbol link)
 import 'dart:ffi' as ffi;
 import 'dart:io' show Platform;
@@ -59,7 +61,6 @@ class FftwBridge {
     required List<double> outRight,
     required int expectedFrames,
   }) {
-    
     final n = left.length;
     final pL = c.calloc<ffi.Float>(n);
     final pR = c.calloc<ffi.Float>(n);
