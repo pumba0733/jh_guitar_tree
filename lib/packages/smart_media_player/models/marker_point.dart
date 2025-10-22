@@ -1,4 +1,4 @@
-
+//lib/packages/smart_media_player/models/marker_point.dart
 import 'package:flutter/material.dart';
 
 /// 연주 지점 북마크

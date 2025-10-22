@@ -1,11 +1,9 @@
-// v3.31.1-streamfix | JustWaveform(Stream) API 맞춤 버전
-// - extract(...) → Stream<WaveformProgress>
-// - await for 로 진행률 수신 & 최종 Waveform 회수
-// - 이전 오류( progressCallback, await stream, stream을 Waveform로 사용 ) 전부 해결
+// lib/packages/smart_media_player/waveform/waveform_cache.dart
+// v3.31.6 | JustWaveform 캐시/로딩 안정화 + 형변환/널가드
 
+import 'dart:developer' as dev;
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:developer' as dev;
 
 import 'package:just_waveform/just_waveform.dart';
 import 'package:path/path.dart' as p;
@@ -15,14 +13,7 @@ typedef WaveformProgressCallback = void Function(double p);
 class WaveformLoadResult {
   final List<double> rmsL; // 0..1
   final List<double> rmsR; // 0..1
-  final List<double> signedL; // -1..+1 (옵션: 현재 미사용)
-  final List<double> signedR; // -1..+1 (옵션: 현재 미사용)
-  const WaveformLoadResult({
-    required this.rmsL,
-    required this.rmsR,
-    required this.signedL,
-    required this.signedR,
-  });
+  const WaveformLoadResult({required this.rmsL, required this.rmsR});
 }
 
 class WaveformCache {
@@ -43,94 +34,90 @@ class WaveformCache {
       '[CACHE] start key=$cacheKey, durHint=${durationHint?.inMilliseconds}ms',
     );
 
+    // 0) 입력/디렉토리 방어
+    final inFile = File(mediaPath);
+    if (!await inFile.exists()) {
+      onProgress?.call(1.0);
+      throw FileSystemException('오디오 파일을 찾을 수 없습니다', mediaPath);
+    }
+    final dir = Directory(cacheDir);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+
     // 1) JustWaveform: Stream<WaveformProgress> 순회
     final tmpWavPath = p.join(cacheDir, '$cacheKey.jw.cache');
-    final progressStream = JustWaveform.extract(
-      audioInFile: File(mediaPath),
-      waveOutFile: File(tmpWavPath),
-    );
+    final tmpFile = File(tmpWavPath);
+    try {
+      if (await tmpFile.exists()) {
+        await tmpFile.delete();
+      }
+    } catch (_) {}
 
     Waveform? wf;
-    await for (final e in progressStream) {
-      // 진행률 콜백 (0.0..1.0)
-      onProgress?.call((e.progress).clamp(0.0, 1.0));
-      if (e.waveform != null) {
-        wf = e.waveform!;
+    try {
+      final progressStream = JustWaveform.extract(
+        audioInFile: inFile,
+        waveOutFile: tmpFile,
+      );
+
+      await for (final e in progressStream) {
+        onProgress?.call((e.progress).clamp(0.0, 1.0));
+        if (e.waveform != null) {
+          wf = e.waveform!;
+        }
       }
+    } catch (e, st) {
+      dev.log('[CACHE] extract error: $e', stackTrace: st);
+      onProgress?.call(1.0);
+      rethrow;
     }
-    // 방어: 혹시 스트림이 끝났는데도 waveform이 없다면 실패 처리
+
     if (wf == null) {
       onProgress?.call(1.0);
       throw StateError(
-        'JustWaveform.extract() did not produce a Waveform for $mediaPath',
+        'JustWaveform.extract()가 Waveform을 생성하지 못했습니다: $mediaPath',
       );
     }
 
-    // 2) PCM → RMS 시퀀스
-    final n = wf!.data.length;
-    final ts = (targetSamples ?? math.min(60000, n)).clamp(512, 300000);
-    final hop = (n / ts).floor().clamp(1, n);
-    final win = (hop * 2).clamp(2, n);
-    dev.log('[CACHE] n=$n ts=$ts hop=$hop win=$win');
+    // 여기부터는 널 아님
+    final List<int> data = wf.data;
+    final int n = data.length;
 
-    final rms = _rmsSeriesFromWave(wf!, win, hop);
+    // 목표 샘플 수/윈도우 계산
+    final int ts = (targetSamples ?? math.min(60000, n)).clamp(512, 120000);
+    final int hop = (n / ts).ceil().clamp(1, n);
+    final int win = hop;
+
+    // 정규화 계수 (double)
+    double maxAbs = 0.0;
+    for (int i = 0; i < n; i++) {
+      final double v = data[i].toDouble().abs();
+      if (v > maxAbs) maxAbs = v;
+    }
+    if (maxAbs <= 0) maxAbs = 1.0;
+
+    List<double> rmsSeq() {
+      final out = <double>[];
+      for (int i = 0; i + win <= n; i += hop) {
+        double acc = 0.0;
+        for (int k = 0; k < win; k++) {
+          final double v = (data[i + k].toDouble() / maxAbs);
+          acc += v * v;
+        }
+        out.add(math.sqrt(acc / win));
+      }
+      if (out.isEmpty) out.add(0.0);
+      return out;
+    }
+
+    final rms = rmsSeq();
     final rmsL = rms;
     final rmsR = List<double>.from(rms);
-
-    // (옵션) 시그널 시각 디버깅용 signed 시퀀스
-    final signed = _signedSeriesFromWave(wf!, win, hop);
-    final signedL = signed;
-    final signedR = List<double>.from(signed);
 
     onProgress?.call(1.0);
     sw.stop();
     dev.log('[CACHE] done in ${sw.elapsedMilliseconds}ms, rms=${rmsL.length}');
-    return WaveformLoadResult(
-      rmsL: rmsL,
-      rmsR: rmsR,
-      signedL: signedL,
-      signedR: signedR,
-    );
-  }
-
-  // === Helpers ===
-
-  List<double> _rmsSeriesFromWave(Waveform wf, int win, int hop) {
-    final maxAbs = wf.data
-        .fold<int>(1, (m, v) => v.abs() > m ? v.abs() : m)
-        .toDouble();
-    final out = <double>[];
-    final N = wf.data.length;
-    for (int i = 0; i + win <= N; i += hop) {
-      double acc2 = 0.0;
-      for (int k = 0; k < win; k++) {
-        final s = (wf.data[i + k] / maxAbs);
-        acc2 += s * s;
-      }
-      final rms = math.sqrt(acc2 / win).clamp(0.0, 1.0);
-      out.add(rms);
-    }
-    if (out.isEmpty) out.add(0.0);
-    return out;
-  }
-
-  List<double> _signedSeriesFromWave(Waveform wf, int win, int hop) {
-    final maxAbs = wf.data
-        .fold<int>(1, (m, v) => v.abs() > m ? v.abs() : m)
-        .toDouble();
-    final out = <double>[];
-    bool sign = true;
-    final N = wf.data.length;
-    for (int i = 0; i + win <= N; i += hop) {
-      double m = 0.0;
-      for (int k = 0; k < win; k++) {
-        final v = (wf.data[i + k] / maxAbs).abs();
-        if (v > m) m = v;
-      }
-      out.add(sign ? m : -m);
-      sign = !sign;
-    }
-    if (out.isEmpty) out.add(0.0);
-    return out;
+    return WaveformLoadResult(rmsL: rmsL, rmsR: rmsR);
   }
 }

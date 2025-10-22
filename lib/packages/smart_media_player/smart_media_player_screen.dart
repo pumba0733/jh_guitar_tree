@@ -1,16 +1,5 @@
-// v3.07.1 | Storage sync + Lessons Realtime 양방향 메모 + XSC 완전 제거
-// - Fix: Supabase Realtime filter type (use null & filter in callback)
-// - Fix: duplicate _onKeyEvent removed
-// - Fix: remove unused _prevRateForHold
-// - Fix: MaterialStateProperty -> WidgetStateProperty
-// - Fix: rename local _viewSliderUsable -> viewSliderUsable
-//
-// - [SIDEcar] 편집 데이터(JSON) Storage(player_sidecars) 업/다운 + 백업
-// - [NOTES] lessons.memo 단일원본: SMP↔TodayLesson 실시간 동기화(Realtime)
-// - [OPEN] 원격 current.json vs 로컬 파일 LWW 선택 후 적용
-// - [KEEP] UI/오디오체인/루프/마커/2x홀드 등 v3.06.0 유지
-//
-// 필요 의존: supabase_flutter, player_sidecar_storage_service.dart, lesson_service.dart
+// v3.07.2 | Storage sync + Lessons Realtime 양방향 메모 + XSC 완전 제거
+// Patch: playback completed → auto play from startCue, WaveformController listeners (loopOn & markers sync)
 
 import 'dart:async';
 import 'dart:io';
@@ -40,18 +29,12 @@ import 'audio/rubberband_mpv_engine.dart';
 import 'utils/debounced_saver.dart';
 import 'video/sticky_video_overlay.dart';
 
-
-
-
-
-
 class SmartMediaPlayerScreen extends StatefulWidget {
   final String studentId;
   final String mediaHash;
   final String mediaPath;
   final String studentDir;
   final String? initialSidecar;
-
 
   const SmartMediaPlayerScreen({
     super.key,
@@ -95,7 +78,6 @@ class SmartMediaPlayerScreen extends StatefulWidget {
   static const double _zoomMax = 50.0; // 최대 50x
   static const double _minViewWidth = 1.0 / _zoomMax; // viewWidth 하한 (50x에 해당)
 
-
   @override
   State<SmartMediaPlayerScreen> createState() => _SmartMediaPlayerScreenState();
 }
@@ -125,8 +107,11 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   // [PIP] 스크롤 컨트롤러 (영상 오버레이 축소/고정)
   final ScrollController _scrollCtl = ScrollController();
 
-
   final WaveformController _wf = WaveformController();
+
+  // 컨트롤러 리스너 핸들
+  VoidCallback? _loopOnListener;
+  VoidCallback? _markersListener;
 
   // 파라미터
   double _speed = 1.0;
@@ -148,7 +133,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   late final TextEditingController _loopRepeatCtl;
 
   DateTime? _seekingGuardUntil;
-  void _beginSeekGuard([int ms = 160]) {
+  void _beginSeekGuard([int ms = 60]) {
+    // 160 → 60
     _seekingGuardUntil = DateTime.now().add(Duration(milliseconds: ms));
   }
 
@@ -156,17 +142,44 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       _seekingGuardUntil != null &&
       DateTime.now().isBefore(_seekingGuardUntil!);
 
-
   void _onScrollTick() {
     if (!mounted) return;
     setState(() {}); // 스크롤 오프셋 변화에 맞춰 오버레이 재계산
   }
-  
+
   // 시작점
   Duration _startCue = Duration.zero;
 
   // 마커
   final List<MarkerPoint> _markers = [];
+ 
+   // 파일 상단 클래스 내 (private 메소드)
+  Future<void> _startLoopFromA() async {
+    if (_loopA == null) return;
+    final a = _clamp(_loopA!, Duration.zero, _duration);
+
+    // 1) 상태/UI/컨트롤러 동기화
+    setState(() {
+      _loopEnabled = true;
+      _startCue = a;
+      _loopRemaining = -1;
+      _loopRemaining = (_loopRepeat > 0) ? _loopRepeat : -1;
+    });
+    _wf.selectionA.value = _loopA;
+    _wf.selectionB.value = _loopB;
+    _wf.setLoop(a: _loopA, b: _loopB, on: true);
+    _wf.setStartCue(a);
+    _wf.loopRepeat.value = _loopRepeat;
+
+    // 2) 즉시 반응: UI 선반영 + 논블로킹 seek & 재생
+    _beginSeekGuard(60);
+    unawaited(_player.seek(a));
+    unawaited(_player.play());
+
+    // 3) 저장
+    _debouncedSave();
+  }
+
 
   // 메모
   String _notes = '';
@@ -211,7 +224,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     );
   }
 
-
   String get _cacheDir {
     final wsRoot = Directory(widget.studentDir).parent.parent.path;
     return p.join(wsRoot, '.cache');
@@ -236,31 +248,44 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _detectIsVideo();
     _player = Player();
 
-    // === WaveformController bindings ===
+    // === 컨트롤러 콜백 (패널 → 화면/플레이어) ===
+    _wf.onLoopSet = (a, b) {
+      setState(() {
+        _loopA = a;
+        _loopB = b;
+        _loopEnabled = true;
+      });
+      // ⬇️ 드래그 선택 완료 → A에서 루프 시작
+      unawaited(_startLoopFromA());
+    };
+
+    _wf.onStartCueSet = (t) {
+      setState(() => _startCue = t);
+      _debouncedSave();
+    };
+
     _wf.onSeek = (d) async {
-      // ✅ async 로
       // 1) UI 즉시 반영
-      _wf.updateFromPlayer(
-        pos: d,
-        dur: _duration,
-      ); // 또는: _wf.position.value = d;
+      _wf.updateFromPlayer(pos: d, dur: _duration);
       _wf.setStartCue(d);
       setState(() {
-        _startCue = d; // ✅ Space가 참조하는 시작점 동기화
-        _position = d; // (권장) 슬라이더/타임바도 즉시 동기
+        _startCue = d; // 시작점 동기화
+        _position = d; // 슬라이더/타임바 동기
       });
 
       // 2) 피드백 루프 차단
       _beginSeekGuard();
 
-      // 3) 플레이어 시킹은 논블로킹 수행
-      unawaited(_player.seek(d)); // ✅ await 금지 (UI 블로킹 방지)
+      // 3) 플레이어 시킹은 논블로킹
+      unawaited(_player.seek(d));
 
-      // 4) 저장 디바운스만 큐잉
+      // 4) 저장 디바운스
       _debouncedSave();
-      return; // ✅ 경고 소거
+      return;
     };
 
+    // 🔗 컨트롤러 → 화면 상태 동기화 리스너 바인딩
+    _bindWaveformControllerListeners();
 
     if (_isVideo) _videoCtrl = VideoController(_player);
 
@@ -281,7 +306,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _wf.setStartCue(_startCue);
     _wf.setMarkers(_markers.map((m) => WfMarker(m.t, m.label)).toList());
 
-    // 컨트롤러 콜백 → 저장 디바운스 연결
+    // 저장 상태 리스너
     _wf.onPause = () async {
       await _player.pause();
     };
@@ -293,21 +318,60 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         _pendingRetryCount = _saver.pendingRetryCount;
       });
     });
+  }
 
+  void _bindWaveformControllerListeners() {
+    // loopOn 변경 → 화면 스위치와 저장에 반영
+    _loopOnListener = () {
+      final v = _wf.loopOn.value;
+      if (!mounted) return;
+      if (_loopEnabled != v) {
+        setState(() => _loopEnabled = v);
+        _debouncedSave();
+      }
+    };
+    _wf.loopOn.addListener(_loopOnListener!);
+
+    // 마커 변경(드래그 등) → _markers 시간/정렬 동기화 + 저장
+    _markersListener = () {
+      final list = _wf.markers.value;
+      if (!mounted) return;
+      // 라벨 매칭으로 기존 색/노트 유지하며 순서 재정렬
+      final byLabel = <String, MarkerPoint>{};
+      for (final m in _markers) {
+        byLabel[m.label] = m;
+      }
+      final rebuilt = <MarkerPoint>[];
+      for (final w in list) {
+        final hit = byLabel[w.label ?? ''];
+        if (hit != null) {
+          hit.t = w.time;
+          rebuilt.add(hit);
+        } else {
+          // 컨트롤러에서만 생긴 항목(이론상 드묾)
+          rebuilt.add(MarkerPoint(w.time, w.label ?? ''));
+        }
+      }
+      setState(() {
+        _markers
+          ..clear()
+          ..addAll(rebuilt..sort((a, b) => a.t.compareTo(b.t)));
+      });
+      _debouncedSave();
+    };
+    _wf.markers.addListener(_markersListener!);
   }
 
   Future<void> _initAsync() async {
-  await _openMedia();
-  _durSub = _player.stream.duration.listen((d) {
-    if (!mounted) return;
-    setState(() => _duration = d);
-    _normalizeLoopOrder();
-    _wf.updateFromPlayer(pos: _position, dur: d);
-  });
-  return; // (선택) 경고 소거 용
-}
-
-
+    await _openMedia();
+    _durSub = _player.stream.duration.listen((d) {
+      if (!mounted) return;
+      setState(() => _duration = d);
+      _normalizeLoopOrder();
+      _wf.updateFromPlayer(pos: _position, dur: d);
+    });
+    return;
+  }
 
   // =========================
   // [SYNC] 초기 동기화 시퀀스
@@ -315,7 +379,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   Future<void> _initNotesAndSidecarSync() async {
     _notesInitApplying = true;
     try {
-      // 1) 로컬/원격 사이드카 비교 후 최신본 적용
       await _loadSidecarLatest();
 
       // 2) lessons.memo 초기값: DB 우선, 없으면 사이드카 notes
@@ -338,13 +401,11 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         _notesCtl.text = initMemo;
       }
 
-      // 3) Realtime 구독 — lessons (학생, 오늘 날짜)
+      // 3) Realtime 구독
       _subscribeLessonMemoRealtime();
     } finally {
       _notesInitApplying = false;
     }
-
-    // 첫 자동 저장(로컬/스토리지 갱신), DB 저장은 미루기
     _debouncedSave(saveToDb: false);
   }
 
@@ -370,7 +431,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     );
   }
 
-
   void _subscribeLocalNotesBus() {
     LessonMemoSync.instance.subscribeLocalBus((text) {
       if (!mounted) return;
@@ -387,7 +447,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       );
     });
   }
-
 
   @override
   void dispose() {
@@ -410,8 +469,12 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _scrollCtl.dispose(); // [PIP]
     LessonMemoSync.instance.dispose();
     _saver.dispose();
+
+    // 컨트롤러 리스너 해제
+    if (_loopOnListener != null) _wf.loopOn.removeListener(_loopOnListener!);
+    if (_markersListener != null) _wf.markers.removeListener(_markersListener!);
+
     super.dispose();
-    
   }
 
   // ====== 사이드카 로드 (원격/로컬 LWW) ======
@@ -426,7 +489,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       _applySidecarMap(latest);
     }
   }
-
 
   void _applySidecarMap(Map<String, dynamic> m) {
     final a = (m['loopA'] ?? 0);
@@ -490,7 +552,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
           .map((e) => WfMarker.named(time: e.t, label: e.label, color: e.color))
           .toList(),
     );
-
   }
 
   // ==== 이하 재생/체인/파형/루프/마커/키핸들 ===
@@ -523,19 +584,19 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   }
 
   Future<void> _openMedia() async {
-  try {
-    final dynamic plat = _player.platform;
-    if (!_isVideo) {
-      await plat?.setProperty('vid', 'no');
-    }
-    await plat?.setProperty('ao', 'coreaudio');
-    await plat?.setProperty('audio-exclusive', 'no');
-    await plat?.setProperty('audio-device', 'auto');
-  } catch (_) {}
+    try {
+      final dynamic plat = _player.platform;
+      if (!_isVideo) {
+        await plat?.setProperty('vid', 'no');
+      }
+      await plat?.setProperty('ao', 'coreaudio');
+      await plat?.setProperty('audio-exclusive', 'no');
+      await plat?.setProperty('audio-device', 'auto');
+    } catch (_) {}
 
-  await _player.open(Media(widget.mediaPath), play: false);
+    await _player.open(Media(widget.mediaPath), play: false);
 
-    // ✅ 오픈 직후 상태 한 번 더 강제 반영 (초기 duration=0 프레임 방지)
+    // ✅ 오픈 직후 상태 한 번 더 강제 반영
     final st = _player.state;
     if (mounted) {
       setState(() {
@@ -545,24 +606,74 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     }
     _wf.updateFromPlayer(pos: _position, dur: _duration);
 
-  _posSub = _player.stream.position.listen((pos) async {
-      if (_isSeekGuardActive) return; // ✅ 내가 방금 보낸 seek 직후는 무시
-      _wf.updateFromPlayer(pos: pos, dur: _duration);
+    _posSub = _player.stream.position.listen((pos) async {
       if (!mounted) return;
+
+      // === AB 루프 재점프 ===
+      if (_loopEnabled && _loopA != null && _loopB != null) {
+        // 약간의 여유 (디코딩/프레임 스텝 오차)
+        const eps = Duration(milliseconds: 8);
+        final b = _loopB!;
+        if (pos + eps >= b) {
+          // 1) 반복 카운트 다운
+          if (_loopRepeat > 0) {
+            // 루프 시작 전에 외부에서 켠 경우를 대비한 가드
+            if (_loopRemaining == -1) {
+              setState(() => _loopRemaining = _loopRepeat);
+            }
+            setState(() => _loopRemaining = (_loopRemaining - 1).clamp(0, 200));
+
+            // 0이 되면 루프 종료
+            if (_loopRemaining == 0) {
+              setState(() => _loopEnabled = false);
+              _wf.setLoop(on: false);
+
+              // 종료 후 동작: 일단 일시정지하고 시작점(있으면)으로 이동
+              final ret = _startCue > Duration.zero ? _startCue : b;
+              unawaited(_player.pause());
+              unawaited(_player.seek(_clamp(ret, Duration.zero, _duration)));
+              _debouncedSave();
+              return;
+            }
+          }
+
+         // 2) 계속 반복: A로 점프
+          final a = _clamp(_loopA!, Duration.zero, _duration);
+          unawaited(_player.seek(a));                // 논블로킹 점프
+          _wf.updateFromPlayer(pos: a, dur: _duration); // UI 동기화
+          setState(() => _position = a);
+          return;
+        }
+      }
+
+      // === 일반 위치 업데이트 ===
+      if (_isSeekGuardActive) return; // 내가 보낸 seek 직후 반영 루프 차단
+      _wf.updateFromPlayer(pos: pos, dur: _duration);
       setState(() => _position = pos);
     });
-
-
 
     _playingSub = _player.stream.playing.listen((_) {
       if (!mounted) return;
       setState(() {});
     });
 
+    // ✅ (5)(6) 완료 시 시작점부터 자동 재생
     _completedSub = _player.stream.completed.listen((done) async {
-      // ✅ 컨트롤러가 처리하므로 여기서는 아무것도 하지 않음
-      // (안전상: 재생 중이면 멈추고 끝냄 정도만 선택적으로 해도 OK)
       if (!mounted || !done) return;
+
+      if (_loopEnabled && _loopA != null && _loopB != null) {
+        final a = _clamp(_loopA!, Duration.zero, _duration);
+        unawaited(_player.seek(a));
+        unawaited(_player.play());
+        return;
+      }
+
+      if (_startCue > Duration.zero) {
+        final a = _clamp(_startCue, Duration.zero, _duration);
+        unawaited(_player.seek(a));
+        // 여기서는 멈추고 싶으면 pause, 이어서 재생하고 싶으면 play
+        unawaited(_player.pause());
+      }
     });
 
     await _applyAudioChain();
@@ -584,8 +695,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       pitchSemi: _pitchSemi,
     );
   }
-
-
 
   // ===== 분리된 패널 UI =====
   Widget _buildVolumePanel(BuildContext context) {
@@ -823,14 +932,13 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       'startCueMs': _startCue.inMilliseconds,
       'savedAt': now.toIso8601String(),
       'media': p.basename(widget.mediaPath),
-      'version': 'v3.07.1',
+      'version': 'v3.07.2',
       'markers': _markers.map((e) => e.toJson()).toList(),
       'notes': _notes,
       'volume': _volume,
     };
 
     try {
-      // 🔁 (교체 포인트) 로컬 기록 + Storage 업로드를 모듈로 이관
       await SidecarSync.instance.save(
         studentId: widget.studentId,
         mediaHash: widget.mediaHash,
@@ -839,7 +947,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         uploadToStorage: uploadToStorage,
       );
 
-      // lessons.memo 업서트 (옵션)
       if (saveToDb && !_hydratingMemo) {
         unawaited(_saveLessonMemoToSupabase());
       }
@@ -866,7 +973,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     }
   }
 
-
   Future<void> _saveLessonMemoToSupabase() async {
     try {
       await LessonMemoSync.instance.upsertMemo(
@@ -877,13 +983,11 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     } catch (_) {}
   }
 
-
   void _debouncedSave({bool saveToDb = true}) {
     _saver.schedule(() async {
       await _saveSidecar(saveToDb: saveToDb, uploadToStorage: true);
     });
   }
-
 
   // ===== 2x 정/역재생(홀드) =====
   Future<void> _startHoldFastForward() async {
@@ -944,8 +1048,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
   // 키 업/다운 핸들 (=-)
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent evt) {
-    // ⛔ Alt / Ctrl / Meta 눌린 상태면 (=/-) 홀드를 무시해서
-    //    Shortcuts(Alt+= / Alt+-)로 이벤트가 넘어가도록 한다.
     final mods = HardwareKeyboard.instance.logicalKeysPressed;
     final hasBlockMods =
         mods.contains(LogicalKeyboardKey.alt) ||
@@ -955,10 +1057,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         mods.contains(LogicalKeyboardKey.meta);
 
     if (hasBlockMods) {
-      return KeyEventResult.ignored; // ← 중요: Shortcuts로 전달
+      return KeyEventResult.ignored;
     }
 
-    // = 키 홀드 → 2x 전진
     if (evt.logicalKey == LogicalKeyboardKey.equal) {
       if (evt is KeyDownEvent) {
         _startHoldFastForward();
@@ -968,7 +1069,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       return KeyEventResult.handled;
     }
 
-    // - 키 홀드 → 2x 역재생
     if (evt.logicalKey == LogicalKeyboardKey.minus) {
       if (evt is KeyDownEvent) {
         _startHoldFastReverse();
@@ -1022,7 +1122,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
               const _PrevNextMarkerIntent(false),
           LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.arrowRight):
               const _PrevNextMarkerIntent(true),
-          
 
           // 피치(키 조정)
           LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.arrowUp):
@@ -1056,23 +1155,17 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
           LogicalKeySet(LogicalKeyboardKey.bracketRight):
               const _TempoNudgeIntent(5),
 
-          // === ZOOM: Alt 기반(플랫폼 공통) — SingleActivator로 좌/우 Alt 모두 인식 ===
+          // === ZOOM ===
           const SingleActivator(LogicalKeyboardKey.equal, alt: true):
               _ZoomIntent(true), // Alt+=
           const SingleActivator(LogicalKeyboardKey.minus, alt: true):
               _ZoomIntent(false), // Alt+-
           const SingleActivator(LogicalKeyboardKey.digit0, alt: true):
               _ZoomResetIntent(), // Alt+0
-          // (보조)
           const SingleActivator(LogicalKeyboardKey.comma, alt: true):
               _ZoomIntent(false), // Alt+,
           const SingleActivator(LogicalKeyboardKey.period, alt: true):
               _ZoomIntent(true), // Alt+.
-
-
-
-
-
         },
         child: Actions(
           actions: <Type, Action<Intent>>{
@@ -1092,6 +1185,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                     _syncStartCueToAIfPossible();
                   }
                 });
+                _wf.setLoop(on: _loopEnabled); // 컨트롤러에도 반영
                 _debouncedSave();
                 return null;
               },
@@ -1162,8 +1256,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                 return null;
               },
             ),
-
-    
           },
           child: Focus(
             focusNode: _focusNode,
@@ -1197,7 +1289,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                   final double viewportH = c.maxHeight;
                   final double videoMaxHeight = _isVideo
                       ? viewportW * 9 / 16
-                      : 0.0; // 플레이스홀더 높이 (비디오일 때만)
+                      : 0.0;
 
                   return Stack(
                     children: [
@@ -1212,12 +1304,13 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // [PIP] 비디오가 오버레이로 올라가므로 자리만 확보
                               if (_isVideo && _videoCtrl != null) ...[
-                                SizedBox(height: videoMaxHeight, width: viewportW),
+                                SizedBox(
+                                  height: videoMaxHeight,
+                                  width: viewportW,
+                                ),
                                 const SizedBox(height: 12),
                               ],
-
 
                               // 중앙 타임바 + 2x 버튼들
                               Center(
@@ -1266,9 +1359,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                         .toDouble(),
                                 onChanged: (v) async {
                                   final d = Duration(milliseconds: v.toInt());
-                                  _wf.onSeek?.call(
-                                    d,
-                                  ); // 내부에서 _seekBoth + save와 동일 동작
+                                  _wf.onSeek?.call(d); // 내부에서 논블로킹 seek + 저장
                                 },
                               ),
 
@@ -1378,7 +1469,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                               if (_duration > Duration.zero) ...[
                                 const SizedBox(height: 6),
 
-                                // === ZOOM 슬라이더 (절대 배율: 1.0x ~ SmartMediaPlayerScreen._zoomMax) ===
+                                // === ZOOM 슬라이더 ===
                                 Row(
                                   children: [
                                     const Text('줌'),
@@ -1436,7 +1527,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                   ],
                                 ),
 
-
                                 // === 위치(팬) 슬라이더: 확대 상태에서만 노출 ===
                                 if (_viewWidth < 0.999) ...[
                                   const SizedBox(height: 8),
@@ -1452,19 +1542,21 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                             1.0 - 1e-9,
                                           ),
                                           onChanged: (v) {
-                                            final maxStart = (1 - _viewWidth).clamp(0.0, 1.0);
-                                            final clamped = v.clamp(0.0, maxStart).toDouble();
+                                            final maxStart = (1 - _viewWidth)
+                                                .clamp(0.0, 1.0);
+                                            final clamped = v
+                                                .clamp(0.0, maxStart)
+                                                .toDouble();
                                             setState(
                                               () => _viewStart = clamped,
                                             );
                                             _wf.setViewport(
                                               start: _viewStart,
                                               width: _viewWidth,
-                                            ); // ✅ 컨트롤러에도 반영
-                                          },    
+                                            );
+                                          },
                                         ),
                                       ),
-                                      // 전체 대비 현재 뷰의 좌측 경계 퍼센트(가독을 원하면 삭제 가능)
                                       Text('${(_viewStart * 100).round()}%'),
                                     ],
                                   ),
@@ -1479,7 +1571,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                 runSpacing: 8,
                                 crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
-                                  // A 버튼
                                   Tooltip(
                                     message: '루프 시작으로 지정 (E)',
                                     child: OutlinedButton(
@@ -1491,8 +1582,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                       ),
                                     ),
                                   ),
-
-                                  // B 버튼
                                   Tooltip(
                                     message: '루프 끝으로 지정 (D)',
                                     child: OutlinedButton(
@@ -1563,6 +1652,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                               _loopRemaining = -1;
                                             });
                                             _debouncedSave();
+                                            _wf.loopRepeat.value = _loopRepeat;
                                           },
                                           decoration: const InputDecoration(
                                             isDense: true,
@@ -1715,7 +1805,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                           scrollController: _scrollCtl,
                           viewportSize: Size(viewportW, viewportH),
                           collapseScrollPx: 480.0,
-                         miniWidth: 360.0,
+                          miniWidth: 360.0,
                         ),
                     ],
                   );
@@ -1748,7 +1838,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     final dynamic plat = _player.platform;
     try {
       final st = _player.state;
-      debugPrint('[SMP] before play: pos=$st.position, playing=$st.playing');
+      debugPrint(
+        '[SMP] before play: pos=${st.position}, playing=${st.playing}',
+      );
       debugPrint("[SMP] mpv.pause(before)=${await plat?.getProperty('pause')}");
       debugPrint("[SMP] mpv.af(before)=${await plat?.getProperty('af')}");
     } catch (_) {}
@@ -1759,14 +1851,12 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     } else {
       final d = _clamp(_startCue, Duration.zero, _duration);
       await _seekBoth(d);
-
       try {
         final dynamic plat = _player.platform;
         await plat?.setProperty('mute', _muted ? 'yes' : 'no');
         await plat?.setProperty('volume', '${_volume.clamp(0, 100)}');
         await plat?.setProperty('audio-device', 'auto');
       } catch (_) {}
-
       _debouncedSave();
       await _player.play();
       await _applyAudioChain();
@@ -1794,23 +1884,64 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
   void _setLoopPoint({required bool isA}) {
     final t = _position;
-    setState(() {
-      if (isA) {
+
+    if (isA) {
+      // ====== E: A를 현재 위치로 설정 + B 초기화 + 루프 OFF ======
+      setState(() {
         _loopA = t;
-        _syncStartCueToAIfPossible();
-      } else {
-        _loopB = t;
-      }
-      _normalizeLoopOrder();
-      _loopRemaining = -1;
-    });
-    _wf.setLoop(
-      a: isA ? _loopA : null,
-      b: isA ? null : _loopB,
-      on: _loopEnabled,
-    );
-    _debouncedSave();
+        _loopB = null; // ← D 제거
+        _loopEnabled = false; // ← 루프 비활성
+        _loopRemaining = -1;
+        _startCue = _clamp(t, Duration.zero, _duration); // 시작점도 A에 맞춤
+      });
+
+      // 파형 시각화/컨트롤러 동기화
+      _wf.selectionA.value = _loopA;
+      _wf.selectionB.value = null; // ← B 핸들 제거
+      _wf.setLoop(a: _loopA, b: null, on: false);
+      _wf.loopOn.value = false;
+      _wf.setStartCue(_startCue);
+
+      _debouncedSave();
+      return;
+    }
+
+    // ====== D: “현재 시작점(_startCue)”을 A로, B는 현재 위치로 설정 ======
+   final baseA = _clamp(_startCue, Duration.zero, _duration);
+   setState(() {
+     _loopA = baseA;   // ← 시작점 기반
+     _loopB = t;       // ← 현재 위치
+     _normalizeLoopOrder();
+     _loopRemaining = -1;
+   });
+
+   // 파형 시각화/컨트롤러 동기화
+   _wf.selectionA.value = _loopA;
+   _wf.selectionB.value = _loopB;
+
+   // 두 점이 갖춰졌는지
+   final ready = _loopA != null && _loopB != null && _loopA! < _loopB!;
+
+   // 컨트롤러 loop 상태/구간 반영
+   _wf.setLoop(a: _loopA, b: _loopB, on: ready || _loopEnabled);
+
+   if (ready) {
+     // 루프 ON + 시작점(A)에서 즉시 루프 시작
+     setState(() => _loopEnabled = true);
+     _wf.loopOn.value = true;
+
+     final aa = _loopA!;
+     final bb = _loopB!;
+     final cb = _wf.onLoopSet;
+     if (cb != null) scheduleMicrotask(() => cb(aa, bb));
+
+     unawaited(_startLoopFromA());
+   } else {
+     _debouncedSave();
+   }
   }
+
+
 
   void _zoom(double factor) {
     const double maxWidth = 1.0;
@@ -1824,7 +1955,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       maxWidth,
     );
 
-    // ✅ 시작점 기준 앵커: 좌우 이동 없이 시작점이 좌측 경계 근처가 되도록
+    // ✅ 시작점 기준 앵커
     final double newStart = startFrac.clamp(
       0.0,
       (1.0 - newWidth).clamp(0.0, 1.0),
@@ -1837,9 +1968,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _wf.setViewport(start: _viewStart, width: _viewWidth);
   }
 
-
- 
-  // 전체 보기를 기본값으로 되돌림
   void _zoomReset() {
     setState(() {
       _viewWidth = 1.0;
@@ -1848,8 +1976,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _wf.setViewport(start: _viewStart, width: _viewWidth);
   }
 
-  // 절대 줌 배율로 세팅 (zoom = 1.0은 전체 보기, 값이 커질수록 더 확대)
-  // anchorT: 0.0~1.0 앵커(기준점). null이면 현재 재생 위치(_position) 기준.
   void _setZoom(double zoom, {double? anchorT}) {
     const double maxWidth = 1.0;
     final double targetWidth = (1.0 / zoom).clamp(
@@ -1862,7 +1988,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         ? 0.0
         : (_startCue.inMilliseconds / durMs).clamp(0.0, 1.0);
 
-    // anchorT가 오더라도 "시작점 기준" 정책 유지
     final double newStart = startFrac.clamp(
       0.0,
       (1.0 - targetWidth).clamp(0.0, 1.0),
@@ -1874,9 +1999,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     });
     _wf.setViewport(start: _viewStart, width: _viewWidth);
   }
-
-
-
 
   Future<void> _setSpeed(double v) async {
     setState(() => _speed = double.parse(v.clamp(0.5, 1.5).toStringAsFixed(2)));
