@@ -1,5 +1,6 @@
 // v3.07.2 | Storage sync + Lessons Realtime 양방향 메모 + XSC 완전 제거
 // Patch: playback completed → auto play from startCue, WaveformController listeners (loopOn & markers sync)
+// UI v3.08-skyblue: AppSection + AppMiniButton + PresetSquare(50~100) + 라인정렬 + 구분선
 
 import 'dart:async';
 import 'dart:io';
@@ -7,7 +8,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+
 import '../../ui/components/save_status_indicator.dart';
+import '../../ui/components/app_controls.dart'; // ✅ NEW: 공통 UI (AppSection, AppMiniButton, PresetSquare)
 import '../../services/lesson_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'; // [SYNC]
 import '../../services/xsc_sync_service.dart';
@@ -134,7 +137,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
   DateTime? _seekingGuardUntil;
   void _beginSeekGuard([int ms = 60]) {
-    // 160 → 60
     _seekingGuardUntil = DateTime.now().add(Duration(milliseconds: ms));
   }
 
@@ -152,8 +154,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
   // 마커
   final List<MarkerPoint> _markers = [];
- 
-   // 파일 상단 클래스 내 (private 메소드)
+
+  // 파일 상단 클래스 내 (private 메소드)
   Future<void> _startLoopFromA() async {
     if (_loopA == null) return;
     final a = _clamp(_loopA!, Duration.zero, _duration);
@@ -179,7 +181,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     // 3) 저장
     _debouncedSave();
   }
-
 
   // 메모
   String _notes = '';
@@ -265,21 +266,14 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     };
 
     _wf.onSeek = (d) async {
-      // 1) UI 즉시 반영
       _wf.updateFromPlayer(pos: d, dur: _duration);
       _wf.setStartCue(d);
       setState(() {
-        _startCue = d; // 시작점 동기화
-        _position = d; // 슬라이더/타임바 동기
+        _startCue = d;
+        _position = d;
       });
-
-      // 2) 피드백 루프 차단
       _beginSeekGuard();
-
-      // 3) 플레이어 시킹은 논블로킹
       unawaited(_player.seek(d));
-
-      // 4) 저장 디바운스
       _debouncedSave();
       return;
     };
@@ -321,7 +315,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   }
 
   void _bindWaveformControllerListeners() {
-    // loopOn 변경 → 화면 스위치와 저장에 반영
     _loopOnListener = () {
       final v = _wf.loopOn.value;
       if (!mounted) return;
@@ -332,11 +325,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     };
     _wf.loopOn.addListener(_loopOnListener!);
 
-    // 마커 변경(드래그 등) → _markers 시간/정렬 동기화 + 저장
     _markersListener = () {
       final list = _wf.markers.value;
       if (!mounted) return;
-      // 라벨 매칭으로 기존 색/노트 유지하며 순서 재정렬
       final byLabel = <String, MarkerPoint>{};
       for (final m in _markers) {
         byLabel[m.label] = m;
@@ -348,7 +339,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
           hit.t = w.time;
           rebuilt.add(hit);
         } else {
-          // 컨트롤러에서만 생긴 항목(이론상 드묾)
           rebuilt.add(MarkerPoint(w.time, w.label ?? ''));
         }
       }
@@ -381,7 +371,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     try {
       await _loadSidecarLatest();
 
-      // 2) lessons.memo 초기값: DB 우선, 없으면 사이드카 notes
+      // 2) lessons.memo 초기값
       String dbMemo = '';
       try {
         final now = DateTime.now();
@@ -451,10 +441,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   @override
   void dispose() {
     _saveDebounce?.cancel();
-    // 마지막 저장: 로컬 + 스토리지(메모 DB는 중복 저장 방지)
     unawaited(_saveSidecar(saveToDb: false, uploadToStorage: true));
     _lessonChan?.unsubscribe();
-    _notesBusSub?.cancel(); // [NOTES BUS]
+    _notesBusSub?.cancel();
     _posSub?.cancel();
     _durSub?.cancel();
     _playingSub?.cancel();
@@ -466,11 +455,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _focusNode.dispose();
     _posWatchdog?.cancel();
     _scrollCtl.removeListener(_onScrollTick);
-    _scrollCtl.dispose(); // [PIP]
+    _scrollCtl.dispose();
     LessonMemoSync.instance.dispose();
     _saver.dispose();
 
-    // 컨트롤러 리스너 해제
     if (_loopOnListener != null) _wf.loopOn.removeListener(_loopOnListener!);
     if (_markersListener != null) _wf.markers.removeListener(_markersListener!);
 
@@ -596,7 +584,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
     await _player.open(Media(widget.mediaPath), play: false);
 
-    // ✅ 오픈 직후 상태 한 번 더 강제 반영
     final st = _player.state;
     if (mounted) {
       setState(() {
@@ -611,24 +598,18 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
       // === AB 루프 재점프 ===
       if (_loopEnabled && _loopA != null && _loopB != null) {
-        // 약간의 여유 (디코딩/프레임 스텝 오차)
         const eps = Duration(milliseconds: 8);
         final b = _loopB!;
         if (pos + eps >= b) {
-          // 1) 반복 카운트 다운
           if (_loopRepeat > 0) {
-            // 루프 시작 전에 외부에서 켠 경우를 대비한 가드
             if (_loopRemaining == -1) {
               setState(() => _loopRemaining = _loopRepeat);
             }
             setState(() => _loopRemaining = (_loopRemaining - 1).clamp(0, 200));
 
-            // 0이 되면 루프 종료
             if (_loopRemaining == 0) {
               setState(() => _loopEnabled = false);
               _wf.setLoop(on: false);
-
-              // 종료 후 동작: 일단 일시정지하고 시작점(있으면)으로 이동
               final ret = _startCue > Duration.zero ? _startCue : b;
               unawaited(_player.pause());
               unawaited(_player.seek(_clamp(ret, Duration.zero, _duration)));
@@ -637,17 +618,15 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
             }
           }
 
-         // 2) 계속 반복: A로 점프
           final a = _clamp(_loopA!, Duration.zero, _duration);
-          unawaited(_player.seek(a));                // 논블로킹 점프
-          _wf.updateFromPlayer(pos: a, dur: _duration); // UI 동기화
+          unawaited(_player.seek(a));
+          _wf.updateFromPlayer(pos: a, dur: _duration);
           setState(() => _position = a);
           return;
         }
       }
 
-      // === 일반 위치 업데이트 ===
-      if (_isSeekGuardActive) return; // 내가 보낸 seek 직후 반영 루프 차단
+      if (_isSeekGuardActive) return;
       _wf.updateFromPlayer(pos: pos, dur: _duration);
       setState(() => _position = pos);
     });
@@ -657,7 +636,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       setState(() {});
     });
 
-    // ✅ (5)(6) 완료 시 시작점부터 자동 재생
     _completedSub = _player.stream.completed.listen((done) async {
       if (!mounted || !done) return;
 
@@ -671,7 +649,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       if (_startCue > Duration.zero) {
         final a = _clamp(_startCue, Duration.zero, _duration);
         unawaited(_player.seek(a));
-        // 여기서는 멈추고 싶으면 pause, 이어서 재생하고 싶으면 play
         unawaited(_player.pause());
       }
     });
@@ -696,182 +673,320 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     );
   }
 
-  // ===== 분리된 패널 UI =====
-  Widget _buildVolumePanel(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 360),
-      child: Column(
+  // === 템포/키/볼륨: 2줄 고정 레이아웃 (라벨/값(+프리셋 1줄) + 슬라이더 1줄)
+  Widget _buildControlRow() {
+    final theme = Theme.of(context);
+    final labelStyle = theme.textTheme.bodySmall!.copyWith(
+      fontWeight: FontWeight.w700,
+    );
+    final valueStyle = theme.textTheme.labelLarge!;
+    const presets = <double>[0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+
+    final accent = const Color(0xFF81D4FA); // Sky-Mint Blend
+    final inactive = accent.withOpacity(0.25);
+
+    final sliderTheme = SliderTheme.of(context).copyWith(
+      trackHeight: 3,
+      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+      activeTrackColor: accent,
+      inactiveTrackColor: inactive,
+      thumbColor: accent,
+      overlayColor: accent.withOpacity(0.08),
+    );
+
+
+    Widget row(String label, String value, {Widget? trailing}) => SizedBox(
+      height: 26, // 28 → 26
+      child: Row(
+        children: [
+          Text(label, style: labelStyle),
+          const SizedBox(width: 6),
+          Text(value, style: valueStyle),
+          if (trailing != null) ...[
+            const SizedBox(width: 8),
+            Flexible(child: trailing),
+          ],
+        ],
+      ),
+    );
+
+    Widget presetStrip(double cur) => SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final v in presets) ...[
+            PresetSquare(
+              label: '${(v * 100).round()}',
+              active: (v - cur).abs() < 0.011,
+              onTap: () => _setSpeed(v),
+              size: 32,
+              height: 22,
+              fontSize: 10, // 더 작게
+            ),
+            const SizedBox(width: 4), // 6 → 4
+          ],
+        ],
+      ),
+    );
+
+    return AppSection(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('볼륨'),
-              const SizedBox(width: 8),
-              Tooltip(
-                message: _muted ? '음소거 해제' : '음소거',
-                child: IconButton(
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _toggleMute,
-                  icon: Icon(_muted ? Icons.volume_off : Icons.volume_up),
+          Expanded(
+            flex: 7,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                row(
+                  '템포',
+                  '${(_speed * 100).round()}%',
+                  trailing: presetStrip(_speed),
                 ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                  borderRadius: BorderRadius.circular(8),
+                const SizedBox(height: 2), // 4 → 2
+                SliderTheme(
+                  data: sliderTheme,
+                  child: Slider(
+                    value: _speed,
+                    min: 0.5,
+                    max: 1.5,
+                    divisions: 100,
+                    onChanged: (v) => _setSpeed(v),
+                  ),
                 ),
-                child: Text('$_volume%'),
-              ),
-              const Spacer(),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Tooltip(
-                message: '볼륨 -5% (-)',
-                child: IconButton(
-                  onPressed: () => _nudgeVolume(-5),
-                  icon: const Icon(Icons.remove),
+          const SizedBox(width: 12), // 14 → 12
+          Expanded(
+            flex: 5,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                row('키', '${_pitchSemi >= 0 ? '+' : ''}$_pitchSemi'),
+                const SizedBox(height: 2),
+                SliderTheme(
+                  data: sliderTheme,
+                  child: Slider(
+                    value: _pitchSemi.toDouble(),
+                    min: -7,
+                    max: 7,
+                    divisions: 14,
+                    onChanged: (v) => _setPitch(v.round()),
+                  ),
                 ),
-              ),
-              Expanded(
-                child: Slider(
-                  value: _volume.toDouble(),
-                  min: 0,
-                  max: 150,
-                  divisions: 150,
-                  label: '$_volume%',
-                  onChanged: (v) => _setVolume(v.round()),
-                ),
-              ),
-              Tooltip(
-                message: '볼륨 +5% (+)',
-                child: IconButton(
-                  onPressed: () => _nudgeVolume(5),
-                  icon: const Icon(Icons.add),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('키 조정'),
-              Tooltip(
-                message: '키 -1 (Alt+↓)',
-                child: IconButton(
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => _pitchDelta(-1),
-                  icon: const Icon(Icons.remove),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 6,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                row('볼륨', '$_volume%'),
+                const SizedBox(height: 2),
+                SliderTheme(
+                  data: sliderTheme,
+                  child: Slider(
+                    value: _volume.toDouble(),
+                    min: 0,
+                    max: 150,
+                    divisions: 150,
+                    onChanged: (v) => _setVolume(v.round()),
+                  ),
                 ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text('${_pitchSemi >= 0 ? '+' : ''}$_pitchSemi'),
-              ),
-              Tooltip(
-                message: '키 +1 (Alt+↑)',
-                child: IconButton(
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => _pitchDelta(1),
-                  icon: const Icon(Icons.add),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSpeedPanel(BuildContext context, List<double> speedPresets) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 360),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+
+  Widget _buildTopTransportBar() {
+    final theme = Theme.of(context);
+    const w4 = SizedBox(width: 4);
+    const w6 = SizedBox(width: 6);
+
+    // 왼쪽: 시간 + 플레이 클러스터(되감기/재생/2x)
+    final left = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: theme.dividerColor.withOpacity(0.28)),
+          ),
+          child: Text(
+            '${_fmt(_position)} / ${_fmt(_duration)}',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        w6,
+        // 되감기 - 재생 - 2배속 (버튼 밀착)
+        _HoldIconButton(
+          icon: Icons.fast_rewind,
+          onDown: _startHoldFastReverse,
+          onUp: _stopHoldFastReverse,
+        ),
+        w4,
+        AppMiniButton(
+          icon: _player.state.playing ? Icons.pause : Icons.play_arrow,
+          onPressed: _spacePlayBehavior,
+          iconOnly: true, // <- 텍스트 제거
+          iconSize: 22, // <- 아이콘 조금 키움
+          minSize: const Size(36, 32),
+        ),
+        w4,
+        _HoldIconButton(
+          icon: Icons.fast_forward,
+          onDown: _startHoldFastForward,
+          onUp: _stopHoldFastForward,
+        ),
+      ],
+    );
+
+    // 중앙: 루프 묶음(가로 스크롤, 1줄)
+    final centerLoop = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('템포'),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text('${(_speed * 100).round()}%'),
-              ),
-              const Spacer(),
-            ],
+          AppMiniButton(
+            compact: true,
+            icon: Icons.playlist_add,
+            iconSize: 22, // <- 아이콘 키움
+            label: _loopA == null ? '루프 시작' : '루프 시작 ${_fmt(_loopA!)}',
+            onPressed: () => _setLoopPoint(isA: true),
           ),
-          const SizedBox(height: 6),
+          w6,
+          AppMiniButton(
+            compact: true,
+            icon: Icons.playlist_add_check,
+            iconSize: 22, // <- 아이콘 키움
+            label: _loopB == null ? '루프 끝' : '루프 끝 ${_fmt(_loopB!)}',
+            onPressed: () => _setLoopPoint(isA: false),
+          ),
+          w6,
           Row(
             children: [
-              Tooltip(
-                message: '템포 -5% ([)',
-                child: IconButton(
-                  onPressed: () => _nudgeSpeed(-5),
-                  icon: const Icon(Icons.remove),
-                ),
+              Switch.adaptive(
+                value: _loopEnabled,
+                onChanged: (v) {
+                  setState(() => _loopEnabled = v);
+                  _wf.setLoop(on: v);
+                  _debouncedSave();
+                },
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
-              Expanded(
-                child: Slider(
-                  value: _speed,
-                  min: 0.5,
-                  max: 1.5,
-                  divisions: 100,
-                  label: '${(_speed * 100).round()}%',
-                  onChanged: (v) => _setSpeed(v),
-                ),
-              ),
-              Tooltip(
-                message: '템포 +5% (])',
-                child: IconButton(
-                  onPressed: () => _nudgeSpeed(5),
-                  icon: const Icon(Icons.add),
-                ),
-              ),
-            ],
-          ),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final v in speedPresets)
-                Tooltip(
-                  message: switch (v) {
-                    0.5 => '프리셋 50% (키 5)',
-                    0.6 => '프리셋 60% (키 6)',
-                    0.7 => '프리셋 70% (키 7)',
-                    0.8 => '프리셋 80% (키 8)',
-                    0.9 => '프리셋 90% (키 9)',
-                    1.0 => '프리셋 100% (키 0)',
-                    1.1 => '프리셋 110%',
-                    1.2 => '프리셋 120%',
-                    _ => '프리셋',
-                  },
-                  child: _SpeedPresetButton(
-                    value: v,
-                    selected: (v - _speed).abs() < 0.011,
-                    onTap: () => _setSpeed(v),
+              w4,
+              SizedBox(
+                width: 46, // 더 작게
+                child: TextField(
+                  controller: _loopRepeatCtl,
+                  textAlign: TextAlign.center,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 7,
+                    ),
+                    border: OutlineInputBorder(),
+                    hintText: '0=∞',
                   ),
+                  onSubmitted: (v) {
+                    final parsed = int.tryParse(v.trim()) ?? 0;
+                    setState(() => _loopRepeat = parsed.clamp(0, 200));
+                    _wf.loopRepeat.value = _loopRepeat;
+                    _debouncedSave();
+                  },
                 ),
+              ),
+              w4,
+              _RemainingPill(
+                loopEnabled: _loopEnabled,
+                loopRepeat: _loopRepeat,
+                loopRemaining: _loopRemaining,
+              ),
             ],
           ),
         ],
       ),
     );
+
+    // 오른쪽: 줌
+    final rightZoom = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AppMiniButton(
+          icon: Icons.zoom_out,
+          onPressed: () => _zoom(0.8),
+          iconOnly: true,
+          iconSize: 22,
+          minSize: const Size(36, 32),
+        ),
+        const SizedBox(width: 4),
+        AppMiniButton(
+          icon: Icons.center_focus_strong,
+          onPressed: _zoomReset,
+          iconOnly: true,
+          iconSize: 22,
+          minSize: const Size(36, 32),
+        ),
+        const SizedBox(width: 4),
+        AppMiniButton(
+          icon: Icons.zoom_in,
+          onPressed: () => _zoom(1.25),
+          iconOnly: true,
+          iconSize: 22,
+          minSize: const Size(36, 32),
+        ),
+      ],
+    );
+
+
+    return AppSection(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      child: SizedBox(
+        height: 42,
+        child: Row(
+          children: [
+            // 좌측: 최소폭 + 내용이 길어지면 텍스트가 먼저 잘림 방지
+            ConstrainedBox(
+              constraints: const BoxConstraints(
+                minWidth: 220,
+              ), // 필요시 200~240 사이 튜닝
+              child: left,
+            ),
+            const SizedBox(width: 6),
+            // 중앙: 남는 공간만 사용 (한줄 스크롤이므로 안전)
+            Expanded(child: Center(child: centerLoop)),
+            const SizedBox(width: 6),
+            // 우측: 줌 버튼 고정
+            rightZoom,
+          ],
+        ),
+      ),
+    );
+
+
   }
+
+
+
+  
+
+
+
+
+
 
   // === 단축키 안내 다이얼로그 ===
   void _showHotkeys() {
@@ -907,6 +1022,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       ),
     );
   }
+
+  
 
   Future<void> _seekBoth(Duration d) async {
     await _player.seek(d);
@@ -1084,7 +1201,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   @override
   Widget build(BuildContext context) {
     final title = p.basename(widget.mediaPath);
-    const speedPresets = <double>[0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2];
 
     return Listener(
       onPointerDown: (_) {
@@ -1185,7 +1301,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                     _syncStartCueToAIfPossible();
                   }
                 });
-                _wf.setLoop(on: _loopEnabled); // 컨트롤러에도 반영
+                _wf.setLoop(on: _loopEnabled);
                 _debouncedSave();
                 return null;
               },
@@ -1284,7 +1400,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
               ),
               body: LayoutBuilder(
                 builder: (ctx, c) {
-                  // [PIP] 전체를 Stack으로 감싸서 영상 오버레이 + 스크롤 본문 분리
                   final double viewportW = c.maxWidth;
                   final double viewportH = c.maxHeight;
                   final double videoMaxHeight = _isVideo
@@ -1295,7 +1410,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                     children: [
                       // === 본문 (아래 레이어) ===
                       SingleChildScrollView(
-                        controller: _scrollCtl, // [PIP]
+                        controller: _scrollCtl,
                         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                         child: ConstrainedBox(
                           constraints: BoxConstraints(
@@ -1312,419 +1427,81 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                 const SizedBox(height: 12),
                               ],
 
-                              // 중앙 타임바 + 2x 버튼들
-                              Center(
+                              // ✅ 파형 (섹션 경계는 파형 자체가 차지하므로 그대로)
+                              AppSection(
+                                padding: const EdgeInsets.fromLTRB(
+                                  10,
+                                  8,
+                                  10,
+                                  8,
+                                ),
+                                margin: const EdgeInsets.symmetric(
+                                  vertical: 4,
+                                ), // 얇게
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: WaveformPanel(
+                                    controller: _wf,
+                                    mediaPath: widget.mediaPath,
+                                    mediaHash: widget.mediaHash,
+                                    cacheDir: _cacheDir,
+                                    onStateDirty: () => _debouncedSave(),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              _buildTopTransportBar(),
+                              const SizedBox(height: 5),
+
+                              // === 템포 / 키 / 볼륨 ===
+                              _buildControlRow(),
+
+                              const SizedBox(height: 5),
+
+                              // ===== Markers ===== (버튼 톤 통일)
+                              AppSection(
                                 child: Row(
-                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Tooltip(
-                                      message: '2배속 역재생 ( - 키 )',
-                                      child: _HoldIconButton(
-                                        icon: Icons.fast_rewind,
-                                        onDown: _startHoldFastReverse,
-                                        onUp: _stopHoldFastReverse,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Text(
-                                      '${_fmt(_position)} / ${_fmt(_duration)}',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.titleMedium,
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Tooltip(
-                                      message: '2배속 재생 ( = 키 )',
-                                      child: _HoldIconButton(
-                                        icon: Icons.fast_forward,
-                                        onDown: _startHoldFastForward,
-                                        onUp: _stopHoldFastForward,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                              const SizedBox(height: 6),
-
-                              Slider(
-                                value: _position.inMilliseconds
-                                    .clamp(0, _duration.inMilliseconds)
-                                    .toDouble(),
-                                min: 0,
-                                max:
-                                    ((_duration.inMilliseconds > 0)
-                                            ? _duration.inMilliseconds
-                                            : 1)
-                                        .toDouble(),
-                                onChanged: (v) async {
-                                  final d = Duration(milliseconds: v.toInt());
-                                  _wf.onSeek?.call(d); // 내부에서 논블로킹 seek + 저장
-                                },
-                              ),
-
-                              const SizedBox(height: 8),
-
-                              // Transport — 중앙정렬
-                              Center(
-                                child: Wrap(
-                                  runSpacing: 8,
-                                  spacing: 8,
-                                  alignment: WrapAlignment.center,
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  children: [
-                                    Tooltip(
-                                      message: '시작점에서 재생/일시정지 (Space)',
-                                      child: FilledButton.icon(
-                                        onPressed: _spacePlayBehavior,
-                                        icon: Icon(
-                                          _player.state.playing
-                                              ? Icons.pause
-                                              : Icons.play_arrow,
-                                        ),
-                                        label: const Text('시작점 재생/정지 (Space)'),
-                                      ),
-                                    ),
-                                    Tooltip(
-                                      message: '현재 위치를 시작점으로 지정',
-                                      child: OutlinedButton(
-                                        onPressed: () {
-                                          setState(() {
-                                            _startCue = _clamp(
-                                              _position,
-                                              Duration.zero,
-                                              _duration,
-                                            );
-                                          });
-                                          _debouncedSave();
-                                          _wf.setStartCue(_startCue);
-                                        },
-                                        child: const Text('시작점=현재'),
-                                      ),
-                                    ),
-                                    Tooltip(
-                                      message: 'A 지점(단축키 E)을 시작점으로 지정',
-                                      child: OutlinedButton(
-                                        onPressed: () {
-                                          if (_loopA != null) {
-                                            setState(() {
-                                              _startCue = _clamp(
-                                                _loopA!,
-                                                Duration.zero,
-                                                _duration,
-                                              );
-                                            });
-                                            _debouncedSave();
-                                          }
-                                          _wf.setStartCue(_startCue);
-                                        },
-                                        child: const Text('시작점=A'),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                              const SizedBox(height: 8),
-
-                              // ===== 볼륨 / 템포 =====
-                              LayoutBuilder(
-                                builder: (ctx, box) {
-                                  final wide = box.maxWidth >= 900;
-                                  final children = [
-                                    Expanded(child: _buildVolumePanel(context)),
-                                    const SizedBox(width: 16, height: 16),
-                                    Expanded(
-                                      child: _buildSpeedPanel(
-                                        context,
-                                        speedPresets,
-                                      ),
-                                    ),
-                                  ];
-                                  return wide
-                                      ? Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: children,
-                                        )
-                                      : Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: children,
-                                        );
-                                },
-                              ),
-
-                              const Divider(height: 24),
-
-                              // Waveform
-                              WaveformPanel(
-                                controller: _wf,
-                                mediaPath: widget.mediaPath,
-                                mediaHash: widget.mediaHash,
-                                cacheDir: _cacheDir,
-                                onStateDirty: () => _debouncedSave(),
-                              ),
-
-                              if (_duration > Duration.zero) ...[
-                                const SizedBox(height: 6),
-
-                                // === ZOOM 슬라이더 ===
-                                Row(
-                                  children: [
-                                    const Text('줌'),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Slider(
-                                        value: (1.0 / _viewWidth).clamp(
-                                          1.0,
-                                          SmartMediaPlayerScreen._zoomMax,
-                                        ),
-                                        min: 1.0,
-                                        max: SmartMediaPlayerScreen._zoomMax,
-                                        divisions:
-                                            (SmartMediaPlayerScreen._zoomMax -
-                                                    1)
-                                                .toInt(),
-                                        label:
-                                            '${(1.0 / _viewWidth).clamp(1.0, SmartMediaPlayerScreen._zoomMax).toStringAsFixed(1)}x',
-                                        onChanged: (zoom) {
-                                          _setZoom(zoom);
-                                        },
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      '${(1.0 / _viewWidth).clamp(1.0, SmartMediaPlayerScreen._zoomMax).toStringAsFixed(1)}x',
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Tooltip(
-                                          message: '줌아웃 (Alt+-)',
-                                          child: IconButton(
-                                            onPressed: () => _zoom(0.8),
-                                            icon: const Icon(Icons.zoom_out),
-                                          ),
-                                        ),
-                                        Tooltip(
-                                          message: '줌인 (Alt+=)',
-                                          child: IconButton(
-                                            onPressed: () => _zoom(1.25),
-                                            icon: const Icon(Icons.zoom_in),
-                                          ),
-                                        ),
-                                        Tooltip(
-                                          message: '줌 리셋 (Alt+0)',
-                                          child: IconButton(
-                                            onPressed: _zoomReset,
-                                            icon: const Icon(Icons.fullscreen),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-
-                                // === 위치(팬) 슬라이더: 확대 상태에서만 노출 ===
-                                if (_viewWidth < 0.999) ...[
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      const Text('위치'),
-                                      Expanded(
-                                        child: Slider(
-                                          value: _viewStart,
-                                          min: 0,
-                                          max: (1 - _viewWidth).clamp(
-                                            0.0,
-                                            1.0 - 1e-9,
-                                          ),
-                                          onChanged: (v) {
-                                            final maxStart = (1 - _viewWidth)
-                                                .clamp(0.0, 1.0);
-                                            final clamped = v
-                                                .clamp(0.0, maxStart)
-                                                .toDouble();
-                                            setState(
-                                              () => _viewStart = clamped,
-                                            );
-                                            _wf.setViewport(
-                                              start: _viewStart,
-                                              width: _viewWidth,
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                      Text('${(_viewStart * 100).round()}%'),
-                                    ],
-                                  ),
-                                ],
-                              ],
-
-                              const SizedBox(height: 12),
-
-                              // ===== A/B & Loop + 반복횟수 =====
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  Tooltip(
-                                    message: '루프 시작으로 지정 (E)',
-                                    child: OutlinedButton(
-                                      onPressed: () => _setLoopPoint(isA: true),
-                                      child: Text(
-                                        _loopA == null
-                                            ? '루프 시작 (E)'
-                                            : '🔁 루프 시작 (${_fmt(_loopA!)})',
-                                      ),
-                                    ),
-                                  ),
-                                  Tooltip(
-                                    message: '루프 끝으로 지정 (D)',
-                                    child: OutlinedButton(
-                                      onPressed: () =>
-                                          _setLoopPoint(isA: false),
-                                      child: Text(
-                                        _loopB == null
-                                            ? '루프 끝 (D)'
-                                            : '🔁 루프 끝 (${_fmt(_loopB!)})',
-                                      ),
-                                    ),
-                                  ),
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Text('반복 모드(L)'),
-                                      const SizedBox(width: 6),
-                                      Switch(
-                                        value: _loopEnabled,
-                                        onChanged: (v) {
-                                          setState(() {
-                                            _loopEnabled = v;
-                                            _loopRemaining = -1;
-                                            if (v) _syncStartCueToAIfPossible();
-                                          });
-                                          _wf.setLoop(on: v);
-                                          _debouncedSave();
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Text('반복 횟수'),
-                                      const SizedBox(width: 8),
-                                      SizedBox(
-                                        width: 56,
-                                        child: TextField(
-                                          controller: _loopRepeatCtl,
-                                          keyboardType: TextInputType.number,
-                                          inputFormatters: [
-                                            FilteringTextInputFormatter
-                                                .digitsOnly,
-                                          ],
-                                          onSubmitted: (v) {
-                                            final parsed = int.tryParse(
-                                              v.trim(),
-                                            );
-                                            if (parsed == null ||
-                                                parsed < 0 ||
-                                                parsed > 200) {
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                const SnackBar(
-                                                  content: Text(
-                                                    '반복 횟수는 0~200 사이의 정수여야 합니다. (0=무한)',
-                                                  ),
-                                                ),
-                                              );
-                                              return;
-                                            }
-                                            setState(() {
-                                              _loopRepeat = parsed;
-                                              _loopRepeatCtl.text = parsed
-                                                  .toString();
-                                              _loopRemaining = -1;
-                                            });
-                                            _debouncedSave();
-                                            _wf.loopRepeat.value = _loopRepeat;
-                                          },
-                                          decoration: const InputDecoration(
-                                            isDense: true,
-                                            contentPadding:
-                                                EdgeInsets.symmetric(
-                                                  horizontal: 8,
-                                                ),
-                                            helperText: '0 = 무한반복',
-                                          ),
-                                          textAlign: TextAlign.center,
-                                        ),
-                                      ),
-                                      if (_loopEnabled &&
-                                          _loopRepeat > 0 &&
-                                          _loopRemaining >= 0) ...[
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          '잔여 $_loopRemaining회',
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.bodySmall,
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ],
-                              ),
-
-                              const SizedBox(height: 12),
-
-                              // ===== Markers =====
-                              Row(
-                                children: [
-                                  Tooltip(
-                                    message: '마커 추가 (M)',
-                                    child: FilledButton.icon(
+                                    AppMiniButton(
+                                      icon: Icons.add,
+                                      label: '마커 추가 (M)',
                                       onPressed: _addMarker,
-                                      icon: const Icon(Icons.add),
-                                      label: const Text('마커 추가 (M)'),
+                                      compact: true,
+                                      iconSize: 18, // 아이콘도 살짝만
+                                      fontSize: 12, // 라벨 축소
+                                      minSize: const Size(34, 30),
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: SingleChildScrollView(
-                                      scrollDirection: Axis.horizontal,
-                                      child: Row(
-                                        children: [
-                                          for (
-                                            int i = 0;
-                                            i < _markers.length;
-                                            i++
-                                          )
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                right: 6,
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: SingleChildScrollView(
+                                        scrollDirection: Axis.horizontal,
+                                        child: Row(
+                                          children: [
+                                            for (
+                                              int i = 0;
+                                              i < _markers.length;
+                                              i++
+                                            )
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                  right: 4,
+                                                ),
+                                                child: _MarkerChip(
+                                                  label: _markers[i].label,
+                                                  color: _markers[i].color,
+                                                  onJump: () =>
+                                                      _jumpToMarkerIndex(i + 1),
+                                                  onEdit: () => _editMarker(i),
+                                                  onDelete: () =>
+                                                      _deleteMarker(i),
+                                                ),
                                               ),
-                                              child: _MarkerChip(
-                                                label: _markers[i].label,
-                                                color: _markers[i].color,
-                                                onJump: () =>
-                                                    _jumpToMarkerIndex(i + 1),
-                                                onEdit: () => _editMarker(i),
-                                                onDelete: () =>
-                                                    _deleteMarker(i),
-                                              ),
-                                            ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
 
                               const SizedBox(height: 6),
@@ -1765,12 +1542,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                 onChanged: (v) {
                                   if (_notesInitApplying) return;
                                   _notes = v;
-                                  _debouncedSave(
-                                    saveToDb: true,
-                                  ); // DB 업서트 + 사이드카 디바운스
-                                  XscSyncService.instance.pushNotes(
-                                    v,
-                                  ); // 로컬 버스 브로드캐스트
+                                  _debouncedSave(saveToDb: true);
+                                  XscSyncService.instance.pushNotes(v);
                                 },
                                 decoration: const InputDecoration(
                                   hintText: '오늘 배운 것/과제/포인트를 적어두세요…',
@@ -1786,7 +1559,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                       ? p.basename(snap.data!)
                                       : 'current.gtxsc';
                                   return Text(
-                                    '사이드카: $scName  •  폴더: $widget.studentDir',
+                                    '사이드카: $scName  •  폴더: ${widget.studentDir}',
                                     style: Theme.of(
                                       context,
                                     ).textTheme.bodySmall,
@@ -1889,15 +1662,14 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       // ====== E: A를 현재 위치로 설정 + B 초기화 + 루프 OFF ======
       setState(() {
         _loopA = t;
-        _loopB = null; // ← D 제거
-        _loopEnabled = false; // ← 루프 비활성
+        _loopB = null;
+        _loopEnabled = false;
         _loopRemaining = -1;
-        _startCue = _clamp(t, Duration.zero, _duration); // 시작점도 A에 맞춤
+        _startCue = _clamp(t, Duration.zero, _duration);
       });
 
-      // 파형 시각화/컨트롤러 동기화
       _wf.selectionA.value = _loopA;
-      _wf.selectionB.value = null; // ← B 핸들 제거
+      _wf.selectionB.value = null;
       _wf.setLoop(a: _loopA, b: null, on: false);
       _wf.loopOn.value = false;
       _wf.setStartCue(_startCue);
@@ -1907,41 +1679,34 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     }
 
     // ====== D: “현재 시작점(_startCue)”을 A로, B는 현재 위치로 설정 ======
-   final baseA = _clamp(_startCue, Duration.zero, _duration);
-   setState(() {
-     _loopA = baseA;   // ← 시작점 기반
-     _loopB = t;       // ← 현재 위치
-     _normalizeLoopOrder();
-     _loopRemaining = -1;
-   });
+    final baseA = _clamp(_startCue, Duration.zero, _duration);
+    setState(() {
+      _loopA = baseA;
+      _loopB = t;
+      _normalizeLoopOrder();
+      _loopRemaining = -1;
+    });
 
-   // 파형 시각화/컨트롤러 동기화
-   _wf.selectionA.value = _loopA;
-   _wf.selectionB.value = _loopB;
+    _wf.selectionA.value = _loopA;
+    _wf.selectionB.value = _loopB;
 
-   // 두 점이 갖춰졌는지
-   final ready = _loopA != null && _loopB != null && _loopA! < _loopB!;
+    final ready = _loopA != null && _loopB != null && _loopA! < _loopB!;
+    _wf.setLoop(a: _loopA, b: _loopB, on: ready || _loopEnabled);
 
-   // 컨트롤러 loop 상태/구간 반영
-   _wf.setLoop(a: _loopA, b: _loopB, on: ready || _loopEnabled);
+    if (ready) {
+      setState(() => _loopEnabled = true);
+      _wf.loopOn.value = true;
 
-   if (ready) {
-     // 루프 ON + 시작점(A)에서 즉시 루프 시작
-     setState(() => _loopEnabled = true);
-     _wf.loopOn.value = true;
+      final aa = _loopA!;
+      final bb = _loopB!;
+      final cb = _wf.onLoopSet;
+      if (cb != null) scheduleMicrotask(() => cb(aa, bb));
 
-     final aa = _loopA!;
-     final bb = _loopB!;
-     final cb = _wf.onLoopSet;
-     if (cb != null) scheduleMicrotask(() => cb(aa, bb));
-
-     unawaited(_startLoopFromA());
-   } else {
-     _debouncedSave();
-   }
+      unawaited(_startLoopFromA());
+    } else {
+      _debouncedSave();
+    }
   }
-
-
 
   void _zoom(double factor) {
     const double maxWidth = 1.0;
@@ -1955,7 +1720,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       maxWidth,
     );
 
-    // ✅ 시작점 기준 앵커
     final double newStart = startFrac.clamp(
       0.0,
       (1.0 - newWidth).clamp(0.0, 1.0),
@@ -1972,30 +1736,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     setState(() {
       _viewWidth = 1.0;
       _viewStart = 0.0;
-    });
-    _wf.setViewport(start: _viewStart, width: _viewWidth);
-  }
-
-  void _setZoom(double zoom, {double? anchorT}) {
-    const double maxWidth = 1.0;
-    final double targetWidth = (1.0 / zoom).clamp(
-      SmartMediaPlayerScreen._minViewWidth,
-      maxWidth,
-    );
-
-    final double durMs = _duration.inMilliseconds.toDouble();
-    final double startFrac = (durMs <= 0)
-        ? 0.0
-        : (_startCue.inMilliseconds / durMs).clamp(0.0, 1.0);
-
-    final double newStart = startFrac.clamp(
-      0.0,
-      (1.0 - targetWidth).clamp(0.0, 1.0),
-    );
-
-    setState(() {
-      _viewWidth = targetWidth;
-      _viewStart = newStart;
     });
     _wf.setViewport(start: _viewStart, width: _viewWidth);
   }
@@ -2019,20 +1759,12 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _debouncedSave();
   }
 
-  // ===== 볼륨 컨트롤 =====
-  Future<void> _setVolume(int v) async {
-    setState(() => _volume = v.clamp(0, 150));
+  Future<void> _setPitch(int semis) async {
+    setState(() {
+      _pitchSemi = semis.clamp(-7, 7);
+    });
     await _applyAudioChain();
     _debouncedSave();
-  }
-
-  Future<void> _nudgeVolume(int delta) async {
-    await _setVolume(_volume + delta);
-  }
-
-  Future<void> _toggleMute() async {
-    setState(() => _muted = !_muted);
-    await _applyAudioChain();
   }
 
   String _fmt(Duration d) {
@@ -2041,6 +1773,16 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     final m = d.inMinutes % 60;
     final s = d.inSeconds % 60;
     return h > 0 ? '${two(h)}:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
+  }
+
+  Future<void> _setVolume(int v) async {
+    setState(() => _volume = v.clamp(0, 150));
+    await _applyAudioChain();
+    _debouncedSave();
+  }
+
+  Future<void> _nudgeVolume(int delta) async {
+    await _setVolume(_volume + delta);
   }
 
   void _addMarker() {
@@ -2090,9 +1832,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     if (ok == true && mounted) {
       setState(() {
         final newLabel = labelCtl.text.trim();
-        if (newLabel.isNotEmpty) {
-          m.label = newLabel;
-        }
+        if (newLabel.isNotEmpty) m.label = newLabel;
       });
       _wf.setMarkers(
         _markers
@@ -2109,7 +1849,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     final i = i1based - 1;
     if (i < 0 || i >= _markers.length) return;
     final d = _markers[i].t;
-    final pad = const Duration(milliseconds: 5);
+    const pad = Duration(milliseconds: 5);
     final dur = _duration;
     final target = _clamp(d + pad, Duration.zero, dur);
     setState(() {
@@ -2230,43 +1970,7 @@ class _ZoomResetIntent extends Intent {
   const _ZoomResetIntent();
 }
 
-// ---- UI helpers ----
-class _SpeedPresetButton extends StatelessWidget {
-  final double value; // e.g., 0.5
-  final bool selected;
-  final VoidCallback onTap;
-  const _SpeedPresetButton({
-    required this.value,
-    required this.selected,
-    required this.onTap,
-  });
-
-  ButtonStyle get _compactStyle {
-    return ButtonStyle(
-      visualDensity: VisualDensity.compact,
-      minimumSize: WidgetStateProperty.all<Size>(const Size(74, 40)),
-      padding: WidgetStateProperty.all<EdgeInsetsGeometry>(
-        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      ),
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final label = '${(value * 100).round()}%';
-    final child = Text(label);
-    return selected
-        ? FilledButton.tonal(
-            onPressed: onTap,
-            style: _compactStyle,
-            child: child,
-          )
-        : OutlinedButton(onPressed: onTap, style: _compactStyle, child: child);
-  }
-}
-
-// 아이콘 버튼을 "누르고 있는 동안" 동작시키기 위한 헬퍼
+// 교체: _HoldIconButton
 class _HoldIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onDown;
@@ -2283,10 +1987,27 @@ class _HoldIconButton extends StatelessWidget {
       onPointerDown: (_) => onDown(),
       onPointerUp: (_) => onUp(),
       onPointerCancel: (_) => onUp(),
-      child: IconButton(icon: Icon(icon), onPressed: () {}),
+      child: IconButton(
+        onPressed: () {}, // 클릭은 의미 없음(홀드 전용)
+        icon: Icon(icon),
+        padding: EdgeInsets.zero, // ✅ 여백 제거
+        constraints: const BoxConstraints.tightFor(
+          // ✅ 크기 고정(바 높이와 일치)
+          width: 36,
+          height: 32,
+        ),
+        visualDensity: const VisualDensity(
+          // ✅ 터치 타겟도 슬림
+          horizontal: -4,
+          vertical: -4,
+        ),
+        splashRadius: 18,
+      ),
     );
   }
 }
+
+
 
 // 새 Intent: 템포 증감 (브래킷 키)
 class _TempoNudgeIntent extends Intent {
@@ -2320,14 +2041,14 @@ class _MarkerChip extends StatelessWidget {
       color: bg,
       shape: StadiumBorder(side: BorderSide(color: borderColor)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 32),
+        constraints: const BoxConstraints(minHeight: 26),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (color != null) ...[
-              const SizedBox(width: 8),
-              CircleAvatar(radius: 8, backgroundColor: color!),
               const SizedBox(width: 6),
+              CircleAvatar(radius: 8, backgroundColor: color!),
+              const SizedBox(width: 4),
             ],
             Tooltip(
               message: '이 마커로 이동',
@@ -2336,11 +2057,17 @@ class _MarkerChip extends StatelessWidget {
                 borderRadius: BorderRadius.circular(20),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 6,
+                    horizontal: 5,
+                    vertical: 3,
                   ),
-                  child: Text(label, style: TextStyle(color: fg)),
+                  child: Text(
+                    label,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(fontSize: 12, color: fg),
+                  ),
                 ),
+
               ),
             ),
             Tooltip(
@@ -2349,7 +2076,7 @@ class _MarkerChip extends StatelessWidget {
                 onTap: onEdit,
                 radius: 18,
                 child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  padding: EdgeInsets.symmetric(horizontal: 2, vertical: 2),
                   child: Icon(Icons.edit, size: 18),
                 ),
               ),
@@ -2360,7 +2087,7 @@ class _MarkerChip extends StatelessWidget {
                 onTap: onDelete,
                 radius: 18,
                 child: const Padding(
-                  padding: EdgeInsets.fromLTRB(4, 4, 8, 4),
+                  padding: EdgeInsets.fromLTRB(2, 2, 6, 2),
                   child: Icon(Icons.close, size: 18),
                 ),
               ),
@@ -2368,6 +2095,37 @@ class _MarkerChip extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _RemainingPill extends StatelessWidget {
+  final bool loopEnabled;
+  final int loopRepeat;
+  final int loopRemaining;
+  const _RemainingPill({
+    required this.loopEnabled,
+    required this.loopRepeat,
+    required this.loopRemaining,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final txt = !loopEnabled
+        ? '잔여: -'
+        : (loopRepeat == 0
+              ? '잔여: ∞'
+              : '잔여: ${loopRemaining < 0 ? loopRepeat : loopRemaining}회');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: theme.dividerColor.withOpacity(0.3)),
+      ),
+      child: Text(txt, style: theme.textTheme.bodySmall),
     );
   }
 }
