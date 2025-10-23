@@ -1,5 +1,5 @@
 // v3.07.2 | Storage sync + Lessons Realtime 양방향 메모 + XSC 완전 제거
-// Patch: playback completed → auto play from startCue, WaveformController listeners (loopOn & markers sync)
+// Patch: remove auto-play on E/D & waveform drag selection, playback completed → auto play from startCue
 // UI v3.08-skyblue: AppSection + AppMiniButton + PresetSquare(50~100) + 라인정렬 + 구분선
 
 import 'dart:async';
@@ -254,10 +254,11 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       setState(() {
         _loopA = a;
         _loopB = b;
-        _loopEnabled = true;
+        _loopEnabled = true; // 범위만 켬
       });
-      // ⬇️ 드래그 선택 완료 → A에서 루프 시작
-      unawaited(_startLoopFromA());
+      // ⛔️ 자동 재생 제거 (요청사항)
+      _wf.setLoop(a: _loopA, b: _loopB, on: true);
+      _debouncedSave();
     };
 
     _wf.onStartCueSet = (t) {
@@ -646,11 +647,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         return;
       }
 
-      if (_startCue > Duration.zero) {
-        final a = _clamp(_startCue, Duration.zero, _duration);
-        unawaited(_player.seek(a));
-        unawaited(_player.pause());
-      }
+      // ⛳️ 변경: 트랙이 끝까지 재생되면 시작점부터 자동 재생
+      final a = _clamp(_startCue, Duration.zero, _duration);
+      unawaited(_player.seek(a));
+      unawaited(_player.play());
     });
 
     await _applyAudioChain();
@@ -694,7 +694,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       thumbColor: accent,
       overlayColor: accent.withOpacity(0.08),
     );
-
 
     Widget row(String label, String value, {Widget? trailing}) => SizedBox(
       height: 26, // 28 → 26
@@ -805,7 +804,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       ),
     );
   }
-
 
   Widget _buildTopTransportBar() {
     final theme = Theme.of(context);
@@ -951,7 +949,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       ],
     );
 
-
     return AppSection(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: SizedBox(
@@ -975,18 +972,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         ),
       ),
     );
-
-
   }
-
-
-
-  
-
-
-
-
-
 
   // === 단축키 안내 다이얼로그 ===
   void _showHotkeys() {
@@ -1022,8 +1008,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       ),
     );
   }
-
-  
 
   Future<void> _seekBoth(Duration d) async {
     await _player.seek(d);
@@ -1659,7 +1643,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     final t = _position;
 
     if (isA) {
-      // ====== E: A를 현재 위치로 설정 + B 초기화 + 루프 OFF ======
+      // ====== E: A를 현재 위치로 설정 + B 초기화 + 루프 OFF (자동재생 없음) ======
       setState(() {
         _loopA = t;
         _loopB = null;
@@ -1678,7 +1662,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       return;
     }
 
-    // ====== D: “현재 시작점(_startCue)”을 A로, B는 현재 위치로 설정 ======
+    // ====== D: “현재 시작점(_startCue)”을 A로, B는 현재 위치로 설정 (자동재생 없음) ======
     final baseA = _clamp(_startCue, Duration.zero, _duration);
     setState(() {
       _loopA = baseA;
@@ -1696,13 +1680,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     if (ready) {
       setState(() => _loopEnabled = true);
       _wf.loopOn.value = true;
-
-      final aa = _loopA!;
-      final bb = _loopB!;
-      final cb = _wf.onLoopSet;
-      if (cb != null) scheduleMicrotask(() => cb(aa, bb));
-
-      unawaited(_startLoopFromA());
+      // ⛔️ 자동 재생 제거: 기존 _startLoopFromA() 호출 삭제
+      _debouncedSave();
     } else {
       _debouncedSave();
     }
@@ -2007,8 +1986,6 @@ class _HoldIconButton extends StatelessWidget {
   }
 }
 
-
-
 // 새 Intent: 템포 증감 (브래킷 키)
 class _TempoNudgeIntent extends Intent {
   final int deltaPercent;
@@ -2067,7 +2044,6 @@ class _MarkerChip extends StatelessWidget {
                     ).textTheme.bodySmall?.copyWith(fontSize: 12, color: fg),
                   ),
                 ),
-
               ),
             ),
             Tooltip(
