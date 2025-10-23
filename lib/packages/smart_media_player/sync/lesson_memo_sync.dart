@@ -1,8 +1,8 @@
+// lib/packages/smart_media_player/sync/lesson_memo_sync.dart
 import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/lesson_service.dart';
 import '../../../services/xsc_sync_service.dart';
-
 
 typedef MemoChanged = void Function(String memo);
 
@@ -11,9 +11,10 @@ class LessonMemoSync {
   LessonMemoSync._();
   static final LessonMemoSync instance = LessonMemoSync._();
 
-  RealtimeChannel? _chan;
+  StreamSubscription<List<Map<String, dynamic>>>? _dbStreamSub;
   StreamSubscription<String>? _localBusSub;
 
+  /// 초기 메모 1회 조회
   Future<String> fetchInitialMemo({
     required String studentId,
     required DateTime day,
@@ -28,36 +29,41 @@ class LessonMemoSync {
     return rows.isNotEmpty ? (rows.first['memo'] ?? '').toString() : '';
   }
 
-  /// DB → 앱 Realtime 구독
+  /// DB → 앱 Realtime 구독 (Supabase stream)
   void subscribeRealtime({
     required String studentId,
     required String dateISO, // yyyy-mm-dd
     required MemoChanged onMemoChanged,
   }) {
-    _chan?.unsubscribe();
+    _dbStreamSub?.cancel();
+
     final supa = Supabase.instance.client;
-    _chan = supa
-        .channel('lessons-memo-$studentId-$dateISO')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'lessons',
-          callback: (payload) {
-            final m = (payload.newRecord['memo'] ?? '').toString();
-            onMemoChanged(m);
-          },
-        )
-        .subscribe();
+    _dbStreamSub = supa
+        .from('lessons')
+        .stream(primaryKey: ['id'])
+        .order('updated_at') // 정렬만 적용 (필터는 아래에서)
+        .listen((rows) {
+          final hit = rows.firstWhere(
+            (r) => r['student_id'] == studentId && r['date'] == dateISO,
+            orElse: () => const {},
+          );
+          final memo = (hit['memo'] ?? '').toString();
+          onMemoChanged(memo);
+        });
   }
 
   /// 로컬 노트 버스 ↔ 앱
   void subscribeLocalBus(MemoChanged onMemoChanged) {
     _localBusSub?.cancel();
-    _localBusSub = XscSyncService.instance.notesStream.listen((text) {
-      onMemoChanged(text);
-    });
+    _localBusSub = XscSyncService.instance.notesStream.listen(onMemoChanged);
   }
 
+  /// 화면에서 로컬 버스로 즉시 반영하고 싶을 때 호출
+  void pushLocal(String memo) {
+    XscSyncService.instance.pushNotes(memo);
+  }
+
+  /// DB upsert
   Future<void> upsertMemo({
     required String studentId,
     required String dateISO,
@@ -71,8 +77,8 @@ class LessonMemoSync {
   }
 
   void dispose() {
-    _chan?.unsubscribe();
-    _chan = null;
+    _dbStreamSub?.cancel();
+    _dbStreamSub = null;
     _localBusSub?.cancel();
     _localBusSub = null;
   }

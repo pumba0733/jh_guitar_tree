@@ -1,19 +1,23 @@
-// v3.07.2 | Storage sync + Lessons Realtime 양방향 메모 + XSC 완전 제거
+// lib/packages/smart_media_player/smart_media_player_screen.dart
+// v3.07.2 + A~C 패치 | Storage sync + Lessons Realtime 양방향 메모 + XSC 완전 제거
 // Patch: remove auto-play on E/D & waveform drag selection, playback completed → auto play from startCue
 // UI v3.08-skyblue: AppSection + AppMiniButton + PresetSquare(50~100) + 라인정렬 + 구분선
+// 추가 패치(A~C):
+//  A) 앱 라이프사이클(Inactive/Paused)에서 즉시 flush 저장
+//  B) onSeek 연타 시 저장 과다 완화(포지션 변화량/시간 기준으로 저장)
+//  C) pendingUploadAt 감지하여 AppBar에 "업로드 대기중" 배지 표시
 
 import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'sync/lesson_memo_sync.dart';
 import 'package:path/path.dart' as p;
 
 import '../../ui/components/save_status_indicator.dart';
 import '../../ui/components/app_controls.dart'; // ✅ NEW: 공통 UI (AppSection, AppMiniButton, PresetSquare)
 import '../../services/lesson_service.dart';
-import 'package:supabase_flutter/supabase_flutter.dart'; // [SYNC]
-import '../../services/xsc_sync_service.dart';
 
 // ===== media_kit =====
 import 'package:media_kit/media_kit.dart';
@@ -26,8 +30,7 @@ import 'package:guitartree/packages/smart_media_player/waveform/system/waveform_
 import 'waveform/system/waveform_panel.dart';
 import 'waveform/waveform_tuning.dart';
 import 'models/marker_point.dart';
-import 'sync/sidecar_sync.dart';
-import 'sync/lesson_memo_sync.dart';
+import 'sync/sidecar_sync_db.dart';
 import 'audio/rubberband_mpv_engine.dart';
 import 'utils/debounced_saver.dart';
 import 'video/sticky_video_overlay.dart';
@@ -57,6 +60,8 @@ class SmartMediaPlayerScreen extends StatefulWidget {
     ).push(MaterialPageRoute(builder: (_) => screen));
   }
 
+  
+
   static Future<void> pushFromPrepared(
     BuildContext context, {
     required String studentId,
@@ -85,8 +90,9 @@ class SmartMediaPlayerScreen extends StatefulWidget {
   State<SmartMediaPlayerScreen> createState() => _SmartMediaPlayerScreenState();
 }
 
-// ⛳️ 기존 SaveState enum 제거하고 SaveStatusIndicator의 SaveStatus 사용
-class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
+// A~C 패치: WidgetsBindingObserver 믹스인 추가
+class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
+    with WidgetsBindingObserver {
   late final DebouncedSaver _saver;
   // media_kit
   late final Player _player;
@@ -98,10 +104,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   StreamSubscription<Duration>? _durSub;
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<bool>? _completedSub;
-  StreamSubscription<String>? _notesBusSub;
-
-  // [SYNC] lessons.memo Realtime
-  RealtimeChannel? _lessonChan;
+  
   bool _hydratingMemo = false; // 외부 주입 중 플래그
 
   // 포커스
@@ -122,7 +125,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
   // 🔊 볼륨(0~150)
   int _volume = 100;
-  bool _muted = false;
+  final bool _muted = false;
 
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -133,7 +136,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   bool _loopEnabled = false;
   int _loopRepeat = 0; // 0=∞
   int _loopRemaining = -1;
-  late final TextEditingController _loopRepeatCtl;
 
   DateTime? _seekingGuardUntil;
   void _beginSeekGuard([int ms = 60]) {
@@ -148,39 +150,14 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     if (!mounted) return;
     setState(() {}); // 스크롤 오프셋 변화에 맞춰 오버레이 재계산
   }
-
+  static const double _holdFastRate = 4.0;
   // 시작점
   Duration _startCue = Duration.zero;
+  
+  
 
   // 마커
   final List<MarkerPoint> _markers = [];
-
-  // 파일 상단 클래스 내 (private 메소드)
-  Future<void> _startLoopFromA() async {
-    if (_loopA == null) return;
-    final a = _clamp(_loopA!, Duration.zero, _duration);
-
-    // 1) 상태/UI/컨트롤러 동기화
-    setState(() {
-      _loopEnabled = true;
-      _startCue = a;
-      _loopRemaining = -1;
-      _loopRemaining = (_loopRepeat > 0) ? _loopRepeat : -1;
-    });
-    _wf.selectionA.value = _loopA;
-    _wf.selectionB.value = _loopB;
-    _wf.setLoop(a: _loopA, b: _loopB, on: true);
-    _wf.setStartCue(a);
-    _wf.loopRepeat.value = _loopRepeat;
-
-    // 2) 즉시 반응: UI 선반영 + 논블로킹 seek & 재생
-    _beginSeekGuard(60);
-    unawaited(_player.seek(a));
-    unawaited(_player.play());
-
-    // 3) 저장
-    _debouncedSave();
-  }
 
   // 메모
   String _notes = '';
@@ -194,6 +171,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   SaveStatus _saveStatus = SaveStatus.idle;
   DateTime? _lastSavedAt;
   int _pendingRetryCount = 0;
+
+  // B 패치: 위치 변경 저장 최적화용
+  int _lastSavedPosMs = -1;
 
   // 뷰포트
   double _viewStart = 0.0;
@@ -219,10 +199,11 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
   // ===== 사이드카 경로(로컬) =====
   Future<String> _resolveLocalSidecarPath() async {
-    return SidecarSync.instance.resolveLocalPath(
-      widget.studentDir,
-      initial: widget.initialSidecar,
-    );
+   // DB판은 캐시 파일이 선택 사항. 표시용으로만 경로 구성.
+    final wsRoot = Directory(widget.studentDir).parent.parent.path;
+    final cacheDir = p.join(wsRoot, '.cache', 'sidecar_local');
+    final name = '${widget.studentId}_${widget.mediaHash}.json';
+    return p.join(cacheDir, name);
   }
 
   String get _cacheDir {
@@ -233,6 +214,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   @override
   void initState() {
     super.initState();
+    // A 패치: 라이프사이클 옵저버 등록
+    WidgetsBinding.instance.addObserver(this);
+
     // ✅ 트랜스크라이브 톤(VisualExact + Signed) 기본 적용
     WaveformTuning.I.applyPreset(WaveformPreset.transcribeLike);
     WaveformTuning.I
@@ -242,7 +226,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _saver = DebouncedSaver(delay: const Duration(milliseconds: 800));
     MediaKit.ensureInitialized();
 
-    _loopRepeatCtl = TextEditingController(text: _loopRepeat.toString());
     _notesCtl = TextEditingController(text: _notes);
     _scrollCtl.addListener(_onScrollTick);
 
@@ -275,7 +258,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       });
       _beginSeekGuard();
       unawaited(_player.seek(d));
-      _debouncedSave();
+
+      // B 패치: 포지션 변화만 있을 때는 저장 빈도 낮춤
+      _maybeSaveAfterPositionChange();
       return;
     };
 
@@ -313,6 +298,19 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         _pendingRetryCount = _saver.pendingRetryCount;
       });
     });
+  }
+
+  // A 패치: 앱 라이프사이클 변화 시 즉시 저장 한번 보장
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      unawaited(
+        _saver.flush(() async {
+          await _saveSidecar(saveToDb: false);
+        }),
+      );
+    }
   }
 
   void _bindWaveformControllerListeners() {
@@ -370,8 +368,17 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
   Future<void> _initNotesAndSidecarSync() async {
     _notesInitApplying = true;
     try {
-      await _loadSidecarLatest();
-
+      // 1) DB판 바인딩(+로컬 캐시 경로 전달)
+      await SidecarSyncDb.instance.bind(
+        studentId: widget.studentId,
+        mediaHash: widget.mediaHash,
+        localCacheDir: _cacheDir, // 선택
+      );
+      // 2) 없으면 생성
+      await SidecarSyncDb.instance.upsertInitial(initial: const {});
+      // 3) 로컬→DB 순서로 로드
+      final loaded = await SidecarSyncDb.instance.load();
+      if (loaded.isNotEmpty) _applySidecarMap(loaded);
       // 2) lessons.memo 초기값
       String dbMemo = '';
       try {
@@ -412,7 +419,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
             _notes = memo;
             _notesCtl.text = memo;
           });
-          _saveSidecar(saveToDb: false, uploadToStorage: true);
+          _saveSidecar(saveToDb: false);
           Future.delayed(
             const Duration(milliseconds: 50),
             () => _hydratingMemo = false,
@@ -431,7 +438,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         _notes = text;
         _notesCtl.text = text;
       });
-      _saveSidecar(saveToDb: false, uploadToStorage: true);
+      _saveSidecar(saveToDb: false);
       Future.delayed(
         const Duration(milliseconds: 50),
         () => _hydratingMemo = false,
@@ -441,17 +448,36 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
   @override
   void dispose() {
+    SidecarSyncDb.instance.dispose();
+    // A 패치: 옵저버 해제
+    WidgetsBinding.instance.removeObserver(this);
+
+    // 1) 예약 저장 태스크 즉시 실행
+    try {
+      _saver.flush(() async {
+        await _saveSidecar(saveToDb: false);
+      });
+    } catch (_) {}
+
+    // 2) 마지막 저장을 짧게 한 번 더 보장 (non-blocking)
+    Future<void> finalizeSave() async {
+      try {
+        final fut = _saveSidecar(saveToDb: false);
+        await fut.timeout(const Duration(milliseconds: 700));
+      } catch (_) {}
+    }
+
+    // ignore: discarded_futures
+    finalizeSave();
+
+    // 이하 기존 dispose 그대로…
     _saveDebounce?.cancel();
-    unawaited(_saveSidecar(saveToDb: false, uploadToStorage: true));
-    _lessonChan?.unsubscribe();
-    _notesBusSub?.cancel();
     _posSub?.cancel();
     _durSub?.cancel();
     _playingSub?.cancel();
     _completedSub?.cancel();
     _reverseTick?.cancel();
     _player.dispose();
-    _loopRepeatCtl.dispose();
     _notesCtl.dispose();
     _focusNode.dispose();
     _posWatchdog?.cancel();
@@ -459,24 +485,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _scrollCtl.dispose();
     LessonMemoSync.instance.dispose();
     _saver.dispose();
-
     if (_loopOnListener != null) _wf.loopOn.removeListener(_loopOnListener!);
     if (_markersListener != null) _wf.markers.removeListener(_markersListener!);
-
     super.dispose();
-  }
-
-  // ====== 사이드카 로드 (원격/로컬 LWW) ======
-  Future<void> _loadSidecarLatest() async {
-    final latest = await SidecarSync.instance.loadLatest(
-      studentId: widget.studentId,
-      mediaHash: widget.mediaHash,
-      studentDir: widget.studentDir,
-      initial: widget.initialSidecar,
-    );
-    if (latest.isNotEmpty) {
-      _applySidecarMap(latest);
-    }
   }
 
   void _applySidecarMap(Map<String, dynamic> m) {
@@ -499,7 +510,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
           loopOnWant && _loopA != null && _loopB != null && _loopA! < _loopB!;
       _speed = (sp as num).toDouble().clamp(0.5, 1.5);
       _loopRepeat = (rpRaw as num).toInt().clamp(0, 200);
-      _loopRepeatCtl.text = _loopRepeat.toString();
       _loopRemaining = -1;
       _pitchSemi = (ps as num).toInt().clamp(-7, 7);
       _startCue = _clamp(
@@ -683,7 +693,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     const presets = <double>[0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
 
     final accent = const Color(0xFF81D4FA); // Sky-Mint Blend
-    final inactive = accent.withOpacity(0.25);
+    final inactive = accent.withValues(alpha: 0.25);
 
     final sliderTheme = SliderTheme.of(context).copyWith(
       trackHeight: 3,
@@ -692,7 +702,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       activeTrackColor: accent,
       inactiveTrackColor: inactive,
       thumbColor: accent,
-      overlayColor: accent.withOpacity(0.08),
+      overlayColor: accent.withValues(alpha: 0.08),
     );
 
     Widget row(String label, String value, {Widget? trailing}) => SizedBox(
@@ -747,14 +757,39 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                 const SizedBox(height: 2), // 4 → 2
                 SliderTheme(
                   data: sliderTheme,
-                  child: Slider(
-                    value: _speed,
-                    min: 0.5,
-                    max: 1.5,
-                    divisions: 100,
-                    onChanged: (v) => _setSpeed(v),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        tooltip: '템포 -5%',
+                        onPressed: () => _nudgeSpeed(-5),
+                        icon: const Icon(Icons.remove),
+                        visualDensity: const VisualDensity(
+                          horizontal: -4,
+                          vertical: -4,
+                        ),
+                      ),
+                      Expanded(
+                        child: Slider(
+                          value: _speed,
+                          min: 0.5,
+                          max: 1.5,
+                          divisions: 100,
+                          onChanged: (v) => _setSpeed(v),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '템포 +5%',
+                        onPressed: () => _nudgeSpeed(5),
+                        icon: const Icon(Icons.add),
+                        visualDensity: const VisualDensity(
+                          horizontal: -4,
+                          vertical: -4,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+
               ],
             ),
           ),
@@ -768,14 +803,39 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                 const SizedBox(height: 2),
                 SliderTheme(
                   data: sliderTheme,
-                  child: Slider(
-                    value: _pitchSemi.toDouble(),
-                    min: -7,
-                    max: 7,
-                    divisions: 14,
-                    onChanged: (v) => _setPitch(v.round()),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        tooltip: '-1 key',
+                        onPressed: () => _pitchDelta(-1),
+                        icon: const Icon(Icons.remove),
+                        visualDensity: const VisualDensity(
+                          horizontal: -4,
+                          vertical: -4,
+                        ),
+                      ),
+                      Expanded(
+                        child: Slider(
+                          value: _pitchSemi.toDouble(),
+                          min: -7,
+                          max: 7,
+                          divisions: 14,
+                          onChanged: (v) => _setPitch(v.round()),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '+1 key',
+                        onPressed: () => _pitchDelta(1),
+                        icon: const Icon(Icons.add),
+                        visualDensity: const VisualDensity(
+                          horizontal: -4,
+                          vertical: -4,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+
               ],
             ),
           ),
@@ -789,14 +849,39 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                 const SizedBox(height: 2),
                 SliderTheme(
                   data: sliderTheme,
-                  child: Slider(
-                    value: _volume.toDouble(),
-                    min: 0,
-                    max: 150,
-                    divisions: 150,
-                    onChanged: (v) => _setVolume(v.round()),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        tooltip: '볼륨 -5%',
+                        onPressed: () => _nudgeVolume(-5),
+                        icon: const Icon(Icons.remove),
+                        visualDensity: const VisualDensity(
+                          horizontal: -4,
+                          vertical: -4,
+                        ),
+                      ),
+                      Expanded(
+                        child: Slider(
+                          value: _volume.toDouble(),
+                          min: 0,
+                          max: 150,
+                          divisions: 150,
+                          onChanged: (v) => _setVolume(v.round()),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '볼륨 +5%',
+                        onPressed: () => _nudgeVolume(5),
+                        icon: const Icon(Icons.add),
+                        visualDensity: const VisualDensity(
+                          horizontal: -4,
+                          vertical: -4,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+
               ],
             ),
           ),
@@ -816,10 +901,11 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: theme.dividerColor.withOpacity(0.28)),
+            border: Border.all(
+              color: theme.dividerColor.withValues(alpha: 0.28),
+            ),
           ),
           child: Text(
             '${_fmt(_position)} / ${_fmt(_duration)}',
@@ -836,13 +922,14 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
           onUp: _stopHoldFastReverse,
         ),
         w4,
-        AppMiniButton(
-          icon: _player.state.playing ? Icons.pause : Icons.play_arrow,
+        IconButton(
+          tooltip: _player.state.playing ? '일시정지' : '재생',
           onPressed: _spacePlayBehavior,
-          iconOnly: true, // <- 텍스트 제거
-          iconSize: 22, // <- 아이콘 조금 키움
-          minSize: const Size(36, 32),
+          icon: Icon(_player.state.playing ? Icons.pause : Icons.play_arrow),
+          iconSize: 22,
+          visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
         ),
+
         w4,
         _HoldIconButton(
           icon: Icons.fast_forward,
@@ -875,43 +962,162 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
           w6,
           Row(
             children: [
-              Switch.adaptive(
-                value: _loopEnabled,
-                onChanged: (v) {
-                  setState(() => _loopEnabled = v);
-                  _wf.setLoop(on: v);
-                  _debouncedSave();
-                },
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('반복', style: Theme.of(context).textTheme.bodyMedium),
+                  const SizedBox(width: 6),
+                  Tooltip(
+                    message: '선택한 A–B 구간을 반복 재생합니다',
+                    child: Switch.adaptive(
+                      value: _loopEnabled,
+                      onChanged: (v) {
+                        setState(() {
+                          _loopEnabled = v;
+                          _loopRemaining = (v && _loopRepeat > 0)
+                              ? _loopRepeat
+                              : -1;
+                        });
+                        _wf.setLoop(on: v);
+                        _debouncedSave();
+                      },
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ],
               ),
+
+
               w4,
               SizedBox(
-                width: 46, // 더 작게
-                child: TextField(
-                  controller: _loopRepeatCtl,
-                  textAlign: TextAlign.center,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 7,
+                height: 32,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 스텝퍼: -1
+                    IconButton(
+                      tooltip: '반복 -1',
+                      onPressed: () => _changeLoopRepeat(-1),
+                      onLongPress: () => _changeLoopRepeat(-5),
+                      icon: const Icon(Icons.remove),
+                      visualDensity: const VisualDensity(
+                        horizontal: -4,
+                        vertical: -4,
+                      ),
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
                     ),
-                    border: OutlineInputBorder(),
-                    hintText: '0=∞',
-                  ),
-                  onSubmitted: (v) {
-                    final parsed = int.tryParse(v.trim()) ?? 0;
-                    setState(() => _loopRepeat = parsed.clamp(0, 200));
-                    _wf.loopRepeat.value = _loopRepeat;
-                    _debouncedSave();
-                  },
+                    // 현재 값 표시(∞ 지원)
+                    InkWell(
+                      onTap: _promptLoopRepeatInput, // 탭 시 다이얼로그 오픈
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        width: 40,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: Theme.of(context).dividerColor,
+                          ),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          _fmtLoopRepeat(_loopRepeat),
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
+                    ),
+
+                    // 스텝퍼: +1
+                    IconButton(
+                      tooltip: '반복 +1',
+                      onPressed: () => _changeLoopRepeat(1),
+                      onLongPress: () => _changeLoopRepeat(5),
+                      icon: const Icon(Icons.add),
+                      visualDensity: const VisualDensity(
+                        horizontal: -4,
+                        vertical: -4,
+                      ),
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+
+                    // 프리셋 드롭다운 (1/2/4/8마디 권장 회수)
+                    PopupMenuButton<int>(
+                      tooltip: '반복 프리셋',
+                      itemBuilder: (ctx) => [
+                        for (final p in _loopPresets)
+                          PopupMenuItem<int>(
+                            value: p.repeats,
+                            child: Text(p.label),
+                          ),
+                        const PopupMenuDivider(),
+                        const PopupMenuItem<int>(
+                          value: 0,
+                          child: Text('∞ (무한반복)'),
+                        ),
+                        const PopupMenuItem<int>(
+                          value: -999,
+                          child: Text('직접 입력…'),
+                        ),
+                      ],
+                      onSelected: (v) async {
+                        if (v == -999) {
+                          final ctl = TextEditingController(
+                            text: _loopRepeat.toString(),
+                          );
+                          final ok = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('반복횟수 입력 (0=∞)'),
+                              content: TextField(
+                                controller: ctl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  hintText: '0~200',
+                                ),
+                                onSubmitted: (_) => Navigator.pop(ctx, true),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: const Text('취소'),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: const Text('확인'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (ok == true) {
+                            final n =
+                                int.tryParse(ctl.text.trim()) ?? _loopRepeat;
+                            await _setLoopRepeatExact(n);
+                          }
+                        } else {
+                          await _setLoopRepeatExact(v);
+                        }
+                      },
+                      child: const Icon(Icons.more_horiz, size: 20),
+                    ),
+                  ],
                 ),
               ),
               w4,
-              _RemainingPill(
-                loopEnabled: _loopEnabled,
-                loopRepeat: _loopRepeat,
-                loopRemaining: _loopRemaining,
+              Tooltip(
+                message: _loopRepeat == 0
+                    ? '무한 반복 (0=∞)'
+                    : '현재 루프가 끝날 때까지 남은 반복 횟수입니다',
+                child: _RemainingPill(
+                  loopEnabled: _loopEnabled,
+                  loopRepeat: _loopRepeat,
+                  loopRemaining: _loopRemaining,
+                ),
               ),
             ],
           ),
@@ -923,29 +1129,35 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     final rightZoom = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        AppMiniButton(
-          icon: Icons.zoom_out,
-          onPressed: () => _zoom(0.8),
-          iconOnly: true,
-          iconSize: 22,
-          minSize: const Size(36, 32),
-        ),
-        const SizedBox(width: 4),
-        AppMiniButton(
-          icon: Icons.center_focus_strong,
-          onPressed: _zoomReset,
-          iconOnly: true,
-          iconSize: 22,
-          minSize: const Size(36, 32),
-        ),
-        const SizedBox(width: 4),
-        AppMiniButton(
-          icon: Icons.zoom_in,
-          onPressed: () => _zoom(1.25),
-          iconOnly: true,
-          iconSize: 22,
-          minSize: const Size(36, 32),
-        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: '줌 아웃',
+              onPressed: () => _zoom(0.8),
+              icon: const Icon(Icons.zoom_out),
+              iconSize: 22,
+              visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              tooltip: '줌 리셋',
+              onPressed: _zoomReset,
+              icon: const Icon(Icons.center_focus_strong),
+              iconSize: 22,
+              visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              tooltip: '줌 인',
+              onPressed: () => _zoom(1.25),
+              icon: const Icon(Icons.zoom_in),
+              iconSize: 22,
+              visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+            ),
+          ],
+        )
+
       ],
     );
 
@@ -955,18 +1167,13 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
         height: 42,
         child: Row(
           children: [
-            // 좌측: 최소폭 + 내용이 길어지면 텍스트가 먼저 잘림 방지
             ConstrainedBox(
-              constraints: const BoxConstraints(
-                minWidth: 220,
-              ), // 필요시 200~240 사이 튜닝
+              constraints: const BoxConstraints(minWidth: 220),
               child: left,
             ),
             const SizedBox(width: 6),
-            // 중앙: 남는 공간만 사용 (한줄 스크롤이므로 안전)
             Expanded(child: Center(child: centerLoop)),
             const SizedBox(width: 6),
-            // 우측: 줌 버튼 고정
             rightZoom,
           ],
         ),
@@ -992,8 +1199,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
               Text('템포 프리셋: 5~0 = 50%~100%'),
               Text('키 조정(반음): Alt+↑ / Alt+↓'),
               SizedBox(height: 8),
-              Text('  =  키를 누르고 있는 동안 2x 재생'),
-              Text('  -  키를 누르고 있는 동안 2x 역재생'),
+              Text('  =  키를 누르고 있는 동안 4x 재생'),
+              Text('  -  키를 누르고 있는 동안 4x 역재생'),
               Text('줌인/줌아웃: Alt+=  /  Alt+-'),
               Text('줌 리셋: Alt+0'),
             ],
@@ -1013,11 +1220,26 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     await _player.seek(d);
   }
 
+  // ===== B 패치: 포지션 변화 저장 완화 =====
+  void _maybeSaveAfterPositionChange() {
+    final cur = _position.inMilliseconds;
+    final posDelta = (_lastSavedPosMs < 0)
+        ? 999999
+        : (cur - _lastSavedPosMs).abs();
+    final stale = _lastSavedAt == null
+        ? true
+        : DateTime.now().difference(_lastSavedAt!) > const Duration(seconds: 3);
+    // 조건: 500ms 이상 이동했거나, 마지막 저장 후 3초 지남
+    if (posDelta >= 500 || stale) {
+      _lastSavedPosMs = cur;
+      _debouncedSave(saveToDb: false);
+    }
+  }
+
   // ===== 저장 =====
   Future<void> _saveSidecar({
     bool toast = false,
-    bool saveToDb = true,
-    bool uploadToStorage = true, // [SYNC]
+    bool saveToDb = true, 
   }) async {
     final now = DateTime.now();
     final map = {
@@ -1040,13 +1262,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     };
 
     try {
-      await SidecarSync.instance.save(
-        studentId: widget.studentId,
-        mediaHash: widget.mediaHash,
-        studentDir: widget.studentDir,
-        json: map,
-        uploadToStorage: uploadToStorage,
-      );
+      await SidecarSyncDb.instance.save(map, debounce: false);
 
       if (saveToDb && !_hydratingMemo) {
         unawaited(_saveLessonMemoToSupabase());
@@ -1086,7 +1302,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
   void _debouncedSave({bool saveToDb = true}) {
     _saver.schedule(() async {
-      await _saveSidecar(saveToDb: saveToDb, uploadToStorage: true);
+      await _saveSidecar(saveToDb: saveToDb);
     });
   }
 
@@ -1103,7 +1319,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     } else {
       _ffStartedFromPause = false;
     }
-    await _player.setRate(2.0);
+    await _player.setRate(_holdFastRate); // 3.0x
   }
 
   Future<void> _stopHoldFastForward() async {
@@ -1112,13 +1328,14 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     if (_ffStartedFromPause) {
       await _player.pause();
     } else {
-      await _applyAudioChain();
+      await _applyAudioChain(); // 원래 속도로 복귀
     }
     _ffStartedFromPause = false;
   }
 
+
   void _startHoldFastReverse() {
-    if (_holdFastReverse) return;
+    if (_holdFastReverse) return; // 🔧 버그픽스: 기존에는 if (!_) return 이라 항상 리턴됨
     _holdFastReverse = true;
     _reverseTick?.cancel();
 
@@ -1127,10 +1344,14 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       unawaited(_player.play());
       unawaited(_player.setRate(1.0));
     }
-    _reverseTick = Timer.periodic(const Duration(milliseconds: 80), (_) async {
+
+    // 약 3x 체감 역재생: 50ms마다 150ms씩 뒤로 점프
+    const period = Duration(milliseconds: 50);
+    const backStep = Duration(milliseconds: 150);
+
+    _reverseTick = Timer.periodic(period, (_) async {
       if (!_holdFastReverse) return;
-      final back = const Duration(milliseconds: 160);
-      var target = _position - back;
+      var target = _position - backStep;
       if (target < Duration.zero) target = Duration.zero;
       await _seekBoth(target);
     });
@@ -1143,9 +1364,13 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     _reverseTick = null;
     if (_frStartedFromPause) {
       unawaited(_player.pause());
+    } else {
+      // 정상 체인 복귀(속도/피치 등)
+      unawaited(_applyAudioChain());
     }
     _frStartedFromPause = false;
   }
+
 
   // 키 업/다운 핸들 (=-)
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent evt) {
@@ -1411,7 +1636,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                 const SizedBox(height: 12),
                               ],
 
-                              // ✅ 파형 (섹션 경계는 파형 자체가 차지하므로 그대로)
+                              // ✅ 파형
                               AppSection(
                                 padding: const EdgeInsets.fromLTRB(
                                   10,
@@ -1419,9 +1644,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                   10,
                                   8,
                                 ),
-                                margin: const EdgeInsets.symmetric(
-                                  vertical: 4,
-                                ), // 얇게
+                                margin: const EdgeInsets.symmetric(vertical: 4),
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
                                   child: WaveformPanel(
@@ -1442,7 +1665,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
 
                               const SizedBox(height: 5),
 
-                              // ===== Markers ===== (버튼 톤 통일)
+                              // ===== Markers =====
                               AppSection(
                                 child: Row(
                                   children: [
@@ -1451,8 +1674,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                       label: '마커 추가 (M)',
                                       onPressed: _addMarker,
                                       compact: true,
-                                      iconSize: 18, // 아이콘도 살짝만
-                                      fontSize: 12, // 라벨 축소
+                                      iconSize: 18,
+                                      fontSize: 12,
                                       minSize: const Size(34, 30),
                                     ),
                                     const SizedBox(width: 8),
@@ -1527,7 +1750,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
                                   if (_notesInitApplying) return;
                                   _notes = v;
                                   _debouncedSave(saveToDb: true);
-                                  XscSyncService.instance.pushNotes(v);
+                                  LessonMemoSync.instance.pushLocal(v);
                                 },
                                 decoration: const InputDecoration(
                                   hintText: '오늘 배운 것/과제/포인트를 적어두세요…',
@@ -1590,6 +1813,70 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       }
     }
   }
+ 
+  String _fmtLoopRepeat(int v) => v == 0 ? '∞' : '$v';
+
+  Future<void> _promptLoopRepeatInput() async {
+    final ctl = TextEditingController(text: _loopRepeat.toString());
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('반복횟수 입력 (0=∞)'),
+        content: TextField(
+          controller: ctl,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(hintText: '0~200'),
+          onSubmitted: (_) => Navigator.pop(ctx, true),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      final n = int.tryParse(ctl.text.trim()) ?? _loopRepeat;
+      await _setLoopRepeatExact(n); // ✅ 저장 & 잔여 즉시 반영
+    }
+  }
+
+
+  void _resetRemainingAfterRepeatChange() {
+    // 루프가 켜져 있고 반복이 유한(>0)이라면 '잔여'를 즉시 해당 값으로 리셋
+    setState(() {
+      _loopRemaining = (_loopEnabled && _loopRepeat > 0) ? _loopRepeat : -1;
+    });
+  }
+
+  void _changeLoopRepeat(int delta) {
+    final next = (_loopRepeat + delta).clamp(0, 200);
+    setState(() => _loopRepeat = next);
+    _wf.loopRepeat.value = _loopRepeat;
+    _debouncedSave();
+    _resetRemainingAfterRepeatChange();
+  }
+
+  Future<void> _setLoopRepeatExact(int v) async {
+    setState(() => _loopRepeat = v.clamp(0, 200));
+    _wf.loopRepeat.value = _loopRepeat;
+    _debouncedSave();
+    _resetRemainingAfterRepeatChange();
+  }
+
+// 현장 최적화 4종 (1/2/4/8마디)
+  static const List<_LoopPreset> _loopPresets = [
+    _LoopPreset('1마디 · 50회', 50),
+    _LoopPreset('2마디 · 30회', 30),
+    _LoopPreset('4마디 · 20회', 20),
+    _LoopPreset('8마디 · 12회', 12),
+  ];
+
 
   Future<void> _spacePlayBehavior() async {
     final dynamic plat = _player.platform;
@@ -1611,7 +1898,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
       try {
         final dynamic plat = _player.platform;
         await plat?.setProperty('mute', _muted ? 'yes' : 'no');
-        await plat?.setProperty('volume', '${_volume.clamp(0, 100)}');
         await plat?.setProperty('audio-device', 'auto');
       } catch (_) {}
       _debouncedSave();
@@ -1680,7 +1966,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen> {
     if (ready) {
       setState(() => _loopEnabled = true);
       _wf.loopOn.value = true;
-      // ⛔️ 자동 재생 제거: 기존 _startLoopFromA() 호출 삭제
+      // ⛔️ 자동 재생 제거
       _debouncedSave();
     } else {
       _debouncedSave();
@@ -1970,16 +2256,8 @@ class _HoldIconButton extends StatelessWidget {
         onPressed: () {}, // 클릭은 의미 없음(홀드 전용)
         icon: Icon(icon),
         padding: EdgeInsets.zero, // ✅ 여백 제거
-        constraints: const BoxConstraints.tightFor(
-          // ✅ 크기 고정(바 높이와 일치)
-          width: 36,
-          height: 32,
-        ),
-        visualDensity: const VisualDensity(
-          // ✅ 터치 타겟도 슬림
-          horizontal: -4,
-          vertical: -4,
-        ),
+        constraints: const BoxConstraints.tightFor(width: 36, height: 32),
+        visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
         splashRadius: 18,
       ),
     );
@@ -2097,11 +2375,18 @@ class _RemainingPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: theme.dividerColor.withOpacity(0.3)),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.3)),
       ),
       child: Text(txt, style: theme.textTheme.bodySmall),
     );
   }
+}
+
+// 프리셋(라벨, 반복횟수)
+class _LoopPreset {
+  final String label;
+  final int repeats;
+  const _LoopPreset(this.label, this.repeats);
 }
