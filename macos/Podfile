@@ -36,11 +36,20 @@ target 'Runner' do
 end
 
 post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    flutter_additional_macos_build_settings(target)
-    # 모든 Pods의 타깃 버전을 Runner와 동일(11.0)로 강제
-    target.build_configurations.each do |config|
-      config.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '11.0'
+  installer.pods_project.targets.each do |t|
+    # 1) 먼저 모든 구성의 배포 타깃을 통일
+    t.build_configurations.each do |c|
+      c.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '11.0'
+      # (선택) 매크로 재정의 경고 조용히: Runner에서만 해도 OK
+      # c.build_settings['OTHER_CFLAGS'] = '$(inherited) -Wno-macro-redefined'
+
+      # (선택) Xcode 16 .xcprivacy 경고 숨김
+      # xcprivacy = 'PrivacyInfo.xcprivacy'
+      # existed = c.build_settings['EXCLUDED_SOURCE_FILE_NAMES']
+      # c.build_settings['EXCLUDED_SOURCE_FILE_NAMES'] = existed.nil? || existed.empty? ? xcprivacy : "#{existed} #{xcprivacy}"
     end
+
+    # 2) 통일한 뒤에 호출해야 충돌 없음
+    flutter_additional_macos_build_settings(t)
   end
 end

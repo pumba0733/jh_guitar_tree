@@ -21,21 +21,14 @@
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
-		1FC819BE2EA4951B006F4B06 /* libfftw3f.3.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FE9CE9B2EA329E0002AAFE3 /* libfftw3f.3.dylib */; };
-		1FC819BF2EA4951B006F4B06 /* librubberband.3.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FE9CEA52EA3369E002AAFE3 /* librubberband.3.dylib */; };
-		1FC819C02EA4951B006F4B06 /* libsamplerate.0.2.2.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FE9CEA42EA3369E002AAFE3 /* libsamplerate.0.2.2.dylib */; };
-		1FC819C42EA49532006F4B06 /* libsamplerate.0.2.2.dylib in Copy 3rd-Party Dylibs */ = {isa = PBXBuildFile; fileRef = 1FC819C12EA49531006F4B06 /* libsamplerate.0.2.2.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		1FC819C52EA49532006F4B06 /* librubberband.3.dylib in Copy 3rd-Party Dylibs */ = {isa = PBXBuildFile; fileRef = 1FC819C22EA49532006F4B06 /* librubberband.3.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		1FC819C62EA49532006F4B06 /* libfftw3f.3.dylib in Copy 3rd-Party Dylibs */ = {isa = PBXBuildFile; fileRef = 1FC819C32EA49532006F4B06 /* libfftw3f.3.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		1FD8C5292EA42488009E0FEE /* fftw_bridge.c in Sources */ = {isa = PBXBuildFile; fileRef = 1FD8C5282EA42488009E0FEE /* fftw_bridge.c */; };
+		2975A142CC661B0CBF6E121C /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D5CFD8E09FFA65EEA33FDD6D /* Pods_Runner.framework */; };
 		331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C80D7294CF71000263BE5 /* RunnerTests.swift */; };
 		335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */; };
 		33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC10F02044A3C60003C045 /* AppDelegate.swift */; };
 		33CC10F32044A3C60003C045 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F22044A3C60003C045 /* Assets.xcassets */; };
 		33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F42044A3C60003C045 /* MainMenu.xib */; };
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
-		96F0830A2FD631EF25571949 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2754B0ADFA6F78E12B755C04 /* Pods_RunnerTests.framework */; };
-		F1F6EBED2BFDC6BBD43FD327 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 993AFC14F90683D1EA218F4E /* Pods_Runner.framework */; };
+		9A6D84E134DE5CD0EBE0954F /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1C5B90669C4D4F93678C7419 /* Pods_RunnerTests.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -55,36 +48,16 @@
 		};
 /* End PBXContainerItemProxy section */
 
-/* Begin PBXCopyFilesBuildPhase section */
-		1FC4B2D82E9E83EA00FDB7A6 /* Copy 3rd-Party Dylibs */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 12;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				1FC819C42EA49532006F4B06 /* libsamplerate.0.2.2.dylib in Copy 3rd-Party Dylibs */,
-				1FC819C52EA49532006F4B06 /* librubberband.3.dylib in Copy 3rd-Party Dylibs */,
-				1FC819C62EA49532006F4B06 /* libfftw3f.3.dylib in Copy 3rd-Party Dylibs */,
-			);
-			name = "Copy 3rd-Party Dylibs";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
-
 /* Begin PBXFileReference section */
-		09E1F02022E7093C4820F3C7 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
-		1AE8D40E1ED8DFC3A9353D45 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
+		096209BDE9D10490C196E344 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
+		0FA702F55EEABB58F3BCF7B4 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
+		1C5B90669C4D4F93678C7419 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		1FB6A4062E5F2B8E00599094 /* Profile.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Profile.xcconfig; sourceTree = "<group>"; };
-		1FC819C12EA49531006F4B06 /* libsamplerate.0.2.2.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libsamplerate.0.2.2.dylib; path = ThirdParty/libsamplerate.0.2.2.dylib; sourceTree = "<group>"; };
-		1FC819C22EA49532006F4B06 /* librubberband.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = librubberband.3.dylib; path = ThirdParty/librubberband.3.dylib; sourceTree = "<group>"; };
-		1FC819C32EA49532006F4B06 /* libfftw3f.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfftw3f.3.dylib; path = ThirdParty/libfftw3f.3.dylib; sourceTree = "<group>"; };
-		1FD8C5282EA42488009E0FEE /* fftw_bridge.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = fftw_bridge.c; path = Runner/fftw_bridge.c; sourceTree = "<group>"; };
-		1FD8C52D2EA42585009E0FEE /* fftw_bridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = fftw_bridge.h; path = Runner/fftw_bridge.h; sourceTree = "<group>"; };
 		1FE1DA292EA1FB7200C9B09B /* libfftw3.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfftw3.3.dylib; path = ../../../../../../opt/homebrew/Cellar/fftw/3.3.10_2/lib/libfftw3.3.dylib; sourceTree = "<group>"; };
 		1FE9CE9B2EA329E0002AAFE3 /* libfftw3f.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfftw3f.3.dylib; path = ThirdParty/libfftw3f.3.dylib; sourceTree = "<group>"; };
 		1FE9CEA42EA3369E002AAFE3 /* libsamplerate.0.2.2.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libsamplerate.0.2.2.dylib; path = ThirdParty/libsamplerate.0.2.2.dylib; sourceTree = "<group>"; };
 		1FE9CEA52EA3369E002AAFE3 /* librubberband.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = librubberband.3.dylib; path = ThirdParty/librubberband.3.dylib; sourceTree = "<group>"; };
-		2754B0ADFA6F78E12B755C04 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		3110AA0F001F0E7269A65F50 /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		331C80D5294CF71000263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C80D7294CF71000263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		333000ED22D3DE5D00554162 /* Warnings.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Warnings.xcconfig; sourceTree = "<group>"; };
@@ -101,13 +74,12 @@
 		33E51913231747F40026EE4D /* DebugProfile.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DebugProfile.entitlements; sourceTree = "<group>"; };
 		33E51914231749380026EE4D /* Release.entitlements */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.entitlements; path = Release.entitlements; sourceTree = "<group>"; };
 		33E5194F232828860026EE4D /* AppInfo.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AppInfo.xcconfig; sourceTree = "<group>"; };
+		447225C720934B9996042C8A /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
-		993AFC14F90683D1EA218F4E /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
-		B2363C2F1FDEF9380814865A /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
-		B5F9FA15A7767A3FAE46CFBE /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
-		E9ABA5CDA9A51F5D91845D0F /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
-		F5B2ED9BC340855506713836 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
+		A36AE6FE300D6E7C45AEE438 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
+		AAEE526B97BB76975C493383 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
+		D5CFD8E09FFA65EEA33FDD6D /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -115,7 +87,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				96F0830A2FD631EF25571949 /* Pods_RunnerTests.framework in Frameworks */,
+				9A6D84E134DE5CD0EBE0954F /* Pods_RunnerTests.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -123,10 +95,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1FC819BE2EA4951B006F4B06 /* libfftw3f.3.dylib in Frameworks */,
-				1FC819BF2EA4951B006F4B06 /* librubberband.3.dylib in Frameworks */,
-				1FC819C02EA4951B006F4B06 /* libsamplerate.0.2.2.dylib in Frameworks */,
-				F1F6EBED2BFDC6BBD43FD327 /* Pods_Runner.framework in Frameworks */,
+				2975A142CC661B0CBF6E121C /* Pods_Runner.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -155,11 +124,6 @@
 		33CC10E42044A3C60003C045 = {
 			isa = PBXGroup;
 			children = (
-				1FC819C32EA49532006F4B06 /* libfftw3f.3.dylib */,
-				1FC819C22EA49532006F4B06 /* librubberband.3.dylib */,
-				1FC819C12EA49531006F4B06 /* libsamplerate.0.2.2.dylib */,
-				1FD8C52D2EA42585009E0FEE /* fftw_bridge.h */,
-				1FD8C5282EA42488009E0FEE /* fftw_bridge.c */,
 				33FAB671232836740065AC1E /* Runner */,
 				33CEB47122A05771004F2AC0 /* Flutter */,
 				331C80D6294CF71000263BE5 /* RunnerTests */,
@@ -221,8 +185,8 @@
 				1FE9CEA42EA3369E002AAFE3 /* libsamplerate.0.2.2.dylib */,
 				1FE9CE9B2EA329E0002AAFE3 /* libfftw3f.3.dylib */,
 				1FE1DA292EA1FB7200C9B09B /* libfftw3.3.dylib */,
-				993AFC14F90683D1EA218F4E /* Pods_Runner.framework */,
-				2754B0ADFA6F78E12B755C04 /* Pods_RunnerTests.framework */,
+				D5CFD8E09FFA65EEA33FDD6D /* Pods_Runner.framework */,
+				1C5B90669C4D4F93678C7419 /* Pods_RunnerTests.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -230,12 +194,12 @@
 		C817DA8353AFEC1FBDDD72EF /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				09E1F02022E7093C4820F3C7 /* Pods-Runner.debug.xcconfig */,
-				B2363C2F1FDEF9380814865A /* Pods-Runner.release.xcconfig */,
-				1AE8D40E1ED8DFC3A9353D45 /* Pods-Runner.profile.xcconfig */,
-				F5B2ED9BC340855506713836 /* Pods-RunnerTests.debug.xcconfig */,
-				B5F9FA15A7767A3FAE46CFBE /* Pods-RunnerTests.release.xcconfig */,
-				E9ABA5CDA9A51F5D91845D0F /* Pods-RunnerTests.profile.xcconfig */,
+				447225C720934B9996042C8A /* Pods-Runner.debug.xcconfig */,
+				3110AA0F001F0E7269A65F50 /* Pods-Runner.release.xcconfig */,
+				AAEE526B97BB76975C493383 /* Pods-Runner.profile.xcconfig */,
+				A36AE6FE300D6E7C45AEE438 /* Pods-RunnerTests.debug.xcconfig */,
+				096209BDE9D10490C196E344 /* Pods-RunnerTests.release.xcconfig */,
+				0FA702F55EEABB58F3BCF7B4 /* Pods-RunnerTests.profile.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -247,7 +211,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 331C80DE294CF71000263BE5 /* Build configuration list for PBXNativeTarget "RunnerTests" */;
 			buildPhases = (
-				E8E5CA94913EE2C4B3A4AC34 /* [CP] Check Pods Manifest.lock */,
+				C94D03CE0821B2A84A884D31 /* [CP] Check Pods Manifest.lock */,
 				331C80D1294CF70F00263BE5 /* Sources */,
 				331C80D2294CF70F00263BE5 /* Frameworks */,
 				331C80D3294CF70F00263BE5 /* Resources */,
@@ -266,14 +230,12 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 33CC10FB2044A3C60003C045 /* Build configuration list for PBXNativeTarget "Runner" */;
 			buildPhases = (
-				E3921AFCEB31D76063C44E81 /* [CP] Check Pods Manifest.lock */,
+				ACF087C7718F7F4A6730733C /* [CP] Check Pods Manifest.lock */,
 				33CC10E92044A3C60003C045 /* Sources */,
 				33CC10EA2044A3C60003C045 /* Frameworks */,
 				33CC10EB2044A3C60003C045 /* Resources */,
 				1FE9CEAA2EA33F6A002AAFE3 /* ShellScript */,
-				1FC4B2D82E9E83EA00FDB7A6 /* Copy 3rd-Party Dylibs */,
-				3399D490228B24CF009A79C7 /* ShellScript */,
-				2CE8A66891633210461B8D20 /* [CP] Embed Pods Frameworks */,
+				201FEC5014EA1C9822F0A383 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -368,12 +330,13 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				/tmp/guitartree_run_script.stamp,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "echo \"$PRODUCT_NAME.app\" > \"$PROJECT_DIR\"/Flutter/ephemeral/.app_filename && \\\n\"$FLUTTER_ROOT\"/packages/flutter_tools/bin/macos_assemble.sh embed\n";
 		};
-		2CE8A66891633210461B8D20 /* [CP] Embed Pods Frameworks */ = {
+		201FEC5014EA1C9822F0A383 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -389,25 +352,6 @@
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
-		};
-		3399D490228B24CF009A79C7 /* ShellScript */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(TARGET_BUILD_DIR)/fix_rpath_done",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# === Fix @rpath & Deep-sign (Project-local dylibs are already copied by Copy Files) ===\nset -e\n\nAPP=\"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"\nBIN=\"$APP/Contents/MacOS/${PRODUCT_NAME}\"\nFWK=\"$APP/Contents/Frameworks\"\n\n# 1) 번들 내부 dylib들의 id를 @rpath로 보정 (중복 호출 무시)\nfor N in libfftw3f.3.dylib librubberband.3.dylib libsamplerate.0.2.2.dylib; do\n  [ -f \"$FWK/$N\" ] || continue\n  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/install_name_tool \\\n    -id \"@rpath/$N\" \"$FWK/$N\" 2>/dev/null || true\ndone\n\n# 2) 실행 파일에 남아 있을 수 있는 외부 경로 참조를 @rpath로 교정\nfixref() {\n  local from=\"$1\" to=\"$2\"\n  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/install_name_tool \\\n    -change \"$from\" \"$to\" \"$BIN\" 2>/dev/null || true\n}\n\n# fftw\nfixref \"/opt/homebrew/opt/fftw/lib/libfftw3f.3.dylib\"  \"@rpath/libfftw3f.3.dylib\"\nfixref \"/usr/local/opt/fftw/lib/libfftw3f.3.dylib\"     \"@rpath/libfftw3f.3.dylib\"\n\n# rubberband\nfixref \"/opt/homebrew/opt/rubberband/lib/librubberband.3.dylib\" \"@rpath/librubberband.3.dylib\"\nfixref \"/usr/local/opt/rubberband/lib/librubberband.3.dylib\"    \"@rpath/librubberband.3.dylib\"\n\n# libsamplerate (버전/심볼릭 모두 대비)\nfixref \"/opt/homebrew/opt/libsamplerate/lib/libsamplerate.0.2.2.dylib\" \"@rpath/libsamplerate.0.2.2.dylib\"\nfixref \"/usr/local/opt/libsamplerate/lib/libsamplerate.0.2.2.dylib\"    \"@rpath/libsamplerate.0.2.2.dylib\"\nfixref \"/opt/homebrew/opt/libsamplerate/lib/libsamplerate.0.dylib\"     \"@rpath/libsamplerate.0.2.2.dylib\"\nfixref \"/usr/local/opt/libsamplerate/lib/libsamplerate.0.dylib\"        \"@rpath/libsamplerate.0.2.2.dylib\"\n\n# 3) rpath 보강(이미 있으면 조용히 통과)\nfor R in \"@executable_path/../Frameworks\" \"@loader_path/../Frameworks\"; do\n  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/install_name_tool \\\n    -add_rpath \"$R\" \"$BIN\" 2>/dev/null || true\ndone\n\n# 4) 최종 서명\n/usr/bin/codesign --force --deep -s - \"$APP\"\necho \"✓ Fixed @rpath and deep-signed: $APP\"\necho \"STAMP\" > \"${TARGET_BUILD_DIR}/fix_rpath_done\"\n";
 		};
 		33CC111E2044C6BF0003C045 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -429,7 +373,7 @@
 			shellPath = /bin/sh;
 			shellScript = "\"$FLUTTER_ROOT\"/packages/flutter_tools/bin/macos_assemble.sh && touch Flutter/ephemeral/tripwire";
 		};
-		E3921AFCEB31D76063C44E81 /* [CP] Check Pods Manifest.lock */ = {
+		ACF087C7718F7F4A6730733C /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -451,7 +395,7 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		E8E5CA94913EE2C4B3A4AC34 /* [CP] Check Pods Manifest.lock */ = {
+		C94D03CE0821B2A84A884D31 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -488,7 +432,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1FD8C5292EA42488009E0FEE /* fftw_bridge.c in Sources */,
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
@@ -525,10 +468,11 @@
 /* Begin XCBuildConfiguration section */
 		331C80DB294CF71000263BE5 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = F5B2ED9BC340855506713836 /* Pods-RunnerTests.debug.xcconfig */;
+			baseConfigurationReference = A36AE6FE300D6E7C45AEE438 /* Pods-RunnerTests.debug.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				MARKETING_VERSION = 1.0;
@@ -541,10 +485,11 @@
 		};
 		331C80DC294CF71000263BE5 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B5F9FA15A7767A3FAE46CFBE /* Pods-RunnerTests.release.xcconfig */;
+			baseConfigurationReference = 096209BDE9D10490C196E344 /* Pods-RunnerTests.release.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				MARKETING_VERSION = 1.0;
@@ -557,10 +502,11 @@
 		};
 		331C80DD294CF71000263BE5 /* Profile */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = E9ABA5CDA9A51F5D91845D0F /* Pods-RunnerTests.profile.xcconfig */;
+			baseConfigurationReference = 0FA702F55EEABB58F3BCF7B4 /* Pods-RunnerTests.profile.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				MARKETING_VERSION = 1.0;
@@ -596,11 +542,12 @@
 				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
 				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CODE_SIGN_IDENTITY = "-";
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -625,15 +572,16 @@
 		};
 		338D0CEA231458BD00FA5F75 /* Profile */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 1AE8D40E1ED8DFC3A9353D45 /* Pods-Runner.profile.xcconfig */;
+			baseConfigurationReference = AAEE526B97BB76975C493383 /* Pods-Runner.profile.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = NO;
+				DEAD_CODE_STRIPPING = YES;
 				EXCLUDED_ARCHS = "";
+				GCC_PREPROCESSOR_DEFINITIONS = "$(inherited)";
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/app_links/app_links.framework/Headers\"",
@@ -653,9 +601,6 @@
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/volume_controller/volume_controller.framework/Headers\"",
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/wakelock_plus/wakelock_plus.framework/Headers\"",
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/window_manager/window_manager.framework/Headers\"",
-					/usr/local/opt/fftw/include,
-					/opt/homebrew/opt/fftw/include,
-					"$(PROJECT_DIR)/macos/Runner",
 				);
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -666,9 +611,9 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
-					"$(PROJECT_DIR)/ThirdParty",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				OTHER_CFLAGS = "";
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -741,7 +686,6 @@
 					"\"wakelock_plus\"",
 					"-framework",
 					"\"window_manager\"",
-					"-Wl,-u,_fftw_analyze_bands_f32",
 				);
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
@@ -752,6 +696,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Manual;
+				DEAD_CODE_STRIPPING = YES;
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -782,11 +727,12 @@
 				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
 				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CODE_SIGN_IDENTITY = "-";
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -796,10 +742,7 @@
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
-				GCC_PREPROCESSOR_DEFINITIONS = (
-					"DEBUG=1",
-					"$(inherited)",
-				);
+				GCC_PREPROCESSOR_DEFINITIONS = "$(inherited)";
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
@@ -841,11 +784,12 @@
 				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
 				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CODE_SIGN_IDENTITY = "-";
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -853,6 +797,7 @@
 				EXCLUDED_ARCHS = "";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_PREPROCESSOR_DEFINITIONS = "$(inherited)";
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
@@ -870,15 +815,16 @@
 		};
 		33CC10FC2044A3C60003C045 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 09E1F02022E7093C4820F3C7 /* Pods-Runner.debug.xcconfig */;
+			baseConfigurationReference = 447225C720934B9996042C8A /* Pods-Runner.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = NO;
+				DEAD_CODE_STRIPPING = YES;
 				EXCLUDED_ARCHS = "";
+				GCC_PREPROCESSOR_DEFINITIONS = "$(inherited)";
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/app_links/app_links.framework/Headers\"",
@@ -898,9 +844,6 @@
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/volume_controller/volume_controller.framework/Headers\"",
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/wakelock_plus/wakelock_plus.framework/Headers\"",
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/window_manager/window_manager.framework/Headers\"",
-					/usr/local/opt/fftw/include,
-					/opt/homebrew/opt/fftw/include,
-					"$(PROJECT_DIR)/macos/Runner",
 				);
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -911,9 +854,9 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
-					"$(PROJECT_DIR)/ThirdParty",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				OTHER_CFLAGS = "\"$(inherited) -Wno-macro-redefined\"";
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -986,7 +929,6 @@
 					"\"wakelock_plus\"",
 					"-framework",
 					"\"window_manager\"",
-					"-Wl,-u,_fftw_analyze_bands_f32",
 				);
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -996,15 +938,16 @@
 		};
 		33CC10FD2044A3C60003C045 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B2363C2F1FDEF9380814865A /* Pods-Runner.release.xcconfig */;
+			baseConfigurationReference = 3110AA0F001F0E7269A65F50 /* Pods-Runner.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Release.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = NO;
+				DEAD_CODE_STRIPPING = YES;
 				EXCLUDED_ARCHS = "";
+				GCC_PREPROCESSOR_DEFINITIONS = "$(inherited)";
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/app_links/app_links.framework/Headers\"",
@@ -1024,9 +967,6 @@
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/volume_controller/volume_controller.framework/Headers\"",
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/wakelock_plus/wakelock_plus.framework/Headers\"",
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/window_manager/window_manager.framework/Headers\"",
-					/usr/local/opt/fftw/include,
-					/opt/homebrew/opt/fftw/include,
-					"$(PROJECT_DIR)/macos/Runner",
 				);
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1037,9 +977,9 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
-					"$(PROJECT_DIR)/ThirdParty",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				OTHER_CFLAGS = "";
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -1112,7 +1052,6 @@
 					"\"wakelock_plus\"",
 					"-framework",
 					"\"window_manager\"",
-					"-Wl,-u,_fftw_analyze_bands_f32",
 				);
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
@@ -1123,6 +1062,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Manual;
+				DEAD_CODE_STRIPPING = YES;
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -1132,6 +1072,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};

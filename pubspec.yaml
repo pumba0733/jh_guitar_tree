@@ -45,13 +45,14 @@ dependencies:
   media_kit: ^1.1.10
   media_kit_video: ^1.1.10
   just_audio_media_kit: ^2.1.0
+  media_kit_libs_windows_audio: ^1.0.4
+  media_kit_libs_windows_video: ^1.0.11
 
 
   # ✅ macOS는 video 번들만 사용
   media_kit_libs_macos_video: ^1.1.4
 
   # ✅ 다른 플랫폼용 공용 번들(유지)
-  media_kit_libs_video: ^1.0.4
 
   window_manager: ^0.3.9
   video_player: ^2.9.1
