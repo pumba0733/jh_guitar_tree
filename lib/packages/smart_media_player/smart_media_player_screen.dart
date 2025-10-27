@@ -31,7 +31,7 @@ import 'waveform/system/waveform_panel.dart';
 import 'waveform/waveform_tuning.dart';
 import 'models/marker_point.dart';
 import 'sync/sidecar_sync_db.dart';
-import 'audio/rubberband_mpv_engine.dart';
+import 'audio/mpv_audio_chain.dart';
 import 'utils/debounced_saver.dart';
 import 'video/sticky_video_overlay.dart';
 
@@ -673,7 +673,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   }
 
   Future<void> _applyAudioChain() async {
-    await RubberbandMpvEngine.I.apply(
+    await MpvAudioChain.I.apply(
       player: _player,
       isVideo: _isVideo,
       muted: _muted,
@@ -1585,7 +1585,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
           child: Focus(
             focusNode: _focusNode,
             autofocus: true,
-            onKeyEvent: _onKeyEvent, // = / - 홀드 처리
+            canRequestFocus: true,
+            skipTraversal: true,
+            onKeyEvent: _onKeyEvent,
             child: Scaffold(
               appBar: AppBar(
                 title: Text('스마트 미디어 플레이어 — $title'),

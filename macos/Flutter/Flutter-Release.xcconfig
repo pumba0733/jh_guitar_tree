@@ -1,2 +1,7 @@
-#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
-#include "ephemeral/Flutter-Generated.xcconfig"
+// Pods 설정 먼저 포함
+#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"     // 디버그
+// #include "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig" // 릴리즈
+// #include "Pods/Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig" // 프로파일
+
+// Flutter가 빌드 시 생성하는 설정 포함 (ephemeral)
+#include? "ephemeral/Flutter-Generated.xcconfig"
