@@ -53,10 +53,6 @@
 		0FA702F55EEABB58F3BCF7B4 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		1C5B90669C4D4F93678C7419 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		1FB6A4062E5F2B8E00599094 /* Profile.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Profile.xcconfig; sourceTree = "<group>"; };
-		1FE1DA292EA1FB7200C9B09B /* libfftw3.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfftw3.3.dylib; path = ../../../../../../opt/homebrew/Cellar/fftw/3.3.10_2/lib/libfftw3.3.dylib; sourceTree = "<group>"; };
-		1FE9CE9B2EA329E0002AAFE3 /* libfftw3f.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libfftw3f.3.dylib; path = ThirdParty/libfftw3f.3.dylib; sourceTree = "<group>"; };
-		1FE9CEA42EA3369E002AAFE3 /* libsamplerate.0.2.2.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libsamplerate.0.2.2.dylib; path = ThirdParty/libsamplerate.0.2.2.dylib; sourceTree = "<group>"; };
-		1FE9CEA52EA3369E002AAFE3 /* librubberband.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = librubberband.3.dylib; path = ThirdParty/librubberband.3.dylib; sourceTree = "<group>"; };
 		3110AA0F001F0E7269A65F50 /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		331C80D5294CF71000263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C80D7294CF71000263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
@@ -181,10 +177,6 @@
 		AD285CB2FA043BB9441BC6B6 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				1FE9CEA52EA3369E002AAFE3 /* librubberband.3.dylib */,
-				1FE9CEA42EA3369E002AAFE3 /* libsamplerate.0.2.2.dylib */,
-				1FE9CE9B2EA329E0002AAFE3 /* libfftw3f.3.dylib */,
-				1FE1DA292EA1FB7200C9B09B /* libfftw3.3.dylib */,
 				D5CFD8E09FFA65EEA33FDD6D /* Pods_Runner.framework */,
 				1C5B90669C4D4F93678C7419 /* Pods_RunnerTests.framework */,
 			);
