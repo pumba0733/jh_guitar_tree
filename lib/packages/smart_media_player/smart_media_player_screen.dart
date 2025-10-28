@@ -31,7 +31,7 @@ import 'waveform/system/waveform_panel.dart';
 import 'waveform/waveform_tuning.dart';
 import 'models/marker_point.dart';
 import 'sync/sidecar_sync_db.dart';
-import 'audio/mpv_audio_chain.dart';
+import 'audio/mpv_audio_chain.dart' as ac;
 import 'utils/debounced_saver.dart';
 import 'video/sticky_video_overlay.dart';
 
@@ -154,7 +154,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   // 시작점
   Duration _startCue = Duration.zero;
   
-  
+  bool _isDisposing = false; // ✅ dispose 중 가드
+  VoidCallback? _saverListener; // ✅ 리스너 핸들 보관
 
   // 마커
   final List<MarkerPoint> _markers = [];
@@ -163,6 +164,27 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   String _notes = '';
   late final TextEditingController _notesCtl;
   bool _notesInitApplying = true;
+
+  Timer? _afWatchdog;
+  String _lastAfGot = '';
+  final _lastAfWanted = '';
+ 
+  Future<void> _logAf([String tag = '']) async {
+    try {
+      final dynamic plat = _player.platform;
+      final got = await plat?.getProperty('af');
+      if ('$got' != _lastAfGot) {
+        _lastAfGot = '$got';
+        debugPrint('[AF$tag] now="$got"');
+        // 기대했던 체인과 다르면 빨간 플래그
+        if (_lastAfWanted.isNotEmpty && _lastAfGot != _lastAfWanted) {
+          debugPrint(
+            '[AF OVERRIDDEN] expected="$_lastAfWanted"  got="$_lastAfGot"',
+          );
+        }
+      }
+    } catch (_) {}
+  }
 
   // 자동 저장
   Timer? _saveDebounce;
@@ -290,14 +312,17 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     _wf.onPause = () async {
       await _player.pause();
     };
-    _saver.addListener(() {
-      if (!mounted) return;
+
+    // ✅ 변경: 리스너를 변수에 보관 + mounted/_isDisposing 가드
+    _saverListener = () {
+      if (!mounted || _isDisposing) return;
       setState(() {
         _saveStatus = _saver.status;
         _lastSavedAt = _saver.lastSavedAt;
         _pendingRetryCount = _saver.pendingRetryCount;
       });
-    });
+    };
+    _saver.addListener(_saverListener!);
   }
 
   // A 패치: 앱 라이프사이클 변화 시 즉시 저장 한번 보장
@@ -448,29 +473,27 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
   @override
   void dispose() {
-    SidecarSyncDb.instance.dispose();
-    // A 패치: 옵저버 해제
-    WidgetsBinding.instance.removeObserver(this);
-
-    // 1) 예약 저장 태스크 즉시 실행
-    try {
-      _saver.flush(() async {
-        await _saveSidecar(saveToDb: false);
-      });
-    } catch (_) {}
-
-    // 2) 마지막 저장을 짧게 한 번 더 보장 (non-blocking)
-    Future<void> finalizeSave() async {
-      try {
-        final fut = _saveSidecar(saveToDb: false);
-        await fut.timeout(const Duration(milliseconds: 700));
-      } catch (_) {}
+    _isDisposing = true;
+    _afWatchdog?.cancel();
+    _afWatchdog = null;
+    // 1) 가장 먼저 saver 리스너 해제
+    if (_saverListener != null) {
+      _saver.removeListener(_saverListener!);
+      _saverListener = null;
     }
 
-    // ignore: discarded_futures
-    finalizeSave();
+    // 2) flush() 호출 금지 — notify가 터져서 크래시 유발함
+    //    대신 실제 저장만 1회(예외 무시)
+    try {
+      unawaited(_saveSidecar(saveToDb: false));
+    } catch (_) {}
+
+    // 3) saver 자체 dispose
+    _saver.dispose();
 
     // 이하 기존 dispose 그대로…
+    SidecarSyncDb.instance.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     _saveDebounce?.cancel();
     _posSub?.cancel();
     _durSub?.cancel();
@@ -484,7 +507,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     _scrollCtl.removeListener(_onScrollTick);
     _scrollCtl.dispose();
     LessonMemoSync.instance.dispose();
-    _saver.dispose();
     if (_loopOnListener != null) _wf.loopOn.removeListener(_loopOnListener!);
     if (_markersListener != null) _wf.markers.removeListener(_markersListener!);
     super.dispose();
@@ -664,6 +686,12 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     });
 
     await _applyAudioChain();
+
+    // 🔎 AF 감시: 400ms마다 바뀌면 로그
+    _afWatchdog?.cancel();
+    _afWatchdog = Timer.periodic(const Duration(milliseconds: 400), (_) {
+      unawaited(_logAf());
+    });
   }
 
   Duration _clamp(Duration v, Duration min, Duration max) {
@@ -673,15 +701,28 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   }
 
   Future<void> _applyAudioChain() async {
-    await MpvAudioChain.I.apply(
+    debugPrint(
+      '[SMP] _applyAudioChain speed=$_speed semi=$_pitchSemi vol=$_volume',
+    );
+
+    await ac.MpvAudioChain.instance.apply(
       player: _player,
       isVideo: _isVideo,
       muted: _muted,
-      volumePercent: _volume,
-      speed: _speed,
-      pitchSemi: _pitchSemi,
+      volumePercent: _volume.toDouble(), // ✅ int → double
+      speed: _speed.toDouble(), // ✅ int → double
+      pitchSemi: _pitchSemi.toDouble(), // ✅ int → double
     );
+
+    // ✅ 비교용이 아니라 "참고 로그" 용도만
+    try {
+
+    } catch (_) {}
+
+    unawaited(_logAf(' after-apply'));
   }
+
+
 
   // === 템포/키/볼륨: 2줄 고정 레이아웃 (라벨/값(+프리셋 1줄) + 슬라이더 1줄)
   Widget _buildControlRow() {
@@ -1897,24 +1938,16 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     } else {
       final d = _clamp(_startCue, Duration.zero, _duration);
       await _seekBoth(d);
-      try {
-        final dynamic plat = _player.platform;
-        await plat?.setProperty('mute', _muted ? 'yes' : 'no');
-        await plat?.setProperty('audio-device', 'auto');
-      } catch (_) {}
-      _debouncedSave();
-      await _player.play();
+
+      // 🔧 재생 직전 1회
       await _applyAudioChain();
 
+      await _player.play();
+
+      // 🔧 300ms 뒤에 1회 더 (덮어쓰기 방지)
       Future.delayed(const Duration(milliseconds: 300), () async {
-        try {
-          final p1 = await plat?.getProperty('playback-time');
-          final paused = await plat?.getProperty('pause');
-          final afnow = await plat?.getProperty('af');
-          debugPrint(
-            '[SMP] +300ms: playback-time=$p1, pause=$paused, af(now)=$afnow',
-          );
-        } catch (_) {}
+        await _applyAudioChain();
+        await _logAf(' +300ms');
       });
     }
   }
