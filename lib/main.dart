@@ -1,7 +1,6 @@
-// lib/main.dart — v1.58.7
-// - 창 크기/중앙 표시: window_manager 사용 유지
-// - just_audio media_kit 백엔드 초기화: macOS 명시 활성화(macOS:true)
-// - print→debugPrint, 린트 정리, 기존 Supabase/Hive/세션 리스너 유지
+// lib/main.dart — v1.58.8 (빌드 안정화용 최소본)
+// A안 기준: 오디오는 SoundTouch 네이티브/FFI(별도 화면/서비스에서 제어), 비디오는 media_kit_video.
+// 여기서는 앱 부팅/창 세팅/Supabase/Hive/에러 핸들러만 유지한다.
 
 import 'dart:async';
 import 'dart:io' show Platform;
@@ -16,11 +15,9 @@ import 'app.dart';
 import 'supabase/supabase_options.dart';
 import 'services/auth_service.dart';
 
-import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:window_manager/window_manager.dart';
-
-// ⛔️ 삭제: macOS libs 직접 import 불필요
-// import 'package:media_kit_libs_macos_audio/media_kit_libs_macos_audio.dart';
+import 'packages/smart_media_player/audio/engine_soundtouch_ffi.dart'
+    show SoundTouchProbe;
 
 Future<void> _initDesktopWindow() async {
   if (kIsWeb) return;
@@ -31,7 +28,7 @@ Future<void> _initDesktopWindow() async {
   const initSize = Size(1280, 840);
   const minSize = Size(1024, 720);
 
-  final opts = WindowOptions(
+  final opts = const WindowOptions(
     size: initSize,
     minimumSize: minSize,
     center: true,
@@ -43,21 +40,10 @@ Future<void> _initDesktopWindow() async {
   });
 }
 
-void _initAudioBackend() {
-  JustAudioMediaKit.protocolWhitelist = const ['file', 'https', 'http'];
-  JustAudioMediaKit.pitch = true;
-
-  // 동기 API라 await 금지
-  JustAudioMediaKit.ensureInitialized(macOS: true);
-}
-
 Future<void> main() async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
 
-  // ✅ 동기 호출 (await 없음)
-  _initAudioBackend();
-
-  // 창 세팅은 비동기 — 필요하면 기다리지 않고 백그라운드로
+  // 창 세팅은 비동기 (대기하지 않아도 됨)
   unawaited(_initDesktopWindow());
 
   // 전역 에러 핸들러
@@ -80,7 +66,7 @@ Future<void> main() async {
 
   final supa = Supabase.instance.client;
 
-  // 익명 로그인 (기존 그대로)
+  // 익명 로그인 (기존 로직)
   if (supa.auth.currentUser == null) {
     try {
       await supa.auth.signInAnonymously();
@@ -89,7 +75,7 @@ Future<void> main() async {
     }
   }
 
-  // 부팅 시 세션 복원 / 리스너 등록 (기존 그대로)
+  // 부팅 시 부트스트랩 RPC들 (기존 로직)
   final initialEmail = supa.auth.currentUser?.email;
   if (initialEmail != null && initialEmail.isNotEmpty) {
     try {
@@ -119,11 +105,10 @@ Future<void> main() async {
     }
   }
 
-  // 세션 리스너 (기존 그대로)
+  // 세션 리스너 (기존 로직)
   supa.auth.onAuthStateChange.listen((state) async {
     final event = state.event;
     final email = state.session?.user.email ?? '';
-
     if (email.isEmpty) return;
     if (event != AuthChangeEvent.signedIn &&
         event != AuthChangeEvent.tokenRefreshed) {
@@ -158,4 +143,3 @@ Future<void> main() async {
 
   runApp(const App());
 }
-

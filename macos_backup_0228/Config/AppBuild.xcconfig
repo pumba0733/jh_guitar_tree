@@ -1,0 +1,11 @@
+echo '
+ARCHS = arm64 x86_64
+ONLY_ACTIVE_ARCH = NO
+EXCLUDED_ARCHS = 
+ENABLE_HARDENED_RUNTIME = YES
+CODE_SIGN_IDENTITY = -
+MACOSX_DEPLOYMENT_TARGET = 13.0
+FRAMEWORK_SEARCH_PATHS = $(PROJECT_DIR)/Frameworks
+LIBRARY_SEARCH_PATHS = $(PROJECT_DIR)/ThirdParty
+RUNPATH_SEARCH_PATHS = @executable_path/../Frameworks @loader_path/../Frameworks
+' > macos/Config/AppBuild.xcconfig

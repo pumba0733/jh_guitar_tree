@@ -1,9 +1,0 @@
-// CocoaPods (Profile)
-#include? "../../Pods/Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"
-
-// Flutter (Profile)
-#include "../../Flutter/Flutter-Profile.xcconfig"
-
-// 공통 앱 메타 + 경고 규칙
-#include "AppInfoCommon.xcconfig"
-#include "Warnings.xcconfig"

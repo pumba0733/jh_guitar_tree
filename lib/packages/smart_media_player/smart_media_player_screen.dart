@@ -31,7 +31,7 @@ import 'waveform/system/waveform_panel.dart';
 import 'waveform/waveform_tuning.dart';
 import 'models/marker_point.dart';
 import 'sync/sidecar_sync_db.dart';
-import 'audio/mpv_audio_chain.dart' as ac;
+import 'audio/soundtouch_audio_chain.dart' as ac;
 import 'utils/debounced_saver.dart';
 import 'video/sticky_video_overlay.dart';
 
@@ -252,6 +252,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     _scrollCtl.addListener(_onScrollTick);
 
     _detectIsVideo();
+    // 안전 가드: ensureInitialized 중복 호출 무해
+    try {
+      MediaKit.ensureInitialized();
+    } catch (_) {}
     _player = Player();
 
     // === 컨트롤러 콜백 (패널 → 화면/플레이어) ===
@@ -705,22 +709,22 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       '[SMP] _applyAudioChain speed=$_speed semi=$_pitchSemi vol=$_volume',
     );
 
-    await ac.MpvAudioChain.instance.apply(
+    final vol = _volume.clamp(0, 150).toDouble();
+    final spd = double.parse(_speed.clamp(0.5, 1.5).toStringAsFixed(2));
+    final semi = _pitchSemi.clamp(-7, 7).toDouble();
+
+    await ac.SoundTouchAudioChain.instance.apply(
       player: _player,
       isVideo: _isVideo,
       muted: _muted,
-      volumePercent: _volume.toDouble(), // ✅ int → double
-      speed: _speed.toDouble(), // ✅ int → double
-      pitchSemi: _pitchSemi.toDouble(), // ✅ int → double
+      volumePercent: vol,
+      speed: spd,
+      pitchSemi: semi,
     );
-
-    // ✅ 비교용이 아니라 "참고 로그" 용도만
-    try {
-
-    } catch (_) {}
 
     unawaited(_logAf(' after-apply'));
   }
+
 
 
 

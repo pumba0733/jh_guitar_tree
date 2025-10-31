@@ -1,21 +1,14 @@
-// AppInfo.xcconfig — 통합 Base Configuration (Debug/Release/Profile 공용)
+// Application-level settings for the Runner target.
+//
+// This may be replaced with something auto-generated from metadata (e.g., pubspec.yaml) in the
+// future. If not, the values below would default to using the project name when this becomes a
+// 'flutter create' template.
 
-// 1) CocoaPods: 빌드 구성별로 올바른 Pods-Runner.*.xcconfig 포함
-#if CONFIGURATION == Debug
-#include? "../../Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
-#elif CONFIGURATION == Release
-#include? "../../Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
-#else
-#include? "../../Pods/Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"
-#endif
-
-// 2) Flutter: 구성별 Flutter-<CONFIGURATION>.xcconfig 포함
-#include "../../Flutter/Flutter-$(CONFIGURATION).xcconfig"
-
-// 3) (선택) 프로젝트 공용 경고 규칙
-#include "Warnings.xcconfig"
-
-// 4) 👇 너의 기존 앱 메타(그대로 유지/필요 시 수정)
+// The application's name. By default this is also the title of the Flutter window.
 PRODUCT_NAME = guitartree
+
+// The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = com.example.guitartree
+
+// The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2025 com.example. All rights reserved.
