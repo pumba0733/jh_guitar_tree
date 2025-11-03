@@ -1,37 +1,34 @@
 // lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart
-// v3.33.1 | Dart FFI binding for SoundTouch
+// v3.35.2 | Full FFI Bridge for SoundTouch (PCM integration ready)
+
 import 'dart:ffi' as ffi;
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:ffi/ffi.dart' as ffi_utils;
 
-// ───────────────────────────────
-// 1️⃣ Native typedefs (C signatures)
-// ───────────────────────────────
-typedef _st_create_native = ffi.Pointer<ffi.Void> Function();
-typedef _st_dispose_native = ffi.Void Function(ffi.Pointer<ffi.Void>);
-typedef _st_set_double_native =
-    ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Double);
-
-// ───────────────────────────────
-// 2️⃣ Dart typedefs (Dart callable signatures)
-// ───────────────────────────────
-typedef _st_create_dart = ffi.Pointer<ffi.Void> Function();
-typedef _st_dispose_dart = void Function(ffi.Pointer<ffi.Void>);
-typedef _st_set_double_dart = void Function(ffi.Pointer<ffi.Void>, double);
-
-// ───────────────────────────────
-// 3️⃣ Bridge class
-// ───────────────────────────────
+/// FFI bridge for SoundTouch native library (libsoundtouch_ffi)
+/// Supports tempo/pitch control + PCM put/receive interface.
 class SoundTouchFFI {
-  late ffi.DynamicLibrary _lib;
-  late final _st_create_dart _create;
-  late final _st_dispose_dart _dispose;
-  late final _st_set_double_dart _setTempo;
-  late final _st_set_double_dart _setPitch;
+  // Native library and functions
+  late final ffi.DynamicLibrary _lib;
+
+  late final _STCreate _create;
+  late final _STDispose _dispose;
+  late final _STSetDouble _setTempo;
+  late final _STSetDouble _setPitch;
+  late final _STSetInt _setSampleRate;
+  late final _STSetInt _setChannels;
+  late final _STPutSamples _putSamples;
+  late final _STReceiveSamples _receiveSamples;
 
   ffi.Pointer<ffi.Void>? _handle;
+  double _tempo = 1.0;
+  double _pitch = 0.0;
 
+  // ───────────────────────────────
+  // Constructor: load dynamic lib
+  // ───────────────────────────────
   SoundTouchFFI() {
-    // macOS / Windows 분기 처리
     final libName = Platform.isMacOS
         ? 'libsoundtouch_ffi.dylib'
         : Platform.isWindows
@@ -40,29 +37,73 @@ class SoundTouchFFI {
 
     _lib = ffi.DynamicLibrary.open(libName);
 
-    _create = _lib.lookupFunction<_st_create_native, _st_create_dart>(
-      'st_create',
-    );
-    _dispose = _lib.lookupFunction<_st_dispose_native, _st_dispose_dart>(
-      'st_dispose',
-    );
-    _setTempo = _lib.lookupFunction<_st_set_double_native, _st_set_double_dart>(
+    // Lookup native functions
+    _create = _lib.lookupFunction<_STCreateNative, _STCreate>('st_create');
+    _dispose = _lib.lookupFunction<_STDisposeNative, _STDispose>('st_dispose');
+    _setTempo = _lib.lookupFunction<_STSetDoubleNative, _STSetDouble>(
       'st_set_tempo',
     );
-    _setPitch = _lib.lookupFunction<_st_set_double_native, _st_set_double_dart>(
+    _setPitch = _lib.lookupFunction<_STSetDoubleNative, _STSetDouble>(
       'st_set_pitch_semitones',
     );
+    _setSampleRate = _lib.lookupFunction<_STSetIntNative, _STSetInt>(
+      'st_set_sample_rate',
+    );
+    _setChannels = _lib.lookupFunction<_STSetIntNative, _STSetInt>(
+      'st_set_channels',
+    );
+    _putSamples = _lib.lookupFunction<_STPutSamplesNative, _STPutSamples>(
+      'st_put_samples',
+    );
+    _receiveSamples = _lib
+        .lookupFunction<_STReceiveSamplesNative, _STReceiveSamples>(
+          'st_receive_samples',
+        );
 
     _handle = _create();
   }
 
-  void setTempo(double tempo) {
-    if (_handle != null) _setTempo(_handle!, tempo);
+  // ───────────────────────────────
+  // Public API
+  // ───────────────────────────────
+
+  void init({int sampleRate = 44100, int channels = 2}) {
+    _handle ??= _create();
+    _setSampleRate(_handle!, sampleRate);
+    _setChannels(_handle!, channels);
   }
 
-  void setPitch(double semi) {
-    if (_handle != null) _setPitch(_handle!, semi);
+  void setTempo(double tempo) {
+    if (_handle == null) return;
+    _setTempo(_handle!, tempo);
+    _tempo = tempo;
   }
+
+  void setPitchSemiTones(double semi) {
+    if (_handle == null) return;
+    _setPitch(_handle!, semi);
+    _pitch = semi;
+  }
+
+  void putSamples(Float32List samples) {
+    if (_handle == null) return;
+    final ptr = ffi_utils.malloc.allocate<ffi.Float>(samples.lengthInBytes);
+    ptr.asTypedList(samples.length).setAll(0, samples);
+    _putSamples(_handle!, ptr, samples.length);
+    ffi_utils.malloc.free(ptr);
+  }
+
+  Float32List receiveSamples([int maxSamples = 8192]) {
+    if (_handle == null) return Float32List(0);
+    final ptr = ffi_utils.malloc.allocate<ffi.Float>(maxSamples * 4);
+    final got = _receiveSamples(_handle!, ptr, maxSamples);
+    final out = Float32List(got)..setAll(0, ptr.asTypedList(got));
+    ffi_utils.malloc.free(ptr);
+    return out;
+  }
+
+  double get tempo => _tempo;
+  double get pitch => _pitch;
 
   void dispose() {
     if (_handle != null) {
@@ -71,3 +112,32 @@ class SoundTouchFFI {
     }
   }
 }
+
+// ───────────────────────────────
+// Native Type Definitions
+// (UpperCamelCase for Dart lint)
+// ───────────────────────────────
+
+typedef _STCreateNative = ffi.Pointer<ffi.Void> Function();
+typedef _STDisposeNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
+typedef _STSetDoubleNative =
+    ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Double);
+typedef _STSetIntNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _STPutSamplesNative =
+    ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Int32);
+typedef _STReceiveSamplesNative =
+    ffi.Int32 Function(
+      ffi.Pointer<ffi.Void>,
+      ffi.Pointer<ffi.Float>,
+      ffi.Int32,
+    );
+
+// Dart callable typedefs
+typedef _STCreate = ffi.Pointer<ffi.Void> Function();
+typedef _STDispose = void Function(ffi.Pointer<ffi.Void>);
+typedef _STSetDouble = void Function(ffi.Pointer<ffi.Void>, double);
+typedef _STSetInt = void Function(ffi.Pointer<ffi.Void>, int);
+typedef _STPutSamples =
+    void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, int);
+typedef _STReceiveSamples =
+    int Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, int);

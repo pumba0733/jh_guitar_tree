@@ -120,7 +120,6 @@
 				A2EDC65CB05B75DD21F8BB20 /* Pods-RunnerTests.release.xcconfig */,
 				93AC4E67923856F159B3415F /* Pods-RunnerTests.profile.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -240,7 +239,8 @@
 				33CC10EB2044A3C60003C045 /* Resources */,
 				33CC110E2044A8840003C045 /* Bundle Framework */,
 				6D2F6DC7775BF2EC8D2D77D4 /* [CP] Embed Pods Frameworks */,
-				3399D490228B24CF009A79C7 /* ShellScript */,
+				3399D490228B24CF009A79C7 /* Run Script */,
+				A1B2C3D4E5F60789ABCDEF01 /* Copy libsoundtouch_ffi.dylib */,
 			);
 			buildRules = (
 			);
@@ -323,7 +323,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		3399D490228B24CF009A79C7 /* ShellScript */ = {
+		3399D490228B24CF009A79C7 /* Run Script */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -333,6 +333,7 @@
 			);
 			inputPaths = (
 			);
+			name = "Run Script";
 			outputFileListPaths = (
 			);
 			outputPaths = (
@@ -399,6 +400,20 @@
 			shellPath = /bin/sh;
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
+		};
+		A1B2C3D4E5F60789ABCDEF01 /* Copy libsoundtouch_ffi.dylib */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Copy libsoundtouch_ffi.dylib";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Copy libsoundtouch_ffi.dylib & libSoundTouch.2.dylib to .app bundle\nSRC_FFI=\"${PROJECT_DIR}/../macos/Frameworks/libsoundtouch_ffi.dylib\"\nSRC_ST=\"${PROJECT_DIR}/../macos/ThirdParty/soundtouch/build_universal/libSoundTouch.2.dylib\"\nDEST_DIR=\"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app/Contents/MacOS\"\n\necho \"📦 Copying dylibs into $DEST_DIR\"\n\n# Copy libsoundtouch_ffi.dylib\nif [ -f \"$SRC_FFI\" ]; then\n  cp -f \"$SRC_FFI\" \"$DEST_DIR/\"\n  chmod +x \"$DEST_DIR/libsoundtouch_ffi.dylib\"\n  echo \"✅ Copied libsoundtouch_ffi.dylib\"\nelse\n  echo \"❌ Missing: $SRC_FFI\"\nfi\n\n# Copy libSoundTouch.2.dylib\nif [ -f \"$SRC_ST\" ]; then\n  cp -f \"$SRC_ST\" \"$DEST_DIR/\"\n  chmod +x \"$DEST_DIR/libSoundTouch.2.dylib\"\n  echo \"✅ Copied libSoundTouch.2.dylib\"\nelse\n  echo \"❌ Missing: $SRC_ST\"\nfi\n\n# Code sign\ncodesign --force --deep --sign - \"$DEST_DIR/libSoundTouch.2.dylib\"\ncodesign --force --deep --sign - \"$DEST_DIR/libsoundtouch_ffi.dylib\"\ncodesign --force --deep --sign - \"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app\"\n\necho \"✅ SoundTouch dylibs copied and signed\"\n";
 		};
 		FBAFB0BCFD68C21EC364E6EE /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;

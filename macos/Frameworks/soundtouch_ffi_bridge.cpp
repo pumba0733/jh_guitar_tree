@@ -1,7 +1,5 @@
-// macos/Frameworks/soundtouch_ffi_bridge.cpp
 #include <cstdint>
 #include "SoundTouch.h"
-
 using namespace soundtouch;
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -10,16 +8,9 @@ using namespace soundtouch;
 #define EXPORT extern "C" __attribute__((visibility("default"))) __attribute__((used))
 #endif
 
-// === FFI용 함수들 (Dart에서 직접 호출) ===
-EXPORT void *st_create()
-{
-    return new SoundTouch();
-}
-
-EXPORT void st_destroy(void *ptr)
-{
-    delete (SoundTouch *)ptr;
-}
+EXPORT void *st_create() { return new SoundTouch(); }
+EXPORT void st_destroy(void *ptr) { delete (SoundTouch *)ptr; }
+EXPORT void st_dispose(void *ptr) { st_destroy(ptr); }
 
 EXPORT void st_set_tempo(void *ptr, float tempo)
 {
@@ -34,6 +25,17 @@ EXPORT void st_set_pitch_semitones(void *ptr, float semis)
 EXPORT void st_set_rate(void *ptr, float rate)
 {
     ((SoundTouch *)ptr)->setRate(rate);
+}
+
+// ✅ 추가: 샘플레이트 / 채널
+EXPORT void st_set_sample_rate(void *ptr, int sampleRate)
+{
+    ((SoundTouch *)ptr)->setSampleRate(sampleRate);
+}
+
+EXPORT void st_set_channels(void *ptr, int channels)
+{
+    ((SoundTouch *)ptr)->setChannels(channels);
 }
 
 EXPORT void st_put_samples(void *ptr, const float *samples, uint32_t numSamples)
@@ -56,10 +58,8 @@ EXPORT void st_flush(void *ptr)
     ((SoundTouch *)ptr)->flush();
 }
 
-// === Legacy symbol aliases for old code paths ===
 extern "C"
 {
-
     void *SoundTouch_createInstance() { return st_create(); }
     void SoundTouch_destroyInstance(void *p) { st_destroy(p); }
     void SoundTouch_setTempoChange(void *p, float v) { st_set_tempo(p, v); }
@@ -70,5 +70,4 @@ extern "C"
     uint32_t SoundTouch_numSamples(void *p) { return st_num_samples(p); }
     void SoundTouch_flush(void *p) { st_flush(p); }
     void SoundTouch_clear(void *p) { ((SoundTouch *)p)->clear(); }
-
-} // extern "C"
+}

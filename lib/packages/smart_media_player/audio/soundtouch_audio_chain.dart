@@ -26,7 +26,7 @@ class SoundTouchAudioChain {
 
     _st ??= SoundTouchFFI();
     _st!.setTempo(_speed);
-    _st!.setPitch(_pitchSemi);
+    _st!.setPitchSemiTones(_pitchSemi);
 
     final vol = muted ? 0.0 : (volumePercent / 100.0);
     await player.setVolume(vol);

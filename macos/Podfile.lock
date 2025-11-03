@@ -107,7 +107,7 @@ SPEC CHECKSUMS:
   just_audio: a42c63806f16995daf5b219ae1d679deb76e6a79
   just_waveform: dbade622f9d7a0c8de7cc8e43c424617c6bc7113
   media_kit_libs_macos_video: b3e2bbec2eef97c285f2b1baa7963c67c753fb82
-  media_kit_video: c75b07f14d59706c775778e4dd47dd027de8d1e5
+  media_kit_video: f5bdcbfaef003c02251e50d44bb741aa96fb8a1e
   package_info_plus: 12f1c5c2cfe8727ca46cbd0b26677728972d9a5b
   path_provider_foundation: 2b6b4c569c0fb62ec74538f866245ac84301af46
   screen_retriever: 59634572a57080243dd1bf715e55b6c54f241a38
