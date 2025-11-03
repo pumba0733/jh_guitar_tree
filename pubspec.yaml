@@ -40,6 +40,7 @@ dependencies:
   audio_session: ^0.1.21
   just_waveform: ^0.0.7
   ffi: ^2.1.4
+  audioplayers: ^5.2.1
 
   # media_kit core + bridge + libs
   media_kit: ^1.1.10

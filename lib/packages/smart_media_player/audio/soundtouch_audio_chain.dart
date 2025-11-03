@@ -36,8 +36,13 @@ class SoundTouchAudioChain {
   }
 
   Future<void> reset(Player player) async {
+    // 기존 SoundTouch 인스턴스 정리
     _st?.dispose();
+
+    // 새 FFI 인스턴스 생성
     _st = SoundTouchFFI();
+
+    // 완전 기본값(볼륨 100%, 속도 1.0, 피치 0)으로 체인 재적용
     await apply(
       player: player,
       volumePercent: 100.0,
@@ -45,6 +50,7 @@ class SoundTouchAudioChain {
       pitchSemi: 0.0,
     );
   }
+
 
   void dispose() {
     _st?.dispose();

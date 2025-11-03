@@ -611,14 +611,24 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   Future<void> _openMedia() async {
     try {
       final dynamic plat = _player.platform;
+
+      // 비디오가 아니면 mpv에 vid=no 지정 (오디오 전용)
       if (!_isVideo) {
         await plat?.setProperty('vid', 'no');
       }
+
+      // macOS 기본 출력 + 독점 모드 OFF + 자동 디바이스
       await plat?.setProperty('ao', 'coreaudio');
       await plat?.setProperty('audio-exclusive', 'no');
       await plat?.setProperty('audio-device', 'auto');
-    } catch (_) {}
 
+      // 필요하면 samplerate 고정(선택)
+      // await plat?.setProperty('audio-samplerate', '48000');
+    } catch (_) {
+      // mpv platform 없거나 세팅 실패해도 재생은 계속 가게 그냥 무시
+    }
+
+    // 실제 미디어 열기 (자동 재생은 false, 플레이어 상태는 아래에서 따로 갱신)
     await _player.open(Media(widget.mediaPath), play: false);
 
     final st = _player.state;
@@ -630,6 +640,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     }
     _wf.updateFromPlayer(pos: _position, dur: _duration);
 
+    // 🔁 위치 스트림 구독: AB 루프 + 파형/슬라이더 연동
     _posSub = _player.stream.position.listen((pos) async {
       if (!mounted) return;
 
@@ -638,15 +649,18 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
         const eps = Duration(milliseconds: 8);
         final b = _loopB!;
         if (pos + eps >= b) {
+          // 반복 횟수 모드일 때 카운트다운
           if (_loopRepeat > 0) {
             if (_loopRemaining == -1) {
               setState(() => _loopRemaining = _loopRepeat);
             }
             setState(() => _loopRemaining = (_loopRemaining - 1).clamp(0, 200));
 
+            // 반복 다 썼으면 루프 해제 + 시작점으로 이동
             if (_loopRemaining == 0) {
               setState(() => _loopEnabled = false);
               _wf.setLoop(on: false);
+
               final ret = _startCue > Duration.zero ? _startCue : b;
               unawaited(_player.pause());
               unawaited(_player.seek(_clamp(ret, Duration.zero, _duration)));
@@ -655,6 +669,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
             }
           }
 
+          // 아직 반복 남았으면 A 지점으로 점프
           final a = _clamp(_loopA!, Duration.zero, _duration);
           unawaited(_player.seek(a));
           _wf.updateFromPlayer(pos: a, dur: _duration);
@@ -663,19 +678,24 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
         }
       }
 
+      // 시킹 가드 중이면 내부 seek로 인한 이벤트는 무시
       if (_isSeekGuardActive) return;
+
       _wf.updateFromPlayer(pos: pos, dur: _duration);
       setState(() => _position = pos);
     });
 
+    // ▶️/⏸ 재생 상태 스트림
     _playingSub = _player.stream.playing.listen((_) {
       if (!mounted) return;
       setState(() {});
     });
 
+    // ✅ 완료 스트림: 루프 / 시작점 처리
     _completedSub = _player.stream.completed.listen((done) async {
       if (!mounted || !done) return;
 
+      // 루프 켜져 있으면 A로 돌아가서 계속 반복
       if (_loopEnabled && _loopA != null && _loopB != null) {
         final a = _clamp(_loopA!, Duration.zero, _duration);
         unawaited(_player.seek(a));
@@ -683,20 +703,22 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
         return;
       }
 
-      // ⛳️ 변경: 트랙이 끝까지 재생되면 시작점부터 자동 재생
+      // ⛳️ 변경: 루프 OFF 상태에서 끝까지 재생되면 StartCue부터 자동 재생
       final a = _clamp(_startCue, Duration.zero, _duration);
       unawaited(_player.seek(a));
       unawaited(_player.play());
     });
 
+    // 오디오 체인(SoundTouch 등) 적용
     await _applyAudioChain();
 
-    // 🔎 AF 감시: 400ms마다 바뀌면 로그
+    // 🔎 AF 감시: 400ms마다 mpv 'af' 체인 로그 출력 (디버그 용)
     _afWatchdog?.cancel();
     _afWatchdog = Timer.periodic(const Duration(milliseconds: 400), (_) {
       unawaited(_logAf());
     });
   }
+
 
   Duration _clamp(Duration v, Duration min, Duration max) {
     if (v < min) return min;
@@ -709,8 +731,13 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       '[SMP] _applyAudioChain speed=$_speed semi=$_pitchSemi vol=$_volume',
     );
 
+    // 볼륨 0~150% 클램프 (100 기준, 150까지 boost 허용)
     final vol = _volume.clamp(0, 150).toDouble();
+
+    // 속도 0.5~1.5배, 소수 둘째 자리까지만 유지
     final spd = double.parse(_speed.clamp(0.5, 1.5).toStringAsFixed(2));
+
+    // 피치 -7~+7 반음
     final semi = _pitchSemi.clamp(-7, 7).toDouble();
 
     await ac.SoundTouchAudioChain.instance.apply(
@@ -722,8 +749,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       pitchSemi: semi,
     );
 
+    // 적용 직후 mpv AF 상태 한 번 더 로그
     unawaited(_logAf(' after-apply'));
   }
+
 
 
 

@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   app_links
+  audioplayers_windows
   desktop_drop
   media_kit_libs_windows_audio
   media_kit_libs_windows_video
