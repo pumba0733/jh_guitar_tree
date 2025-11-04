@@ -22,7 +22,8 @@
         "type_traits": "cpp",
         "utility": "cpp",
         "*.h": "objective-c",
-        "*.mm": "objective-cpp"
+        "*.mm": "objective-cpp",
+        "mutex": "cpp"
     },
     "cmake.sourceDirectory": "/Users/jaehyounglee/Desktop/guitartree/guitartree/macos_backup_0228/windows/runner"
 }

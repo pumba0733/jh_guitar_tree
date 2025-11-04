@@ -98,6 +98,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   late final Player _player;
   VideoController? _videoCtrl;
   bool _isVideo = false;
+  Timer? _applyDebounce;
 
   // 구독
   StreamSubscription<Duration>? _posSub;
@@ -513,6 +514,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     LessonMemoSync.instance.dispose();
     if (_loopOnListener != null) _wf.loopOn.removeListener(_loopOnListener!);
     if (_markersListener != null) _wf.markers.removeListener(_markersListener!);
+    _applyDebounce?.cancel();
     super.dispose();
   }
 
@@ -728,9 +730,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
   Future<void> _applyAudioChain() async {
     debugPrint(
-      '[SMP] _applyAudioChain speed=$_speed semi=$_pitchSemi vol=$_volume',
+      '[SMP] _applyAudioChain @${DateTime.now().toIso8601String()} '
+      'speed=$_speed semi=$_pitchSemi vol=$_volume',
     );
-
     // 볼륨 0~150% 클램프 (100 기준, 150까지 boost 허용)
     final vol = _volume.clamp(0, 150).toDouble();
 
@@ -753,6 +755,12 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     unawaited(_logAf(' after-apply'));
   }
 
+  Future<void> _applyAudioChainDebounced() async {
+    _applyDebounce?.cancel();
+    _applyDebounce = Timer(const Duration(milliseconds: 150), () async {
+      await _applyAudioChain();
+    });
+  }
 
 
 
@@ -1402,7 +1410,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     if (_ffStartedFromPause) {
       await _player.pause();
     } else {
-      await _applyAudioChain(); // 원래 속도로 복귀
+      await _applyAudioChainDebounced(); // 🔁 여기만 Debounce
     }
     _ffStartedFromPause = false;
   }
@@ -1440,7 +1448,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       unawaited(_player.pause());
     } else {
       // 정상 체인 복귀(속도/피치 등)
-      unawaited(_applyAudioChain());
+      unawaited(_applyAudioChainDebounced());
     }
     _frStartedFromPause = false;
   }
@@ -1977,9 +1985,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
       await _player.play();
 
-      // 🔧 300ms 뒤에 1회 더 (덮어쓰기 방지)
+      // 🔧 300ms 뒤에 Debounced로 한 번 더 보정 (옵션)
       Future.delayed(const Duration(milliseconds: 300), () async {
-        await _applyAudioChain();
+        await _applyAudioChainDebounced();
         await _logAf(' +300ms');
       });
     }
@@ -2075,7 +2083,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
   Future<void> _setSpeed(double v) async {
     setState(() => _speed = double.parse(v.clamp(0.5, 1.5).toStringAsFixed(2)));
-    await _applyAudioChain();
+    await _applyAudioChainDebounced();
     _debouncedSave();
   }
 
@@ -2088,7 +2096,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     setState(() {
       _pitchSemi = (_pitchSemi + d).clamp(-7, 7);
     });
-    await _applyAudioChain();
+    await _applyAudioChainDebounced();
     _debouncedSave();
   }
 
@@ -2096,7 +2104,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     setState(() {
       _pitchSemi = semis.clamp(-7, 7);
     });
-    await _applyAudioChain();
+    await _applyAudioChainDebounced();
     _debouncedSave();
   }
 
@@ -2110,7 +2118,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
   Future<void> _setVolume(int v) async {
     setState(() => _volume = v.clamp(0, 150));
-    await _applyAudioChain();
+    await _applyAudioChainDebounced();
     _debouncedSave();
   }
 

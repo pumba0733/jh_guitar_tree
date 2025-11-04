@@ -1,81 +1,77 @@
-import 'dart:ffi';
+// lib/packages/smart_media_player/audio/audio_output_macos.dart
+// v3.35.6 — Async SoundTouch PCM Output (macOS)
+// Author: GPT-5 (JH_GuitarTree Core)
+
 import 'dart:typed_data';
-import 'package:ffi/ffi.dart';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'engine_soundtouch_ffi.dart';
 
-class SoundTouchFFI {
-  final DynamicLibrary dylib;
+/// Handles PCM processing and playback through SoundTouch FFI.
+class AudioOutputMacOS {
+  final SoundTouchFFI _soundtouch = SoundTouchFFI();
 
-  late final Pointer<Void> Function() stCreate;
-  late final void Function(Pointer<Void>) stDestroy;
-  late final void Function(Pointer<Void>, double) stSetTempo;
-  late final void Function(Pointer<Void>, double) stSetPitch;
-  late final void Function(Pointer<Void>, double) stSetRate;
-  late final void Function(Pointer<Void>, int) stSetSampleRate;
-  late final void Function(Pointer<Void>, int) stSetChannels;
-  late final void Function(Pointer<Void>, Pointer<Float>, int) stPlaySamples;
-  late final void Function() stAudioStop;
+  bool _initialized = false;
+  int _sampleRate = 44100;
+  int _channels = 2;
+  double _tempo = 1.0;
+  double _pitch = 0.0;
+  int _volume = 100;
 
-  SoundTouchFFI(this.dylib) {
-    stCreate = dylib
-        .lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
-          'st_create',
-        );
-    stDestroy = dylib
-        .lookupFunction<
-          Void Function(Pointer<Void>),
-          void Function(Pointer<Void>)
-        >('st_destroy');
-    stSetTempo = dylib
-        .lookupFunction<
-          Void Function(Pointer<Void>, Float),
-          void Function(Pointer<Void>, double)
-        >('st_set_tempo');
-    stSetPitch = dylib
-        .lookupFunction<
-          Void Function(Pointer<Void>, Float),
-          void Function(Pointer<Void>, double)
-        >('st_set_pitch_semitones');
-    stSetRate = dylib
-        .lookupFunction<
-          Void Function(Pointer<Void>, Float),
-          void Function(Pointer<Void>, double)
-        >('st_set_rate');
-    stSetSampleRate = dylib
-        .lookupFunction<
-          Void Function(Pointer<Void>, Int32),
-          void Function(Pointer<Void>, int)
-        >('st_set_sample_rate');
-    stSetChannels = dylib
-        .lookupFunction<
-          Void Function(Pointer<Void>, Int32),
-          void Function(Pointer<Void>, int)
-        >('st_set_channels');
-    stPlaySamples = dylib
-        .lookupFunction<
-          Void Function(Pointer<Void>, Pointer<Float>, Uint32),
-          void Function(Pointer<Void>, Pointer<Float>, int)
-        >('st_play_samples');
-    stAudioStop = dylib.lookupFunction<Void Function(), void Function()>(
-      'st_audio_stop',
+  Future<void> init({int sampleRate = 44100, int channels = 2}) async {
+    if (_initialized) return;
+    _sampleRate = sampleRate;
+    _channels = channels;
+
+    debugPrint('[AudioOutputMacOS] Initializing SoundTouch...');
+    _soundtouch.init(sampleRate: _sampleRate, channels: _channels);
+    _initialized = true;
+  }
+
+  /// Updates the playback parameters dynamically
+  void applySettings({double? tempo, double? pitch, int? volume}) {
+    if (!_initialized) return;
+    if (tempo != null) {
+      _tempo = tempo;
+      _soundtouch.setTempo(tempo);
+    }
+    if (pitch != null) {
+      _pitch = pitch;
+      _soundtouch.setPitchSemiTones(pitch);
+    }
+    if (volume != null) {
+      _volume = volume.clamp(0, 100);
+    }
+    debugPrint(
+      '[AudioOutputMacOS] _applyAudioChain tempo=$_tempo pitch=$_pitch vol=$_volume',
     );
   }
 
-  Pointer<Void> create() => stCreate();
-  void dispose(Pointer<Void> ptr) => stDestroy(ptr);
-
-  void configure(Pointer<Void> ptr, {double tempo = 1.0, double pitch = 0.0}) {
-    stSetTempo(ptr, tempo);
-    stSetPitch(ptr, pitch);
-    stSetSampleRate(ptr, 44100);
-    stSetChannels(ptr, 2);
+  /// Feeds PCM samples to SoundTouch
+  void processPCM(Float32List pcm) {
+    if (!_initialized) return;
+    _soundtouch.putSamples(pcm);
   }
 
-  void play(Pointer<Void> ptr, Float32List samples) {
-    final p = malloc.allocate<Float>(samples.length * sizeOf<Float>());
-    p.asTypedList(samples.length).setAll(0, samples);
-    stPlaySamples(ptr, p, samples.length);
-    malloc.free(p);
+  /// Starts playback asynchronously (no UI blocking)
+  Future<void> startPlayback() async {
+    if (!_initialized) return;
+    debugPrint('[AudioOutputMacOS] ▶️ startPlayback (async FFI)');
+    await _soundtouch.startPlaybackAsync();
   }
 
-  void stop() => stAudioStop();
+  /// Stops AudioQueue playback
+  void stopPlayback() {
+    if (!_initialized) return;
+    debugPrint('[AudioOutputMacOS] ⏹️ stopPlayback');
+    _soundtouch.stop();
+  }
+
+  /// Cleanup resources
+  void dispose() {
+    if (!_initialized) return;
+    _soundtouch.dispose();
+    _initialized = false;
+    debugPrint('[AudioOutputMacOS] 🔚 disposed');
+  }
 }

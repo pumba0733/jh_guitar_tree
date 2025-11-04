@@ -1,107 +1,182 @@
-#include <cstdint>
-#include <cstring>
+// macos/Frameworks/soundtouch_ffi_bridge.cpp
+// v3.36.0 — JH_GuitarTree / SmartMediaPlayer 통합 버전
+// Exported symbols: st_create, st_dispose, st_set_tempo, st_set_pitch_semitones,
+//                   st_set_sample_rate, st_set_channels, st_put_samples,
+//                   st_receive_samples, st_audio_start, st_audio_stop.
+
 #include <AudioToolbox/AudioToolbox.h>
-#include "SoundTouch.h"
+#include <CoreFoundation/CoreFoundation.h>
+#include "../ThirdParty/soundtouch/include/SoundTouch.h"
+#include <mutex>
+#include <thread>
+#include <atomic>
+#include <chrono>
+#include <vector>
 
 using namespace soundtouch;
 
-#if defined(_WIN32) || defined(_WIN64)
-#define EXPORT extern "C" __declspec(dllexport)
-#else
-#define EXPORT extern "C" __attribute__((visibility("default"))) __attribute__((used))
-#endif
+static std::mutex gMutex;
+static std::atomic<bool> gIsRunning{false};
+static std::thread gAudioThread;
+static AudioQueueRef gQueue = nullptr;
 
-// ---------------------- 전역 상태 ----------------------
-static AudioQueueRef g_audioQueue = nullptr;
-static AudioStreamBasicDescription g_format;
-static AudioQueueBufferRef g_buffers[3];
-static int g_currentBuffer = 0;
-static bool g_started = false;
+static SoundTouch *gST = nullptr;
+static const int kSampleRateDefault = 44100;
+static const int kChannelsDefault = 2;
 
-// ---------------------- SoundTouch 래퍼 ----------------------
-EXPORT void *st_create() { return new SoundTouch(); }
-EXPORT void st_destroy(void *ptr) { delete (SoundTouch *)ptr; }
-EXPORT void st_dispose(void *ptr) { st_destroy(ptr); }
-
-EXPORT void st_set_tempo(void *ptr, float tempo) { ((SoundTouch *)ptr)->setTempo(tempo); }
-EXPORT void st_set_pitch_semitones(void *ptr, float semis) { ((SoundTouch *)ptr)->setPitchSemiTones(semis); }
-EXPORT void st_set_rate(void *ptr, float rate) { ((SoundTouch *)ptr)->setRate(rate); }
-EXPORT void st_set_sample_rate(void *ptr, int sr) { ((SoundTouch *)ptr)->setSampleRate(sr); }
-EXPORT void st_set_channels(void *ptr, int ch) { ((SoundTouch *)ptr)->setChannels(ch); }
-
-EXPORT void st_put_samples(void *ptr, const float *samples, uint32_t n) { ((SoundTouch *)ptr)->putSamples(samples, n); }
-EXPORT uint32_t st_receive_samples(void *ptr, float *out, uint32_t n) { return ((SoundTouch *)ptr)->receiveSamples(out, n); }
-EXPORT uint32_t st_num_samples(void *ptr) { return ((SoundTouch *)ptr)->numSamples(); }
-EXPORT void st_flush(void *ptr) { ((SoundTouch *)ptr)->flush(); }
-
-// ---------------------- AudioQueue 초기화 ----------------------
-static void ensureAudioQueue(int sampleRate, int channels)
+// ===============================
+// 🔧 SoundTouch 객체 관리
+// ===============================
+extern "C" void *st_create()
 {
-    if (g_audioQueue)
-        return;
-    memset(&g_format, 0, sizeof(g_format));
-    g_format.mSampleRate = sampleRate;
-    g_format.mFormatID = kAudioFormatLinearPCM;
-    g_format.mFormatFlags = kLinearPCMFormatFlagIsFloat | kAudioFormatFlagIsPacked;
-    g_format.mChannelsPerFrame = channels;
-    g_format.mBitsPerChannel = 32;
-    g_format.mBytesPerFrame = channels * sizeof(float);
-    g_format.mBytesPerPacket = g_format.mBytesPerFrame;
-    g_format.mFramesPerPacket = 1;
-    AudioQueueNewOutput(&g_format, nullptr, nullptr, nullptr, nullptr, 0, &g_audioQueue);
-    for (int i = 0; i < 3; ++i)
-        AudioQueueAllocateBuffer(g_audioQueue, 4096 * sizeof(float) * channels, &g_buffers[i]);
-    AudioQueueStart(g_audioQueue, nullptr);
-    g_started = true;
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (gST)
+        delete gST;
+    gST = new SoundTouch();
+    gST->setSampleRate(kSampleRateDefault);
+    gST->setChannels(kChannelsDefault);
+    gST->setTempo(1.0f);
+    gST->setPitchSemiTones(0.0f);
+    return (void *)gST;
 }
 
-// ---------------------- 실시간 재생 ----------------------
-EXPORT void st_play_samples(void *ptr, const float *samples, uint32_t numSamples)
+extern "C" void st_dispose(void *handle)
 {
-    if (!samples || !numSamples)
-        return;
-    SoundTouch *st = (SoundTouch *)ptr;
-    const int sampleRate = 44100, channels = 2;
-    ensureAudioQueue(sampleRate, channels);
-    st->putSamples(samples, numSamples);
-    float outBuf[4096 * 2];
-    uint32_t received = 0;
-    while ((received = st->receiveSamples(outBuf, 4096)) > 0)
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (gST)
     {
-        AudioQueueBufferRef buffer = g_buffers[g_currentBuffer];
-        g_currentBuffer = (g_currentBuffer + 1) % 3;
-        uint32_t bytes = received * sizeof(float) * channels;
-        if (bytes > buffer->mAudioDataBytesCapacity)
-            bytes = buffer->mAudioDataBytesCapacity;
-        memcpy(buffer->mAudioData, outBuf, bytes);
-        buffer->mAudioDataByteSize = bytes;
-        AudioQueueEnqueueBuffer(g_audioQueue, buffer, 0, nullptr);
+        delete gST;
+        gST = nullptr;
     }
 }
 
-// ---------------------- 종료 ----------------------
-EXPORT void st_audio_stop()
+// ===============================
+// ⚙️ 파라미터 설정
+// ===============================
+extern "C" void st_set_sample_rate(void *handle, int sr)
 {
-    if (g_audioQueue)
-    {
-        AudioQueueStop(g_audioQueue, true);
-        for (int i = 0; i < 3; ++i)
-            if (g_buffers[i])
-                AudioQueueFreeBuffer(g_audioQueue, g_buffers[i]);
-        AudioQueueDispose(g_audioQueue, true);
-        g_audioQueue = nullptr;
-        g_started = false;
-    }
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (gST)
+        gST->setSampleRate(sr);
 }
 
-// ---------------------- C 링크 심볼 ----------------------
-extern "C"
+extern "C" void st_set_channels(void *handle, int ch)
 {
-    void *SoundTouch_createInstance() { return st_create(); }
-    void SoundTouch_destroyInstance(void *p) { st_destroy(p); }
-    void SoundTouch_setTempoChange(void *p, float v) { st_set_tempo(p, v); }
-    void SoundTouch_setRateChange(void *p, float v) { st_set_rate(p, v); }
-    void SoundTouch_setPitchSemiTones(void *p, float v) { st_set_pitch_semitones(p, v); }
-    void SoundTouch_playSamples(void *p, const float *s, uint32_t n) { st_play_samples(p, s, n); }
-    void SoundTouch_audioStop() { st_audio_stop(); }
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (gST)
+        gST->setChannels(ch);
+}
+
+extern "C" void st_set_tempo(void *handle, double tempo)
+{
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (gST)
+        gST->setTempo((float)tempo);
+}
+
+extern "C" void st_set_pitch_semitones(void *handle, double semi)
+{
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (gST)
+        gST->setPitchSemiTones((float)semi);
+}
+
+// ===============================
+// 🎵 PCM 입출력
+// ===============================
+extern "C" void st_put_samples(void *handle, const float *input, int numSamples)
+{
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (gST && input && numSamples > 0)
+        gST->putSamples(input, numSamples);
+}
+
+extern "C" int st_receive_samples(void *handle, float *output, int maxSamples)
+{
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (!gST || !output || maxSamples <= 0)
+        return 0;
+    return gST->receiveSamples(output, maxSamples);
+}
+
+// ===============================
+// ▶️ AudioQueue 재생
+// ===============================
+static const int kSampleRate = 44100;
+static const int kChannels = 2;
+
+void AQCallback(void *inUserData, AudioQueueRef inAQ, AudioQueueBufferRef inBuffer)
+{
+    std::lock_guard<std::mutex> lock(gMutex);
+    if (!gIsRunning.load() || !gST)
+        return;
+
+    const int maxSamples = inBuffer->mAudioDataBytesCapacity / sizeof(float);
+    float *buffer = (float *)inBuffer->mAudioData;
+    int received = gST->receiveSamples(buffer, maxSamples / kChannels);
+    inBuffer->mAudioDataByteSize = received * kChannels * sizeof(float);
+
+    if (received > 0)
+        AudioQueueEnqueueBuffer(inAQ, inBuffer, 0, nullptr);
+}
+
+extern "C" void st_audio_start(void *handle)
+{
+    if (gIsRunning.load())
+        return;
+    if (!handle)
+        handle = gST;
+    if (!handle)
+        return;
+
+    gIsRunning.store(true);
+
+    gAudioThread = std::thread([]
+                               {
+        AudioStreamBasicDescription fmt = {0};
+        fmt.mSampleRate = kSampleRate;
+        fmt.mFormatID = kAudioFormatLinearPCM;
+        fmt.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
+        fmt.mBytesPerFrame = kChannels * sizeof(float);
+        fmt.mFramesPerPacket = 1;
+        fmt.mBytesPerPacket = fmt.mBytesPerFrame;
+        fmt.mChannelsPerFrame = kChannels;
+        fmt.mBitsPerChannel = 32;
+
+        OSStatus status = AudioQueueNewOutput(&fmt, AQCallback, nullptr, nullptr, nullptr, 0, &gQueue);
+        if (status != noErr)
+        {
+            fprintf(stderr, "[SoundTouchFFI] ❌ AudioQueueNewOutput failed: %d\n", (int)status);
+            gIsRunning.store(false);
+            return;
+        }
+
+        // 🎚️ 버퍼 사전 할당
+        const int numBuffers = 3;
+        for (int i = 0; i < numBuffers; ++i)
+        {
+            AudioQueueBufferRef buffer;
+            AudioQueueAllocateBuffer(gQueue, 4096 * sizeof(float) * kChannels, &buffer);
+            AQCallback(nullptr, gQueue, buffer);
+        }
+
+        AudioQueueStart(gQueue, nullptr);
+        fprintf(stderr, "[SoundTouchFFI] ✅ AudioQueue started (thread: %p)\n", (void*)pthread_self());
+
+        while (gIsRunning.load())
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+
+        AudioQueueStop(gQueue, true);
+        AudioQueueDispose(gQueue, true);
+        gQueue = nullptr;
+        fprintf(stderr, "[SoundTouchFFI] 🔚 AudioQueue stopped (thread exit)\n"); });
+
+    gAudioThread.detach();
+}
+
+extern "C" void st_audio_stop()
+{
+    gIsRunning.store(false);
 }

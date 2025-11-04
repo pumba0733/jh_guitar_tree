@@ -1,0 +1,5 @@
+Updating project for Xcode compatibility.
+Upgrading Runner.xcscheme
+Running pod install...                                           1,387ms
+Building macOS application...                                   
+✓ Built build/macos/Build/Products/Release/guitartree.app (105.6MB)

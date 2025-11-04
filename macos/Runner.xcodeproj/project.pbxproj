@@ -410,6 +410,7 @@
 		};
 		A1B2C3D4E5F60789ABCDEF01 /* Copy libsoundtouch_ffi.dylib */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -417,10 +418,12 @@
 			);
 			name = "Copy libsoundtouch_ffi.dylib";
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(PRODUCT_NAME).app/Contents/MacOS/libsoundtouch_ffi.dylib",
+				"$(TARGET_BUILD_DIR)/$(PRODUCT_NAME).app/Contents/MacOS/libSoundTouch.2.dylib",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Copy libsoundtouch_ffi.dylib & libSoundTouch.2.dylib to .app bundle\nSRC_FFI=\"${PROJECT_DIR}/../macos/Frameworks/libsoundtouch_ffi.dylib\"\nSRC_ST=\"${PROJECT_DIR}/../macos/ThirdParty/soundtouch/build_universal/libSoundTouch.2.dylib\"\nDEST_DIR=\"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app/Contents/MacOS\"\n\necho \"📦 Copying dylibs into $DEST_DIR\"\n\n# Copy libsoundtouch_ffi.dylib\nif [ -f \"$SRC_FFI\" ]; then\n  cp -f \"$SRC_FFI\" \"$DEST_DIR/\"\n  chmod +x \"$DEST_DIR/libsoundtouch_ffi.dylib\"\n  echo \"✅ Copied libsoundtouch_ffi.dylib\"\nelse\n  echo \"❌ Missing: $SRC_FFI\"\nfi\n\n# Copy libSoundTouch.2.dylib\nif [ -f \"$SRC_ST\" ]; then\n  cp -f \"$SRC_ST\" \"$DEST_DIR/\"\n  chmod +x \"$DEST_DIR/libSoundTouch.2.dylib\"\n  echo \"✅ Copied libSoundTouch.2.dylib\"\nelse\n  echo \"❌ Missing: $SRC_ST\"\nfi\n\n# Code sign\ncodesign --force --deep --sign - \"$DEST_DIR/libSoundTouch.2.dylib\"\ncodesign --force --deep --sign - \"$DEST_DIR/libsoundtouch_ffi.dylib\"\ncodesign --force --deep --sign - \"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app\"\n\necho \"✅ SoundTouch dylibs copied and signed\"\n";
+			shellScript = "set -e\necho \"⚙️ [Run Script] SoundTouch dylib auto-copy & sign start\"\n\nSRC_FFI=\"${PROJECT_DIR}/Frameworks/libsoundtouch_ffi.dylib\"\nSRC_ST=\"${PROJECT_DIR}/ThirdParty/soundtouch/build_universal/libSoundTouch.2.dylib\"\nDEST=\"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app/Contents/MacOS\"\n\necho \"📂 TARGET_BUILD_DIR=$TARGET_BUILD_DIR\"\necho \"📂 DEST=$DEST\"\n\n# 앱 실행파일 생성될 때까지 대기 (최대 90초)\nTIMEOUT=90\nwhile [ ! -f \"${DEST}/${PRODUCT_NAME}\" ] && [ $TIMEOUT -gt 0 ]; do\n  echo \"⏳ Waiting for ${PRODUCT_NAME} binary... ($TIMEOUT s left)\"\n  sleep 1\n  TIMEOUT=$((TIMEOUT - 1))\ndone\n\nif [ ! -f \"${DEST}/${PRODUCT_NAME}\" ]; then\n  echo \"❌ ERROR: App executable not found after waiting. DEST=$DEST\"\n  ls -lah \"${TARGET_BUILD_DIR}\" || true\n  exit 1\nfi\n\necho \"📦 Copying dylibs into $DEST\"\nmkdir -p \"$DEST\"\n\n# 1️⃣ libsoundtouch_ffi.dylib 복사\nif [ -f \"$SRC_FFI\" ]; then\n  cp -f \"$SRC_FFI\" \"$DEST/\"\n  chmod +x \"$DEST/libsoundtouch_ffi.dylib\"\n  echo \"✅ Copied libsoundtouch_ffi.dylib\"\nelse\n  echo \"❌ Missing: $SRC_FFI\"\nfi\n\n# 2️⃣ libSoundTouch.2.dylib 복사\nif [ -f \"$SRC_ST\" ]; then\n  cp -f \"$SRC_ST\" \"$DEST/\"\n  chmod +x \"$DEST/libSoundTouch.2.dylib\"\n  echo \"✅ Copied libSoundTouch.2.dylib\"\nelse\n  echo \"❌ Missing: $SRC_ST\"\nfi\n\n# 3️⃣ 코드서명 (Ad-hoc)\necho \"🔏 Signing dylibs...\"\ncodesign --force --deep --sign - \"$DEST/libSoundTouch.2.dylib\" || echo \"⚠️ sign warn\"\ncodesign --force --deep --sign - \"$DEST/libsoundtouch_ffi.dylib\" || echo \"⚠️ sign warn\"\ncodesign --force --deep --sign - \"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app\" || echo \"⚠️ sign warn\"\n\n# 4️⃣ 검증\necho \"🔍 Verifying copied files...\"\nls -lh \"$DEST\" | grep soundtouch || echo \"⚠️ Dylibs not found in $DEST\"\n\necho \"✅ Run Script completed successfully\"\n";
 		};
 		FBAFB0BCFD68C21EC364E6EE /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
