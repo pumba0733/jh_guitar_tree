@@ -29,6 +29,8 @@
 		33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F42044A3C60003C045 /* MainMenu.xib */; };
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
 		9CA80CE2923DEB63B616C676 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3EF81DD44FE3E42BB4CE0344 /* Pods_RunnerTests.framework */; };
+		AABBCCDD0011223344556677 /* soundtouch_ffi_bridge.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0011223344556678 /* soundtouch_ffi_bridge.cpp */; };
+		AABBCCDD9988776655443322 /* BuildFile in Frameworks */ = {isa = PBXBuildFile; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -86,6 +88,8 @@
 		93AC4E67923856F159B3415F /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		A2EDC65CB05B75DD21F8BB20 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
+		AABBCCDD0011223344556678 /* soundtouch_ffi_bridge.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = soundtouch_ffi_bridge.cpp; path = Frameworks/soundtouch_ffi_bridge.cpp; sourceTree = "<group>"; };
+		AABBCCDD0011223344556679 /* soundtouch_ffi_bridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = soundtouch_ffi_bridge.h; path = Frameworks/soundtouch_ffi_bridge.h; sourceTree = "<group>"; };
 		C7950E9BB03E66A623871D8B /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		CB7010211055ED134DF757C2 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -104,6 +108,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				024DBBC4AD4558595761D75D /* Pods_Runner.framework in Frameworks */,
+				AABBCCDD9988776655443322 /* BuildFile in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -203,6 +208,8 @@
 			children = (
 				5C776B7307DF9510FAA377B6 /* Pods_Runner.framework */,
 				3EF81DD44FE3E42BB4CE0344 /* Pods_RunnerTests.framework */,
+				AABBCCDD0011223344556678 /* soundtouch_ffi_bridge.cpp */,
+				AABBCCDD0011223344556679 /* soundtouch_ffi_bridge.h */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -455,6 +462,7 @@
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
+				AABBCCDD0011223344556677 /* soundtouch_ffi_bridge.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -493,7 +501,13 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-L$(PROJECT_DIR)/ThirdParty/soundtouch/build_universal",
+					"-lSoundTouch.2",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.guitartree.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
@@ -508,6 +522,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.guitartree.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -523,6 +538,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.guitartree.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -589,10 +605,112 @@
 				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/app_links/app_links.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/audio_session/audio_session.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/audioplayers_darwin/audioplayers_darwin.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/desktop_drop/desktop_drop.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/file_picker/file_picker.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/just_audio/just_audio.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/just_waveform/just_waveform.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/media_kit_libs_macos_video/media_kit_libs_macos_video.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/media_kit_video/media_kit_video.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/package_info_plus/package_info_plus.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/path_provider_foundation/path_provider_foundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/screen_retriever/screen_retriever.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/shared_preferences_foundation/shared_preferences_foundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/url_launcher_macos/url_launcher_macos.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/video_player_avfoundation/video_player_avfoundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/volume_controller/volume_controller.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/wakelock_plus/wakelock_plus.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/window_manager/window_manager.framework/Headers\"",
+					"$(PROJECT_DIR)/Frameworks",
+					"$(PROJECT_DIR)/ThirdParty/soundtouch/include",
+				);
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+					"@executable_path/../MacOS",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					"\"Ass\"",
+					"-framework",
+					"\"Avcodec\"",
+					"-framework",
+					"\"Avfilter\"",
+					"-framework",
+					"\"Avformat\"",
+					"-framework",
+					"\"Avutil\"",
+					"-framework",
+					"\"Dav1d\"",
+					"-framework",
+					"\"Freetype\"",
+					"-framework",
+					"\"Fribidi\"",
+					"-framework",
+					"\"Harfbuzz\"",
+					"-framework",
+					"\"Mbedcrypto\"",
+					"-framework",
+					"\"Mbedtls\"",
+					"-framework",
+					"\"Mbedx509\"",
+					"-framework",
+					"\"Mpv\"",
+					"-framework",
+					"\"Png16\"",
+					"-framework",
+					"\"Swresample\"",
+					"-framework",
+					"\"Swscale\"",
+					"-framework",
+					"\"Uchardet\"",
+					"-framework",
+					"\"Xml2\"",
+					"-framework",
+					"\"app_links\"",
+					"-framework",
+					"\"audio_session\"",
+					"-framework",
+					"\"audioplayers_darwin\"",
+					"-framework",
+					"\"desktop_drop\"",
+					"-framework",
+					"\"file_picker\"",
+					"-framework",
+					"\"just_audio\"",
+					"-framework",
+					"\"just_waveform\"",
+					"-framework",
+					"\"media_kit_libs_macos_video\"",
+					"-framework",
+					"\"media_kit_video\"",
+					"-framework",
+					"\"package_info_plus\"",
+					"-framework",
+					"\"path_provider_foundation\"",
+					"-framework",
+					"\"screen_retriever\"",
+					"-framework",
+					"\"shared_preferences_foundation\"",
+					"-framework",
+					"\"url_launcher_macos\"",
+					"-framework",
+					"\"video_player_avfoundation\"",
+					"-framework",
+					"\"volume_controller\"",
+					"-framework",
+					"\"wakelock_plus\"",
+					"-framework",
+					"\"window_manager\"",
+					"-lSoundTouch.2",
+					"-L$(PROJECT_DIR)/ThirdParty/soundtouch/build_universal",
 				);
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
@@ -603,6 +721,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Manual;
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Profile;
@@ -721,10 +840,112 @@
 				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/app_links/app_links.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/audio_session/audio_session.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/audioplayers_darwin/audioplayers_darwin.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/desktop_drop/desktop_drop.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/file_picker/file_picker.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/just_audio/just_audio.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/just_waveform/just_waveform.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/media_kit_libs_macos_video/media_kit_libs_macos_video.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/media_kit_video/media_kit_video.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/package_info_plus/package_info_plus.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/path_provider_foundation/path_provider_foundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/screen_retriever/screen_retriever.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/shared_preferences_foundation/shared_preferences_foundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/url_launcher_macos/url_launcher_macos.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/video_player_avfoundation/video_player_avfoundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/volume_controller/volume_controller.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/wakelock_plus/wakelock_plus.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/window_manager/window_manager.framework/Headers\"",
+					"$(PROJECT_DIR)/Frameworks",
+					"$(PROJECT_DIR)/ThirdParty/soundtouch/include",
+				);
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+					"@executable_path/../MacOS",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					"\"Ass\"",
+					"-framework",
+					"\"Avcodec\"",
+					"-framework",
+					"\"Avfilter\"",
+					"-framework",
+					"\"Avformat\"",
+					"-framework",
+					"\"Avutil\"",
+					"-framework",
+					"\"Dav1d\"",
+					"-framework",
+					"\"Freetype\"",
+					"-framework",
+					"\"Fribidi\"",
+					"-framework",
+					"\"Harfbuzz\"",
+					"-framework",
+					"\"Mbedcrypto\"",
+					"-framework",
+					"\"Mbedtls\"",
+					"-framework",
+					"\"Mbedx509\"",
+					"-framework",
+					"\"Mpv\"",
+					"-framework",
+					"\"Png16\"",
+					"-framework",
+					"\"Swresample\"",
+					"-framework",
+					"\"Swscale\"",
+					"-framework",
+					"\"Uchardet\"",
+					"-framework",
+					"\"Xml2\"",
+					"-framework",
+					"\"app_links\"",
+					"-framework",
+					"\"audio_session\"",
+					"-framework",
+					"\"audioplayers_darwin\"",
+					"-framework",
+					"\"desktop_drop\"",
+					"-framework",
+					"\"file_picker\"",
+					"-framework",
+					"\"just_audio\"",
+					"-framework",
+					"\"just_waveform\"",
+					"-framework",
+					"\"media_kit_libs_macos_video\"",
+					"-framework",
+					"\"media_kit_video\"",
+					"-framework",
+					"\"package_info_plus\"",
+					"-framework",
+					"\"path_provider_foundation\"",
+					"-framework",
+					"\"screen_retriever\"",
+					"-framework",
+					"\"shared_preferences_foundation\"",
+					"-framework",
+					"\"url_launcher_macos\"",
+					"-framework",
+					"\"video_player_avfoundation\"",
+					"-framework",
+					"\"volume_controller\"",
+					"-framework",
+					"\"wakelock_plus\"",
+					"-framework",
+					"\"window_manager\"",
+					"-lSoundTouch.2",
+					"-L$(PROJECT_DIR)/ThirdParty/soundtouch/build_universal",
 				);
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -741,10 +962,112 @@
 				CODE_SIGN_ENTITLEMENTS = Runner/Release.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/app_links/app_links.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/audio_session/audio_session.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/audioplayers_darwin/audioplayers_darwin.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/desktop_drop/desktop_drop.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/file_picker/file_picker.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/just_audio/just_audio.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/just_waveform/just_waveform.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/media_kit_libs_macos_video/media_kit_libs_macos_video.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/media_kit_video/media_kit_video.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/package_info_plus/package_info_plus.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/path_provider_foundation/path_provider_foundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/screen_retriever/screen_retriever.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/shared_preferences_foundation/shared_preferences_foundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/url_launcher_macos/url_launcher_macos.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/video_player_avfoundation/video_player_avfoundation.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/volume_controller/volume_controller.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/wakelock_plus/wakelock_plus.framework/Headers\"",
+					"\"${PODS_CONFIGURATION_BUILD_DIR}/window_manager/window_manager.framework/Headers\"",
+					"$(PROJECT_DIR)/Frameworks",
+					"$(PROJECT_DIR)/ThirdParty/soundtouch/include",
+				);
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+					"@executable_path/../MacOS",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					"\"Ass\"",
+					"-framework",
+					"\"Avcodec\"",
+					"-framework",
+					"\"Avfilter\"",
+					"-framework",
+					"\"Avformat\"",
+					"-framework",
+					"\"Avutil\"",
+					"-framework",
+					"\"Dav1d\"",
+					"-framework",
+					"\"Freetype\"",
+					"-framework",
+					"\"Fribidi\"",
+					"-framework",
+					"\"Harfbuzz\"",
+					"-framework",
+					"\"Mbedcrypto\"",
+					"-framework",
+					"\"Mbedtls\"",
+					"-framework",
+					"\"Mbedx509\"",
+					"-framework",
+					"\"Mpv\"",
+					"-framework",
+					"\"Png16\"",
+					"-framework",
+					"\"Swresample\"",
+					"-framework",
+					"\"Swscale\"",
+					"-framework",
+					"\"Uchardet\"",
+					"-framework",
+					"\"Xml2\"",
+					"-framework",
+					"\"app_links\"",
+					"-framework",
+					"\"audio_session\"",
+					"-framework",
+					"\"audioplayers_darwin\"",
+					"-framework",
+					"\"desktop_drop\"",
+					"-framework",
+					"\"file_picker\"",
+					"-framework",
+					"\"just_audio\"",
+					"-framework",
+					"\"just_waveform\"",
+					"-framework",
+					"\"media_kit_libs_macos_video\"",
+					"-framework",
+					"\"media_kit_video\"",
+					"-framework",
+					"\"package_info_plus\"",
+					"-framework",
+					"\"path_provider_foundation\"",
+					"-framework",
+					"\"screen_retriever\"",
+					"-framework",
+					"\"shared_preferences_foundation\"",
+					"-framework",
+					"\"url_launcher_macos\"",
+					"-framework",
+					"\"video_player_avfoundation\"",
+					"-framework",
+					"\"volume_controller\"",
+					"-framework",
+					"\"wakelock_plus\"",
+					"-framework",
+					"\"window_manager\"",
+					"-lSoundTouch.2",
+					"-L$(PROJECT_DIR)/ThirdParty/soundtouch/build_universal",
 				);
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
@@ -755,6 +1078,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Manual;
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;
@@ -763,6 +1087,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Release;

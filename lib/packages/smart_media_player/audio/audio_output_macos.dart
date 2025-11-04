@@ -1,102 +1,81 @@
-// lib/packages/smart_media_player/audio/audio_output_macos.dart
-// v3.36.0 — SoundTouch PCM Integration + Flutter Audio Playback
-// Author: GPT-5 (JHGuitarTree Core)
-// Purpose: Connect mpv PCM stream → SoundTouch FFI → AudioSink (macOS)
-
+import 'dart:ffi';
 import 'dart:typed_data';
-import 'dart:async';
-import 'package:flutter/foundation.dart';
-import 'package:audioplayers/audioplayers.dart';
-import 'engine_soundtouch_ffi.dart';
+import 'package:ffi/ffi.dart';
 
-/// Handles PCM processing and playback through SoundTouch FFI.
-class AudioOutputMacOS {
-  final SoundTouchFFI _soundtouch = SoundTouchFFI();
-  final AudioPlayer _sink = AudioPlayer();
+class SoundTouchFFI {
+  final DynamicLibrary dylib;
 
-  bool _initialized = false;
-  int _sampleRate = 44100;
-  int _channels = 2;
+  late final Pointer<Void> Function() stCreate;
+  late final void Function(Pointer<Void>) stDestroy;
+  late final void Function(Pointer<Void>, double) stSetTempo;
+  late final void Function(Pointer<Void>, double) stSetPitch;
+  late final void Function(Pointer<Void>, double) stSetRate;
+  late final void Function(Pointer<Void>, int) stSetSampleRate;
+  late final void Function(Pointer<Void>, int) stSetChannels;
+  late final void Function(Pointer<Void>, Pointer<Float>, int) stPlaySamples;
+  late final void Function() stAudioStop;
 
-  /// Initializes SoundTouch + Flutter AudioPlayer sink
-  Future<void> init({int sampleRate = 44100, int channels = 2}) async {
-    if (_initialized) return;
-    _sampleRate = sampleRate;
-    _channels = channels;
-    debugPrint('[AudioOutputMacOS] Initializing SoundTouch...');
-    _soundtouch.init(sampleRate: sampleRate, channels: channels);
-    await _sink.setPlayerMode(PlayerMode.lowLatency);
-    _initialized = true;
-  }
-
-  void setTempo(double tempo) {
-    if (!_initialized) return;
-    debugPrint('[AudioOutputMacOS] setTempo($tempo)');
-    _soundtouch.setTempo(tempo);
-  }
-
-  void setPitch(double semitones) {
-    if (!_initialized) return;
-    debugPrint('[AudioOutputMacOS] setPitchSemiTones($semitones)');
-    _soundtouch.setPitchSemiTones(semitones);
-  }
-
-  /// Processes raw PCM (int16) through SoundTouch and returns transformed samples.
-  Future<Float32List> processPCM(Uint8List pcmBytes) async {
-    if (!_initialized) {
-      debugPrint('[AudioOutputMacOS] processPCM() called before init');
-      return Float32List(0);
-    }
-
-    // Convert bytes (16-bit PCM) to Float32 samples
-    final int16Data = Int16List.view(pcmBytes.buffer);
-    final Float32List floatData = Float32List(int16Data.length);
-    for (int i = 0; i < int16Data.length; i++) {
-      floatData[i] = int16Data[i] / 32768.0;
-    }
-
-    // Send to SoundTouch
-    _soundtouch.putSamples(floatData);
-
-    // Receive processed samples
-    final Float32List output = _soundtouch.receiveSamples();
-
-    debugPrint(
-      '[FFI] put=${floatData.length} → recv=${output.length} | tempo/pitch=${_soundtouch.tempo}/${_soundtouch.pitch}',
+  SoundTouchFFI(this.dylib) {
+    stCreate = dylib
+        .lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>(
+          'st_create',
+        );
+    stDestroy = dylib
+        .lookupFunction<
+          Void Function(Pointer<Void>),
+          void Function(Pointer<Void>)
+        >('st_destroy');
+    stSetTempo = dylib
+        .lookupFunction<
+          Void Function(Pointer<Void>, Float),
+          void Function(Pointer<Void>, double)
+        >('st_set_tempo');
+    stSetPitch = dylib
+        .lookupFunction<
+          Void Function(Pointer<Void>, Float),
+          void Function(Pointer<Void>, double)
+        >('st_set_pitch_semitones');
+    stSetRate = dylib
+        .lookupFunction<
+          Void Function(Pointer<Void>, Float),
+          void Function(Pointer<Void>, double)
+        >('st_set_rate');
+    stSetSampleRate = dylib
+        .lookupFunction<
+          Void Function(Pointer<Void>, Int32),
+          void Function(Pointer<Void>, int)
+        >('st_set_sample_rate');
+    stSetChannels = dylib
+        .lookupFunction<
+          Void Function(Pointer<Void>, Int32),
+          void Function(Pointer<Void>, int)
+        >('st_set_channels');
+    stPlaySamples = dylib
+        .lookupFunction<
+          Void Function(Pointer<Void>, Pointer<Float>, Uint32),
+          void Function(Pointer<Void>, Pointer<Float>, int)
+        >('st_play_samples');
+    stAudioStop = dylib.lookupFunction<Void Function(), void Function()>(
+      'st_audio_stop',
     );
-
-    return output;
   }
 
-  /// Plays processed Float32 PCM samples using AudioPlayer
-  Future<void> play(Float32List samples) async {
-    if (!_initialized) return;
-    if (samples.isEmpty) return;
+  Pointer<Void> create() => stCreate();
+  void dispose(Pointer<Void> ptr) => stDestroy(ptr);
 
-    // Convert float32 → byte stream for playback
-    final Uint8List pcmBytes = samples.buffer.asUint8List();
-
-    try {
-      await _sink.stop();
-      await _sink.play(BytesSource(pcmBytes));
-      debugPrint('[AudioOutputMacOS] play(${samples.length} samples)');
-    } catch (e) {
-      debugPrint('[AudioOutputMacOS] play() error: $e');
-    }
+  void configure(Pointer<Void> ptr, {double tempo = 1.0, double pitch = 0.0}) {
+    stSetTempo(ptr, tempo);
+    stSetPitch(ptr, pitch);
+    stSetSampleRate(ptr, 44100);
+    stSetChannels(ptr, 2);
   }
 
-  /// Called periodically or from engine chain to feed new PCM blocks
-  Future<void> onPcmInput(Uint8List pcmBytes) async {
-    final out = await processPCM(pcmBytes);
-    await play(out);
+  void play(Pointer<Void> ptr, Float32List samples) {
+    final p = malloc.allocate<Float>(samples.length * sizeOf<Float>());
+    p.asTypedList(samples.length).setAll(0, samples);
+    stPlaySamples(ptr, p, samples.length);
+    malloc.free(p);
   }
 
-  /// Cleanup
-  void dispose() {
-    debugPrint('[AudioOutputMacOS] Disposing SoundTouch + sink.');
-    _soundtouch.dispose();
-    _sink.stop();
-    _sink.release();
-    _initialized = false;
-  }
+  void stop() => stAudioStop();
 }
