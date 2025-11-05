@@ -1,7 +1,6 @@
 // smart_media_player/waveform/waveform_tuning.dart
 // v3.30.0 | Tone Presets + dB Mapping + Live Notifier (DAW-ish defaults)
 
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 enum WaveformPreset { transcribeLike, cleanPath, solidBars, ecgSigned, iosLike }

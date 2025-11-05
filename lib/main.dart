@@ -16,8 +16,6 @@ import 'supabase/supabase_options.dart';
 import 'services/auth_service.dart';
 
 import 'package:window_manager/window_manager.dart';
-import 'packages/smart_media_player/audio/engine_soundtouch_ffi.dart'
-    show SoundTouchProbe;
 
 Future<void> _initDesktopWindow() async {
   if (kIsWeb) return;

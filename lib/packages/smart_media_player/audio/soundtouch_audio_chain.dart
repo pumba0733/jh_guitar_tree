@@ -1,72 +1,55 @@
-// v3.35.6 — SoundTouchAudioChain (Async-safe FFI)
-// 개선점: UI 블로킹 완전 제거, startPlaybackAsync 기반
-
-import 'package:guitartree/packages/smart_media_player/audio/engine_soundtouch_ffi.dart';
-import 'package:media_kit/media_kit.dart';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
+import 'audio_output_macos.dart';
 
 class SoundTouchAudioChain {
-  static final SoundTouchAudioChain instance = SoundTouchAudioChain._();
-  SoundTouchAudioChain._();
+  SoundTouchAudioChain._internal();
+  static final SoundTouchAudioChain instance = SoundTouchAudioChain._internal();
 
-  SoundTouchFFI? _st;
-  double _speed = 1.0;
-  double _pitchSemi = 0.0;
-  double _volumePercent = 100.0;
+  final AudioOutputMacOS _audio = AudioOutputMacOS();
+  bool _ready = false;
 
-  Future<void> apply({
-    required Player player,
-    bool isVideo = false,
-    bool muted = false,
-    double volumePercent = 100.0,
-    double speed = 1.0,
-    double pitchSemi = 0.0,
-  }) async {
-    // ==== 내부 상태 갱신 ====
-    _speed = speed;
-    _pitchSemi = pitchSemi;
-    _volumePercent = volumePercent;
-
-    // ==== FFI 초기화 (최초 1회만) ====
-    _st ??= SoundTouchFFI();
-    _st!.init();
-
-    // ==== 파라미터 적용 ====
-    _st!.setTempo(_speed);
-    _st!.setPitchSemiTones(_pitchSemi);
-
-    // ==== AudioQueue 실행 (비동기, UI 블로킹 없음) ====
-    await _st!.startPlaybackAsync();
-
-    // ==== mpv 엔진은 1x 고정, 볼륨만 조절 ====
-    final vol = muted ? 0.0 : (volumePercent / 100.0);
-    await player.setVolume(vol);
-    await player.setRate(1.0);
-
-    print('[FFI] tempo=$_speed pitch=$_pitchSemi vol=$_volumePercent');
+  Future<void> init() async {
+    if (_ready) return;
+    await _audio.init(sampleRate: 44100, channels: 2);
+    await _audio.start();
+    _ready = true;
   }
 
-  Future<void> reset(Player player) async {
-    // tempo/pitch 초기화 후 재적용
-    if (_st != null) {
-      _st!.setTempo(1.0);
-      _st!.setPitchSemiTones(0.0);
-    }
-
-    await apply(
-      player: player,
-      volumePercent: 100.0,
-      speed: 1.0,
-      pitchSemi: 0.0,
-    );
+  void setTempoPitch(double tempo, double semi) {
+    if (!_ready) return;
+    debugPrint('[CHAIN] tempo=$tempo semi=$semi');
+    _audio.soundtouch.setTempo(tempo);
+    _audio.soundtouch.setPitchSemiTones(semi);
   }
+
+  void apply(double tempo, double semi) {
+    if (!_ready) return;
+    debugPrint('[CHAIN] apply tempo=$tempo semi=$semi');
+    _audio.soundtouch.setTempo(tempo);
+    _audio.soundtouch.setPitchSemiTones(semi);
+  }
+
+
+  void processPCM(Float32List pcm) {
+    if (!_ready) return;
+    _audio.soundtouch.putSamples(pcm);
+  }
+
+  void startMockFeed() {
+    if (!_ready) return;
+    _audio.feedMockSinewave();
+  }
+  
+  Future<void> startFeedLoop() async {
+    if (!_ready) return;
+    debugPrint('[CHAIN] 🔄 Starting PCM → AudioQueue feed loop');
+    await _audio.startFeedLoop();
+  }
+
 
   void dispose() {
-    if (_st != null) {
-      _st!.stop();
-      _st!.dispose();
-      _st = null;
-      print('[FFI] 🔚 SoundTouchAudioChain disposed');
-    }
+    _audio.dispose();
+    _ready = false;
   }
+  
 }

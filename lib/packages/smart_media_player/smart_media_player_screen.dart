@@ -713,6 +713,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
     // 오디오 체인(SoundTouch 등) 적용
     await _applyAudioChain();
+    await ac.SoundTouchAudioChain.instance.startFeedLoop();
 
     // 🔎 AF 감시: 400ms마다 mpv 'af' 체인 로그 출력 (디버그 용)
     _afWatchdog?.cancel();
@@ -730,30 +731,12 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
   Future<void> _applyAudioChain() async {
     debugPrint(
-      '[SMP] _applyAudioChain @${DateTime.now().toIso8601String()} '
-      'speed=$_speed semi=$_pitchSemi vol=$_volume',
+      '[SMP] _applyAudioChain @${DateTime.now()} speed=$_speed semi=$_pitchSemi vol=$_volume',
     );
-    // 볼륨 0~150% 클램프 (100 기준, 150까지 boost 허용)
-    final vol = _volume.clamp(0, 150).toDouble();
-
-    // 속도 0.5~1.5배, 소수 둘째 자리까지만 유지
-    final spd = double.parse(_speed.clamp(0.5, 1.5).toStringAsFixed(2));
-
-    // 피치 -7~+7 반음
-    final semi = _pitchSemi.clamp(-7, 7).toDouble();
-
-    await ac.SoundTouchAudioChain.instance.apply(
-      player: _player,
-      isVideo: _isVideo,
-      muted: _muted,
-      volumePercent: vol,
-      speed: spd,
-      pitchSemi: semi,
-    );
-
-    // 적용 직후 mpv AF 상태 한 번 더 로그
-    unawaited(_logAf(' after-apply'));
+    ac.SoundTouchAudioChain.instance.apply(_speed, _pitchSemi.toDouble());
   }
+
+
 
   Future<void> _applyAudioChainDebounced() async {
     _applyDebounce?.cancel();

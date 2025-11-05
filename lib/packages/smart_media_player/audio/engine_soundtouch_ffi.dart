@@ -1,8 +1,6 @@
-// v3.35.7 — Isolate-safe FFI Bridge for SoundTouch
-// 개선점:
-// - DynamicLibrary를 Isolate간 직접 전달하지 않고 경로 문자열만 전달
-// - startPlaybackAsync()에서 isolate 내부에서 재-open
-// - 모든 함수 호출 시 handle null 가드 강화
+// v3.39.3 — Fixed malloc alignment + Isolate shared library handle
+// Dart FFI bridge for SoundTouch + AudioQueue playback
+// Author: GPT-5 (JHGuitarTree Core)
 
 import 'dart:ffi' as ffi;
 import 'dart:io';
@@ -10,14 +8,12 @@ import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:ffi/ffi.dart' as ffi_utils;
 
-/// FFI bridge for native SoundTouch Audio Engine.
-/// Provides tempo/pitch control & PCM feed via AudioQueue.
 class SoundTouchFFI {
   late final String _libPath;
   ffi.DynamicLibrary? _lib;
   ffi.Pointer<ffi.Void>? _handle;
+  external void st_enqueue_to_audioqueue(Float32List samples, int count);
 
-  // Lookup handles
   late final _STCreate _create;
   late final _STDispose _dispose;
   late final _STSetDouble _setTempo;
@@ -27,6 +23,9 @@ class SoundTouchFFI {
   late final _STPutSamples _putSamples;
   late final _STReceiveSamples _receiveSamples;
   late final _STAudioStop _audioStop;
+  late final _STAudioStart _audioStart;
+  late final _STEnqueueToAudioQueue _enqueueToAudioQueue;
+
 
   SoundTouchFFI() {
     final libName = Platform.isMacOS
@@ -35,7 +34,6 @@ class SoundTouchFFI {
         ? 'soundtouch_ffi.dll'
         : 'libsoundtouch_ffi.so';
     _libPath = libName;
-
     _lib = ffi.DynamicLibrary.open(libName);
     _lookupFunctions();
     _handle = _create();
@@ -64,8 +62,15 @@ class SoundTouchFFI {
         .lookupFunction<_STReceiveSamplesNative, _STReceiveSamples>(
           'st_receive_samples',
         );
+    _enqueueToAudioQueue = lib
+        .lookupFunction<_STEnqueueToAudioQueueNative, _STEnqueueToAudioQueue>(
+          'st_enqueue_to_audioqueue',
+        );
     _audioStop = lib.lookupFunction<_STAudioStopNative, _STAudioStop>(
       'st_audio_stop',
+    );
+    _audioStart = lib.lookupFunction<_STAudioStartNative, _STAudioStart>(
+      'st_audio_start',
     );
   }
 
@@ -84,33 +89,40 @@ class SoundTouchFFI {
   }
 
   void putSamples(Float32List samples) {
-    if (_handle == null) return;
-    final ptr = ffi_utils.malloc.allocate<ffi.Float>(samples.length * 4);
+    if (_handle == null || samples.isEmpty) return;
+    final ptr = ffi_utils.malloc.allocate<ffi.Float>(samples.length);
     ptr.asTypedList(samples.length).setAll(0, samples);
     _putSamples(_handle!, ptr, samples.length);
     ffi_utils.malloc.free(ptr);
   }
-
-  Float32List receiveSamples([int maxSamples = 8192]) {
-    if (_handle == null) return Float32List(0);
-    final ptr = ffi_utils.malloc.allocate<ffi.Float>(maxSamples * 4);
-    final got = _receiveSamples(_handle!, ptr, maxSamples);
-    final out = Float32List(got)..setAll(0, ptr.asTypedList(got));
+ 
+    int receiveSamples(Float32List buffer, int maxCount) {
+    if (_handle == null) return 0;
+    final ptr = ffi_utils.malloc.allocate<ffi.Float>(buffer.length);
+    final got = _receiveSamples(_handle!, ptr, maxCount);
+    if (got > 0) {
+      final out = ptr.asTypedList(buffer.length);
+      buffer.setAll(0, out);
+    }
     ffi_utils.malloc.free(ptr);
-    return out;
+    return got;
   }
 
-  /// AudioQueue playback — safe Isolate version
+  void enqueueToAudioQueue(Float32List samples, int count) {
+    if (_handle == null || samples.isEmpty) return;
+    final ptr = ffi_utils.malloc.allocate<ffi.Float>(samples.length);
+    ptr.asTypedList(samples.length).setAll(0, samples);
+    _enqueueToAudioQueue(ptr, count);
+    ffi_utils.malloc.free(ptr);
+  }
+
+  
+
   Future<void> startPlaybackAsync() async {
-    final path = _libPath;
     final handlePtr = _handle?.address ?? 0;
     if (handlePtr == 0) return;
-
+    final playFn = _audioStart;
     await Isolate.run(() {
-      final lib = ffi.DynamicLibrary.open(path);
-      final playFn = lib.lookupFunction<_STAudioStartNative, _STAudioStart>(
-        'st_audio_start',
-      );
       playFn(ffi.Pointer.fromAddress(handlePtr));
     });
   }
@@ -129,7 +141,11 @@ class SoundTouchFFI {
   }
 }
 
-// === Native typedefs ===
+typedef _STEnqueueToAudioQueueNative =
+    ffi.Void Function(ffi.Pointer<ffi.Float>, ffi.Int32);
+typedef _STEnqueueToAudioQueue = void Function(ffi.Pointer<ffi.Float>, int);
+
+// -------- Native typedefs --------
 typedef _STCreateNative = ffi.Pointer<ffi.Void> Function();
 typedef _STDisposeNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _STSetDoubleNative =
@@ -146,7 +162,7 @@ typedef _STReceiveSamplesNative =
 typedef _STAudioStopNative = ffi.Void Function();
 typedef _STAudioStartNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 
-// Dart typedefs
+// -------- Dart typedefs --------
 typedef _STCreate = ffi.Pointer<ffi.Void> Function();
 typedef _STDispose = void Function(ffi.Pointer<ffi.Void>);
 typedef _STSetDouble = void Function(ffi.Pointer<ffi.Void>, double);

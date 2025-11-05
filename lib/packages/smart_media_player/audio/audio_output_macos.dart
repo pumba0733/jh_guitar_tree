@@ -1,77 +1,68 @@
-// lib/packages/smart_media_player/audio/audio_output_macos.dart
-// v3.35.6 — Async SoundTouch PCM Output (macOS)
-// Author: GPT-5 (JH_GuitarTree Core)
-
-import 'dart:typed_data';
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'engine_soundtouch_ffi.dart';
 
-/// Handles PCM processing and playback through SoundTouch FFI.
 class AudioOutputMacOS {
   final SoundTouchFFI _soundtouch = SoundTouchFFI();
-
   bool _initialized = false;
   int _sampleRate = 44100;
   int _channels = 2;
-  double _tempo = 1.0;
-  double _pitch = 0.0;
-  int _volume = 100;
+
+  // ✅ 외부에서 접근 가능하도록 getter 추가
+  SoundTouchFFI get soundtouch => _soundtouch;
 
   Future<void> init({int sampleRate = 44100, int channels = 2}) async {
     if (_initialized) return;
     _sampleRate = sampleRate;
     _channels = channels;
-
     debugPrint('[AudioOutputMacOS] Initializing SoundTouch...');
-    _soundtouch.init(sampleRate: _sampleRate, channels: _channels);
+    _soundtouch.init(sampleRate: sampleRate, channels: channels);
     _initialized = true;
+    debugPrint('[AudioOutputMacOS] ✅ Initialized');
   }
 
-  /// Updates the playback parameters dynamically
-  void applySettings({double? tempo, double? pitch, int? volume}) {
-    if (!_initialized) return;
-    if (tempo != null) {
-      _tempo = tempo;
-      _soundtouch.setTempo(tempo);
-    }
-    if (pitch != null) {
-      _pitch = pitch;
-      _soundtouch.setPitchSemiTones(pitch);
-    }
-    if (volume != null) {
-      _volume = volume.clamp(0, 100);
-    }
-    debugPrint(
-      '[AudioOutputMacOS] _applyAudioChain tempo=$_tempo pitch=$_pitch vol=$_volume',
-    );
-  }
-
-  /// Feeds PCM samples to SoundTouch
-  void processPCM(Float32List pcm) {
-    if (!_initialized) return;
-    _soundtouch.putSamples(pcm);
-  }
-
-  /// Starts playback asynchronously (no UI blocking)
-  Future<void> startPlayback() async {
-    if (!_initialized) return;
-    debugPrint('[AudioOutputMacOS] ▶️ startPlayback (async FFI)');
+  Future<void> start() async {
+    debugPrint('[AudioOutputMacOS] ▶️ AudioQueue start() called');
     await _soundtouch.startPlaybackAsync();
+    debugPrint('[AudioOutputMacOS] ▶️ AudioQueue started');
   }
 
-  /// Stops AudioQueue playback
-  void stopPlayback() {
-    if (!_initialized) return;
-    debugPrint('[AudioOutputMacOS] ⏹️ stopPlayback');
-    _soundtouch.stop();
+  Future<void> startFeedLoop() async {
+    debugPrint('[AudioOutputMacOS] 🔄 PCM feed loop start');
+    const frame = 4096;
+    final buffer = Float32List(frame * _channels);
+
+    while (true) {
+      final got = _soundtouch.receiveSamples(buffer, frame);
+      if (got > 0) {
+        debugPrint('[🟢 PCM→AQ] sending $got frames');
+        _soundtouch.enqueueToAudioQueue(buffer, got);
+      } else {
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
+    }
   }
 
-  /// Cleanup resources
+
+  Future<void> feedMockSinewave() async {
+    debugPrint('[FFI] 🔗 Mock PCM feed connected');
+    const double freq = 440.0;
+    final samples = Float32List(4096);
+    double phase = 0.0;
+    while (true) {
+      for (int i = 0; i < samples.length; i++) {
+        samples[i] = (0.2 * sin(2 * pi * phase));
+        phase += freq / _sampleRate;
+        if (phase > 1.0) phase -= 1.0;
+      }
+      _soundtouch.putSamples(samples);
+      await Future.delayed(const Duration(milliseconds: 20));
+    }
+  }
+
   void dispose() {
-    if (!_initialized) return;
     _soundtouch.dispose();
     _initialized = false;
-    debugPrint('[AudioOutputMacOS] 🔚 disposed');
   }
 }
