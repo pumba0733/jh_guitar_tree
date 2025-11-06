@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'engine_soundtouch_ffi.dart';
 
@@ -8,61 +9,76 @@ class AudioOutputMacOS {
   bool _initialized = false;
   int _sampleRate = 44100;
   int _channels = 2;
+  int _playedFrames = 0;
 
-  // ✅ 외부에서 접근 가능하도록 getter 추가
+  final StreamController<Duration> _positionController =
+      StreamController<Duration>.broadcast();
+  Stream<Duration> get positionStream => _positionController.stream;
+
   SoundTouchFFI get soundtouch => _soundtouch;
 
   Future<void> init({int sampleRate = 44100, int channels = 2}) async {
     if (_initialized) return;
     _sampleRate = sampleRate;
     _channels = channels;
-    debugPrint('[AudioOutputMacOS] Initializing SoundTouch...');
+    _playedFrames = 0;
+    debugPrint('[AudioOutputMacOS] 🎧 init sr=$sampleRate ch=$channels');
     _soundtouch.init(sampleRate: sampleRate, channels: channels);
+    _soundtouch.startPlayback();
     _initialized = true;
-    debugPrint('[AudioOutputMacOS] ✅ Initialized');
-  }
-
-  Future<void> start() async {
-    debugPrint('[AudioOutputMacOS] ▶️ AudioQueue start() called');
-    await _soundtouch.startPlaybackAsync();
-    debugPrint('[AudioOutputMacOS] ▶️ AudioQueue started');
   }
 
   Future<void> startFeedLoop() async {
-    debugPrint('[AudioOutputMacOS] 🔄 PCM feed loop start');
+    debugPrint('[AudioOutputMacOS] 🔄 startFeedLoop');
     const frame = 4096;
     final buffer = Float32List(frame * _channels);
 
-    while (true) {
-      final got = _soundtouch.receiveSamples(buffer, frame);
-      if (got > 0) {
-        debugPrint('[🟢 PCM→AQ] sending $got frames');
-        _soundtouch.enqueueToAudioQueue(buffer, got);
-      } else {
-        await Future.delayed(const Duration(milliseconds: 10));
-      }
-    }
+    unawaited(
+      Future(() async {
+        while (_initialized) {
+          try {
+            final got = _soundtouch.receiveSamples(buffer, frame);
+            if (got > 0) {
+              _playedFrames += got;
+              _soundtouch.enqueueToAudioQueue(buffer, got);
+
+              final seconds = _playedFrames / _sampleRate;
+              final pos = Duration(microseconds: (seconds * 1e6).round());
+              if (!_positionController.isClosed) _positionController.add(pos);
+
+              if (_playedFrames % 44100 == 0) {
+                debugPrint('[🟢 PCM→AQ] ${_playedFrames ~/ 44100}s played');
+              }
+            } else {
+              await Future.delayed(const Duration(milliseconds: 5));
+            }
+          } catch (e, st) {
+            debugPrint('⚠️ [FeedLoop] $e\n$st');
+            await Future.delayed(const Duration(milliseconds: 100));
+          }
+        }
+      }),
+    );
   }
 
+  void setTempo(double value) {
+    _soundtouch.setTempo(value);
+    debugPrint('[FFI] tempo=$value');
+  }
 
-  Future<void> feedMockSinewave() async {
-    debugPrint('[FFI] 🔗 Mock PCM feed connected');
-    const double freq = 440.0;
-    final samples = Float32List(4096);
-    double phase = 0.0;
-    while (true) {
-      for (int i = 0; i < samples.length; i++) {
-        samples[i] = (0.2 * sin(2 * pi * phase));
-        phase += freq / _sampleRate;
-        if (phase > 1.0) phase -= 1.0;
-      }
-      _soundtouch.putSamples(samples);
-      await Future.delayed(const Duration(milliseconds: 20));
-    }
+  void setPitch(double value) {
+    _soundtouch.setPitchSemiTones(value);
+    debugPrint('[FFI] pitch=$value');
+  }
+
+  void setVolume(double value) {
+    _soundtouch.setVolume(value);
+    debugPrint('[FFI] volume=$value');
   }
 
   void dispose() {
     _soundtouch.dispose();
     _initialized = false;
+    if (!_positionController.isClosed) _positionController.close();
   }
 }

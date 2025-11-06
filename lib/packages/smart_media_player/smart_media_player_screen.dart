@@ -731,19 +731,23 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
   Future<void> _applyAudioChain() async {
     debugPrint(
-      '[SMP] _applyAudioChain @${DateTime.now()} speed=$_speed semi=$_pitchSemi vol=$_volume',
+      '[SMP] _applyAudioChain speed=$_speed semi=$_pitchSemi vol=$_volume',
     );
-    ac.SoundTouchAudioChain.instance.apply(_speed, _pitchSemi.toDouble());
+    ac.SoundTouchAudioChain.instance.apply(
+      _speed,
+      _pitchSemi.toDouble(), // ✅ 명시적 double 변환
+      _volume.toDouble(),
+    );
   }
 
 
-
   Future<void> _applyAudioChainDebounced() async {
-    _applyDebounce?.cancel();
+    if (_applyDebounce?.isActive ?? false) return; // ✅ 중복 방지
     _applyDebounce = Timer(const Duration(milliseconds: 150), () async {
       await _applyAudioChain();
     });
   }
+
 
 
 
@@ -1963,18 +1967,19 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       final d = _clamp(_startCue, Duration.zero, _duration);
       await _seekBoth(d);
 
-      // 🔧 재생 직전 1회
+      // ✅ 재생 전 즉시 체인 적용
       await _applyAudioChain();
 
       await _player.play();
 
-      // 🔧 300ms 뒤에 Debounced로 한 번 더 보정 (옵션)
+      // ✅ 300ms 후 보정 적용 + 로그
       Future.delayed(const Duration(milliseconds: 300), () async {
         await _applyAudioChainDebounced();
         await _logAf(' +300ms');
       });
     }
   }
+
 
   void _syncStartCueToAIfPossible() {
     if (_loopA != null) {

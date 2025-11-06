@@ -1,55 +1,38 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'audio_output_macos.dart';
 
 class SoundTouchAudioChain {
-  SoundTouchAudioChain._internal();
-  static final SoundTouchAudioChain instance = SoundTouchAudioChain._internal();
-
+  SoundTouchAudioChain._();
+  static final instance = SoundTouchAudioChain._();
   final AudioOutputMacOS _audio = AudioOutputMacOS();
-  bool _ready = false;
 
-  Future<void> init() async {
-    if (_ready) return;
-    await _audio.init(sampleRate: 44100, channels: 2);
-    await _audio.start();
-    _ready = true;
-  }
+  double _lastSpeed = 1.0;
+  double _lastPitch = 0.0;
+  double _lastVol = 1.0;
 
-  void setTempoPitch(double tempo, double semi) {
-    if (!_ready) return;
-    debugPrint('[CHAIN] tempo=$tempo semi=$semi');
-    _audio.soundtouch.setTempo(tempo);
-    _audio.soundtouch.setPitchSemiTones(semi);
-  }
+  Stream<Duration> get positionStream => _audio.positionStream;
 
-  void apply(double tempo, double semi) {
-    if (!_ready) return;
-    debugPrint('[CHAIN] apply tempo=$tempo semi=$semi');
-    _audio.soundtouch.setTempo(tempo);
-    _audio.soundtouch.setPitchSemiTones(semi);
-  }
-
-
-  void processPCM(Float32List pcm) {
-    if (!_ready) return;
-    _audio.soundtouch.putSamples(pcm);
-  }
-
-  void startMockFeed() {
-    if (!_ready) return;
-    _audio.feedMockSinewave();
-  }
-  
   Future<void> startFeedLoop() async {
-    if (!_ready) return;
-    debugPrint('[CHAIN] 🔄 Starting PCM → AudioQueue feed loop');
+    await _audio.init();
     await _audio.startFeedLoop();
+    await apply(_lastSpeed, _lastPitch, _lastVol * 100);
   }
 
-
-  void dispose() {
-    _audio.dispose();
-    _ready = false;
+  Future<void> apply(double speed, double semi, double vol) async {
+    final clampedSpeed = speed.clamp(0.5, 1.5);
+    final clampedVol = (vol / 100.0).clamp(0.0, 1.5);
+    _audio.setTempo(clampedSpeed);
+    _audio.setPitch(semi);
+    _audio.setVolume(clampedVol);
+    _lastSpeed = clampedSpeed;
+    _lastPitch = semi;
+    _lastVol = clampedVol;
+    debugPrint(
+      '[SoundTouchChain] tempo=${clampedSpeed.toStringAsFixed(2)} '
+      'pitch=${semi.toStringAsFixed(2)} vol=${clampedVol.toStringAsFixed(2)}',
+    );
   }
-  
+
+  void dispose() => _audio.dispose();
 }
