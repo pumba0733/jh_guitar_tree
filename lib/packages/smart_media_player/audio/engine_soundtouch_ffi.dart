@@ -7,7 +7,7 @@ class SoundTouchFFI {
   late final ffi.DynamicLibrary _lib;
   ffi.Pointer<ffi.Void>? _handle;
 
-  // === typedefs ===
+  // --- typedefs ---
   late final _STCreate _create;
   late final _STDispose _dispose;
   late final _STSetDouble _setTempo;
@@ -21,8 +21,8 @@ class SoundTouchFFI {
   late final _STAudioStop _audioStop;
   late final _STEnqueueToAudioQueue _enqueueToAudioQueue;
 
-  ffi.Pointer<ffi.Float>? _sharedRecvBuf;
-  ffi.Pointer<ffi.Float>? _sharedSendBuf;
+  ffi.Pointer<ffi.Float>? _recvBuf;
+  ffi.Pointer<ffi.Float>? _sendBuf;
 
   SoundTouchFFI() {
     final libName = Platform.isMacOS
@@ -31,11 +31,11 @@ class SoundTouchFFI {
         ? 'soundtouch_ffi.dll'
         : 'libsoundtouch_ffi.so';
     _lib = ffi.DynamicLibrary.open(libName);
-    _lookupFunctions();
+    _lookup();
     _handle = _create();
   }
 
-  void _lookupFunctions() {
+  void _lookup() {
     final l = _lib;
     _create = l.lookupFunction<_STCreateNative, _STCreate>('st_create');
     _dispose = l.lookupFunction<_STDisposeNative, _STDispose>('st_dispose');
@@ -80,23 +80,24 @@ class SoundTouchFFI {
   }
 
   void startPlayback() => _audioStart(_handle!);
+  void stopPlayback() => _audioStop();
 
-  void setTempo(double tempo) => _setTempo(_handle!, tempo);
-  void setPitchSemiTones(double semi) => _setPitch(_handle!, semi);
-  void setVolume(double vol) => _setVolume(_handle!, vol);
+  void setTempo(double t) => _setTempo(_handle!, t);
+  void setPitchSemitones(double semi) => _setPitch(_handle!, semi);
+  void setVolume(double v) => _setVolume(_handle!, v);
 
   void putSamples(Float32List samples) {
     if (_handle == null || samples.isEmpty) return;
-    _sharedSendBuf ??= ffi_utils.malloc.allocate<ffi.Float>(samples.length);
-    final ptr = _sharedSendBuf!;
+    _sendBuf ??= ffi_utils.malloc.allocate<ffi.Float>(samples.length);
+    final ptr = _sendBuf!;
     ptr.asTypedList(samples.length).setAll(0, samples);
     _putSamples(_handle!, ptr, samples.length);
   }
 
   int receiveSamples(Float32List buffer, int maxCount) {
     if (_handle == null) return 0;
-    _sharedRecvBuf ??= ffi_utils.malloc.allocate<ffi.Float>(buffer.length);
-    final ptr = _sharedRecvBuf!;
+    _recvBuf ??= ffi_utils.malloc.allocate<ffi.Float>(buffer.length);
+    final ptr = _recvBuf!;
     final got = _receiveSamples(_handle!, ptr, maxCount);
     if (got > 0) buffer.setAll(0, ptr.asTypedList(buffer.length));
     return got;
@@ -104,15 +105,15 @@ class SoundTouchFFI {
 
   void enqueueToAudioQueue(Float32List samples, int count) {
     if (_handle == null || samples.isEmpty) return;
-    _sharedSendBuf ??= ffi_utils.malloc.allocate<ffi.Float>(samples.length);
-    final ptr = _sharedSendBuf!;
+    _sendBuf ??= ffi_utils.malloc.allocate<ffi.Float>(samples.length);
+    final ptr = _sendBuf!;
     ptr.asTypedList(samples.length).setAll(0, samples);
     _enqueueToAudioQueue(ptr, count);
   }
 
   void dispose() {
-    if (_sharedSendBuf != null) ffi_utils.malloc.free(_sharedSendBuf!);
-    if (_sharedRecvBuf != null) ffi_utils.malloc.free(_sharedRecvBuf!);
+    if (_sendBuf != null) ffi_utils.malloc.free(_sendBuf!);
+    if (_recvBuf != null) ffi_utils.malloc.free(_recvBuf!);
     if (_handle != null) _dispose(_handle!);
   }
 }

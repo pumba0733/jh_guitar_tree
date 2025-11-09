@@ -1,50 +1,33 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'audio_output_macos.dart';
 
+/// v3.40.2 — 정리본 (오류 0)
 class SoundTouchAudioChain {
   SoundTouchAudioChain._();
   static final instance = SoundTouchAudioChain._();
+
   final AudioOutputMacOS _audio = AudioOutputMacOS();
 
   double _lastSpeed = 1.0;
   double _lastPitch = 0.0;
   double _lastVol = 1.0;
 
-  Stream<Duration> get positionStream => _audio.positionStream;
-
   Future<void> startFeedLoop() async {
     await _audio.init();
-    await _audio.startFeedLoop();
+    await _audio.startFeedLoop(); // ✅ 존재함
     await apply(_lastSpeed, _lastPitch, _lastVol * 100);
   }
 
   Future<void> apply(double speed, double semi, double vol) async {
-    final clampedSpeed = speed.clamp(0.5, 1.5);
-    final clampedVol = (vol / 100.0).clamp(0.0, 1.5);
-    _audio.setTempo(clampedSpeed);
+    final s = speed.clamp(0.5, 1.5);
+    final v = (vol / 100.0).clamp(0.0, 1.5);
+    _audio.setTempo(s);
     _audio.setPitch(semi);
-    _audio.setVolume(clampedVol);
-    _lastSpeed = clampedSpeed;
-    _lastPitch = semi;
-    _lastVol = clampedVol;
-    debugPrint(
-      '[SoundTouchChain] tempo=${clampedSpeed.toStringAsFixed(2)} '
-      'pitch=${semi.toStringAsFixed(2)} vol=${clampedVol.toStringAsFixed(2)}',
-    );
+    _audio.setVolume(v);
   }
 
-  /// 🔹 새로 추가: mpv PCM 전달용 메서드
-  void feedPcm(Float32List pcm) {
-    try {
-      _audio.soundtouch.putSamples(pcm);
-      debugPrint(
-        '[PCM] 🟢 putSamples: ${pcm.length ~/ _audio.channels} frames',
-      );
-    } catch (e, st) {
-      debugPrint('⚠️ [feedPcm] $e\n$st');
-    }
-  }
-
+  void feedPcm(Float32List pcm) => _audio.feedPCM(pcm);
   void dispose() => _audio.dispose();
 }

@@ -1,7 +1,7 @@
-import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'engine_soundtouch_ffi.dart';
+import 'dart:async';
 
 /// macOS AudioOutput bridge (SoundTouch FFI + AudioQueue)
 class AudioOutputMacOS {
@@ -25,14 +25,13 @@ class AudioOutputMacOS {
     _playedFrames = 0;
     debugPrint('[AudioOutputMacOS] 🎧 init sr=$sampleRate ch=$channels');
     _soundtouch.init(sampleRate: sampleRate, channels: channels);
-    _soundtouch.startPlayback();
+    _soundtouch.startPlayback(); // ✅ 여기서 정상 정의됨
     _initialized = true;
   }
 
   /// 🔹 mpv PCM → SoundTouch 입력
   void feedPCM(Float32List pcm) {
-    if (!_initialized) return;
-    if (pcm.isEmpty) return;
+    if (!_initialized || pcm.isEmpty) return;
     final frames = pcm.length ~/ _channels;
     _soundtouch.putSamples(pcm);
     debugPrint('[PCM] 🟢 putSamples: $frames frames');
@@ -52,14 +51,9 @@ class AudioOutputMacOS {
             if (got > 0) {
               _playedFrames += got;
               _soundtouch.enqueueToAudioQueue(buffer, got);
-
               final seconds = _playedFrames / _sampleRate;
               final pos = Duration(microseconds: (seconds * 1e6).round());
               if (!_positionController.isClosed) _positionController.add(pos);
-
-              if (_playedFrames % 44100 == 0) {
-                debugPrint('[🟢 PCM→AQ] ${_playedFrames ~/ 44100}s played');
-              }
             } else {
               await Future.delayed(const Duration(milliseconds: 5));
             }
@@ -73,22 +67,13 @@ class AudioOutputMacOS {
   }
 
   /// Tempo (Speed)
-  void setTempo(double value) {
-    _soundtouch.setTempo(value);
-    debugPrint('[FFI] tempo=$value');
-  }
+  void setTempo(double value) => _soundtouch.setTempo(value);
 
   /// Pitch (Semitones)
-  void setPitch(double value) {
-    _soundtouch.setPitchSemiTones(value);
-    debugPrint('[FFI] pitch=$value');
-  }
+  void setPitch(double value) => _soundtouch.setPitchSemitones(value);
 
   /// Volume (0.0~1.0)
-  void setVolume(double value) {
-    _soundtouch.setVolume(value);
-    debugPrint('[FFI] volume=$value');
-  }
+  void setVolume(double value) => _soundtouch.setVolume(value);
 
   void dispose() {
     _soundtouch.dispose();
