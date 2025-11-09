@@ -126,7 +126,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
   // 🔊 볼륨(0~150)
   int _volume = 100;
-  final bool _muted = false;
 
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -713,6 +712,16 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
     // 오디오 체인(SoundTouch 등) 적용
     await _applyAudioChain();
+
+    // ✅ mpv PCM → SoundTouch feed 연결
+    try {
+      await ac.SoundTouchAudioChain.instance.startFeedLoop();
+      debugPrint('[SMP] 🔗 mpv audioFrame → SoundTouch feed connected');
+    } catch (e) {
+      debugPrint('⚠️ audioFrame stream unavailable: $e');
+    }
+
+    // ✅ FFI 루프 시작
     await ac.SoundTouchAudioChain.instance.startFeedLoop();
 
     // 🔎 AF 감시: 400ms마다 mpv 'af' 체인 로그 출력 (디버그 용)

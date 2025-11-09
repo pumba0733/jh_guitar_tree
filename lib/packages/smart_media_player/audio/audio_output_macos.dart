@@ -1,15 +1,16 @@
 import 'dart:async';
-import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'engine_soundtouch_ffi.dart';
 
+/// macOS AudioOutput bridge (SoundTouch FFI + AudioQueue)
 class AudioOutputMacOS {
   final SoundTouchFFI _soundtouch = SoundTouchFFI();
   bool _initialized = false;
   int _sampleRate = 44100;
   int _channels = 2;
   int _playedFrames = 0;
+  int get channels => _channels;
 
   final StreamController<Duration> _positionController =
       StreamController<Duration>.broadcast();
@@ -28,6 +29,16 @@ class AudioOutputMacOS {
     _initialized = true;
   }
 
+  /// 🔹 mpv PCM → SoundTouch 입력
+  void feedPCM(Float32List pcm) {
+    if (!_initialized) return;
+    if (pcm.isEmpty) return;
+    final frames = pcm.length ~/ _channels;
+    _soundtouch.putSamples(pcm);
+    debugPrint('[PCM] 🟢 putSamples: $frames frames');
+  }
+
+  /// 🔹 SoundTouch → AudioQueue 출력 루프
   Future<void> startFeedLoop() async {
     debugPrint('[AudioOutputMacOS] 🔄 startFeedLoop');
     const frame = 4096;
@@ -61,16 +72,19 @@ class AudioOutputMacOS {
     );
   }
 
+  /// Tempo (Speed)
   void setTempo(double value) {
     _soundtouch.setTempo(value);
     debugPrint('[FFI] tempo=$value');
   }
 
+  /// Pitch (Semitones)
   void setPitch(double value) {
     _soundtouch.setPitchSemiTones(value);
     debugPrint('[FFI] pitch=$value');
   }
 
+  /// Volume (0.0~1.0)
   void setVolume(double value) {
     _soundtouch.setVolume(value);
     debugPrint('[FFI] volume=$value');

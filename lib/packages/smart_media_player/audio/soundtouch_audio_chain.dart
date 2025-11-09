@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'audio_output_macos.dart';
 
@@ -32,6 +32,18 @@ class SoundTouchAudioChain {
       '[SoundTouchChain] tempo=${clampedSpeed.toStringAsFixed(2)} '
       'pitch=${semi.toStringAsFixed(2)} vol=${clampedVol.toStringAsFixed(2)}',
     );
+  }
+
+  /// 🔹 새로 추가: mpv PCM 전달용 메서드
+  void feedPcm(Float32List pcm) {
+    try {
+      _audio.soundtouch.putSamples(pcm);
+      debugPrint(
+        '[PCM] 🟢 putSamples: ${pcm.length ~/ _audio.channels} frames',
+      );
+    } catch (e, st) {
+      debugPrint('⚠️ [feedPcm] $e\n$st');
+    }
   }
 
   void dispose() => _audio.dispose();
