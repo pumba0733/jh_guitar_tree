@@ -613,23 +613,16 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     try {
       final dynamic plat = _player.platform;
 
-      // 비디오가 아니면 mpv에 vid=no 지정 (오디오 전용)
+      // 🎧 오디오 전용 모드 세팅
       if (!_isVideo) {
         await plat?.setProperty('vid', 'no');
       }
-
-      // macOS 기본 출력 + 독점 모드 OFF + 자동 디바이스
       await plat?.setProperty('ao', 'coreaudio');
       await plat?.setProperty('audio-exclusive', 'no');
       await plat?.setProperty('audio-device', 'auto');
+    } catch (_) {}
 
-      // 필요하면 samplerate 고정(선택)
-      // await plat?.setProperty('audio-samplerate', '48000');
-    } catch (_) {
-      // mpv platform 없거나 세팅 실패해도 재생은 계속 가게 그냥 무시
-    }
-
-    // 실제 미디어 열기 (자동 재생은 false, 플레이어 상태는 아래에서 따로 갱신)
+    // 🔹 실제 미디어 열기
     await _player.open(Media(widget.mediaPath), play: false);
 
     final st = _player.state;
@@ -641,27 +634,21 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     }
     _wf.updateFromPlayer(pos: _position, dur: _duration);
 
-    // 🔁 위치 스트림 구독: AB 루프 + 파형/슬라이더 연동
+    // 🔁 위치 스트림 구독 (루프/슬라이더)
     _posSub = _player.stream.position.listen((pos) async {
       if (!mounted) return;
-
-      // === AB 루프 재점프 ===
       if (_loopEnabled && _loopA != null && _loopB != null) {
         const eps = Duration(milliseconds: 8);
         final b = _loopB!;
         if (pos + eps >= b) {
-          // 반복 횟수 모드일 때 카운트다운
           if (_loopRepeat > 0) {
             if (_loopRemaining == -1) {
               setState(() => _loopRemaining = _loopRepeat);
             }
             setState(() => _loopRemaining = (_loopRemaining - 1).clamp(0, 200));
-
-            // 반복 다 썼으면 루프 해제 + 시작점으로 이동
             if (_loopRemaining == 0) {
               setState(() => _loopEnabled = false);
               _wf.setLoop(on: false);
-
               final ret = _startCue > Duration.zero ? _startCue : b;
               unawaited(_player.pause());
               unawaited(_player.seek(_clamp(ret, Duration.zero, _duration)));
@@ -669,8 +656,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
               return;
             }
           }
-
-          // 아직 반복 남았으면 A 지점으로 점프
           final a = _clamp(_loopA!, Duration.zero, _duration);
           unawaited(_player.seek(a));
           _wf.updateFromPlayer(pos: a, dur: _duration);
@@ -679,9 +664,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
         }
       }
 
-      // 시킹 가드 중이면 내부 seek로 인한 이벤트는 무시
       if (_isSeekGuardActive) return;
-
       _wf.updateFromPlayer(pos: pos, dur: _duration);
       setState(() => _position = pos);
     });
@@ -692,37 +675,27 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       setState(() {});
     });
 
-    // ✅ 완료 스트림: 루프 / 시작점 처리
+    // ✅ 완료 스트림
     _completedSub = _player.stream.completed.listen((done) async {
       if (!mounted || !done) return;
-
-      // 루프 켜져 있으면 A로 돌아가서 계속 반복
       if (_loopEnabled && _loopA != null && _loopB != null) {
         final a = _clamp(_loopA!, Duration.zero, _duration);
         unawaited(_player.seek(a));
         unawaited(_player.play());
         return;
       }
-
-      // ⛳️ 변경: 루프 OFF 상태에서 끝까지 재생되면 StartCue부터 자동 재생
       final a = _clamp(_startCue, Duration.zero, _duration);
       unawaited(_player.seek(a));
       unawaited(_player.play());
     });
 
-    // 오디오 체인(SoundTouch 등) 적용
+    // 🔊 오디오 체인 초기화
+    await ac.SoundTouchAudioChain.instance.init();
     await _applyAudioChain();
 
-    // ✅ mpv PCM → SoundTouch feed 연결
-    try {
-      await ac.SoundTouchAudioChain.instance.startFeedLoop();
-      debugPrint('[SMP] 🔗 mpv audioFrame → SoundTouch feed connected');
-    } catch (e) {
-      debugPrint('⚠️ audioFrame stream unavailable: $e');
-    }
 
-    // ✅ FFI 루프 시작
-    await ac.SoundTouchAudioChain.instance.startFeedLoop();
+    // ✅ miniaudio 기반 SoundTouch FFI 출력 준비 완료
+    debugPrint('[SMP] ✅ Audio chain ready (miniaudio active)');
 
     // 🔎 AF 감시: 400ms마다 mpv 'af' 체인 로그 출력 (디버그 용)
     _afWatchdog?.cancel();
@@ -730,8 +703,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       unawaited(_logAf());
     });
   }
-
-
+  
   Duration _clamp(Duration v, Duration min, Duration max) {
     if (v < min) return min;
     if (v > max) return max;
@@ -742,10 +714,26 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     debugPrint(
       '[SMP] _applyAudioChain speed=$_speed semi=$_pitchSemi vol=$_volume',
     );
-    ac.SoundTouchAudioChain.instance.apply(
-      _speed,
-      _pitchSemi.toDouble(), // ✅ 명시적 double 변환
-      _volume.toDouble(),
+
+    final chain = ac.SoundTouchAudioChain.instance;
+
+    // 🔹 SoundTouch 파라미터 전달
+    chain.setTempo(_speed);
+    chain.setPitch(_pitchSemi.toDouble());
+    chain.setVolume(_volume / 100.0);
+
+    // 🔹 현재 재생 중인 파일이 연결 안 돼있을 가능성 방지
+    if (!chain.isStarted) {
+      debugPrint('[SMP] [FFI] chain not started, initializing...');
+      await chain.startWithFile(widget.mediaPath);
+    }
+
+    // 🔹 실제 반영 시점 보정 (디바운스 직전 확실히 적용)
+    await Future.delayed(const Duration(milliseconds: 80));
+
+    // 🔹 최종 로그 확인
+    debugPrint(
+      '[SMP] [FFI] applied -> tempo=$_speed pitch=$_pitchSemi volume=$_volume',
     );
   }
 

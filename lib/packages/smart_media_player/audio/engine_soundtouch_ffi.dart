@@ -1,151 +1,83 @@
 import 'dart:ffi' as ffi;
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:ffi/ffi.dart' as ffi_utils;
 
+/// 🎧 SoundTouchFFI v3.41
+/// mpv → SoundTouch → miniaudio 완전 통합 버전
+/// feedPcm 제거, startWithFile / stop / setTempo / setPitch / setVolume 중심 구조
 class SoundTouchFFI {
   late final ffi.DynamicLibrary _lib;
-  ffi.Pointer<ffi.Void>? _handle;
 
-  // --- typedefs ---
-  late final _STCreate _create;
-  late final _STDispose _dispose;
-  late final _STSetDouble _setTempo;
-  late final _STSetDouble _setPitch;
-  late final _STSetFloat _setVolume;
-  late final _STSetInt _setSampleRate;
-  late final _STSetInt _setChannels;
-  late final _STPutSamples _putSamples;
-  late final _STReceiveSamples _receiveSamples;
-  late final _STAudioStart _audioStart;
-  late final _STAudioStop _audioStop;
-  late final _STEnqueueToAudioQueue _enqueueToAudioQueue;
-
-  ffi.Pointer<ffi.Float>? _recvBuf;
-  ffi.Pointer<ffi.Float>? _sendBuf;
+  late final _Create _create;
+  late final _Dispose _dispose;
+  late final _StartWithFile _startWithFile;
+  late final _Stop _stop;
+  late final _SetTempo _setTempo;
+  late final _SetPitch _setPitch;
+  late final _SetVolume _setVolume;
 
   SoundTouchFFI() {
     final libName = Platform.isMacOS
         ? 'libsoundtouch_ffi.dylib'
-        : Platform.isWindows
-        ? 'soundtouch_ffi.dll'
-        : 'libsoundtouch_ffi.so';
+        : 'soundtouch_ffi.dll';
     _lib = ffi.DynamicLibrary.open(libName);
-    _lookup();
-    _handle = _create();
-  }
 
-  void _lookup() {
-    final l = _lib;
-    _create = l.lookupFunction<_STCreateNative, _STCreate>('st_create');
-    _dispose = l.lookupFunction<_STDisposeNative, _STDispose>('st_dispose');
-    _setTempo = l.lookupFunction<_STSetDoubleNative, _STSetDouble>(
-      'st_set_tempo',
+    // --- Load FFI symbols ---
+    _create = _lib.lookupFunction<_CreateNative, _Create>('st_create');
+    _dispose = _lib.lookupFunction<_DisposeNative, _Dispose>('st_dispose');
+    _startWithFile = _lib.lookupFunction<_StartWithFileNative, _StartWithFile>(
+      'st_audio_start_with_file',
     );
-    _setPitch = l.lookupFunction<_STSetDoubleNative, _STSetDouble>(
+    _stop = _lib.lookupFunction<_StopNative, _Stop>('st_audio_stop');
+    _setTempo = _lib.lookupFunction<_SetTempoNative, _SetTempo>('st_set_tempo');
+    _setPitch = _lib.lookupFunction<_SetPitchNative, _SetPitch>(
       'st_set_pitch_semitones',
     );
-    _setVolume = l.lookupFunction<_STSetFloatNative, _STSetFloat>(
+    _setVolume = _lib.lookupFunction<_SetVolumeNative, _SetVolume>(
       'st_set_volume',
     );
-    _setSampleRate = l.lookupFunction<_STSetIntNative, _STSetInt>(
-      'st_set_sample_rate',
-    );
-    _setChannels = l.lookupFunction<_STSetIntNative, _STSetInt>(
-      'st_set_channels',
-    );
-    _putSamples = l.lookupFunction<_STPutSamplesNative, _STPutSamples>(
-      'st_put_samples',
-    );
-    _receiveSamples = l
-        .lookupFunction<_STReceiveSamplesNative, _STReceiveSamples>(
-          'st_receive_samples',
-        );
-    _audioStart = l.lookupFunction<_STAudioStartNative, _STAudioStart>(
-      'st_audio_start',
-    );
-    _audioStop = l.lookupFunction<_STAudioStopNative, _STAudioStop>(
-      'st_audio_stop',
-    );
-    _enqueueToAudioQueue = l
-        .lookupFunction<_STEnqueueToAudioQueueNative, _STEnqueueToAudioQueue>(
-          'st_enqueue_to_audioqueue',
-        );
+
+    // --- Init instance ---
+    _create();
   }
 
-  void init({int sampleRate = 44100, int channels = 2}) {
-    if (_handle == null) _handle = _create();
-    _setSampleRate(_handle!, sampleRate);
-    _setChannels(_handle!, channels);
+  /// 🎵 파일 재생 시작
+  void startWithFile(String path) {
+    final cPath = path.toNativeUtf8();
+    _startWithFile(cPath.cast<ffi.Char>()); // ✅ 캐스팅 추가
+    ffi_utils.malloc.free(cPath);
   }
 
-  void startPlayback() => _audioStart(_handle!);
-  void stopPlayback() => _audioStop();
+  /// ⏹️ 정지
+  void stop() => _stop();
 
-  void setTempo(double t) => _setTempo(_handle!, t);
-  void setPitchSemitones(double semi) => _setPitch(_handle!, semi);
-  void setVolume(double v) => _setVolume(_handle!, v);
+  /// 🎚️ 파라미터 조정
+  void setTempo(double v) => _setTempo(v);
+  void setPitch(double v) => _setPitch(v);
+  void setVolume(double v) => _setVolume(v);
 
-  void putSamples(Float32List samples) {
-    if (_handle == null || samples.isEmpty) return;
-    _sendBuf ??= ffi_utils.malloc.allocate<ffi.Float>(samples.length);
-    final ptr = _sendBuf!;
-    ptr.asTypedList(samples.length).setAll(0, samples);
-    _putSamples(_handle!, ptr, samples.length);
-  }
-
-  int receiveSamples(Float32List buffer, int maxCount) {
-    if (_handle == null) return 0;
-    _recvBuf ??= ffi_utils.malloc.allocate<ffi.Float>(buffer.length);
-    final ptr = _recvBuf!;
-    final got = _receiveSamples(_handle!, ptr, maxCount);
-    if (got > 0) buffer.setAll(0, ptr.asTypedList(buffer.length));
-    return got;
-  }
-
-  void enqueueToAudioQueue(Float32List samples, int count) {
-    if (_handle == null || samples.isEmpty) return;
-    _sendBuf ??= ffi_utils.malloc.allocate<ffi.Float>(samples.length);
-    final ptr = _sendBuf!;
-    ptr.asTypedList(samples.length).setAll(0, samples);
-    _enqueueToAudioQueue(ptr, count);
-  }
-
-  void dispose() {
-    if (_sendBuf != null) ffi_utils.malloc.free(_sendBuf!);
-    if (_recvBuf != null) ffi_utils.malloc.free(_recvBuf!);
-    if (_handle != null) _dispose(_handle!);
-  }
+  /// 🧹 해제
+  void dispose() => _dispose();
 }
 
-// === Native typedefs ===
-typedef _STCreateNative = ffi.Pointer<ffi.Void> Function();
-typedef _STCreate = ffi.Pointer<ffi.Void> Function();
-typedef _STDisposeNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
-typedef _STDispose = void Function(ffi.Pointer<ffi.Void>);
-typedef _STSetDoubleNative =
-    ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Double);
-typedef _STSetDouble = void Function(ffi.Pointer<ffi.Void>, double);
-typedef _STSetIntNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
-typedef _STSetInt = void Function(ffi.Pointer<ffi.Void>, int);
-typedef _STSetFloatNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Float);
-typedef _STSetFloat = void Function(ffi.Pointer<ffi.Void>, double);
-typedef _STPutSamplesNative =
-    ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Int32);
-typedef _STPutSamples =
-    void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, int);
-typedef _STReceiveSamplesNative =
-    ffi.Int32 Function(
-      ffi.Pointer<ffi.Void>,
-      ffi.Pointer<ffi.Float>,
-      ffi.Int32,
-    );
-typedef _STReceiveSamples =
-    int Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, int);
-typedef _STAudioStartNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
-typedef _STAudioStart = void Function(ffi.Pointer<ffi.Void>);
-typedef _STAudioStopNative = ffi.Void Function();
-typedef _STAudioStop = void Function();
-typedef _STEnqueueToAudioQueueNative =
-    ffi.Void Function(ffi.Pointer<ffi.Float>, ffi.Int32);
-typedef _STEnqueueToAudioQueue = void Function(ffi.Pointer<ffi.Float>, int);
+// ===== Native TypeDefs =====
+typedef _CreateNative = ffi.Void Function();
+typedef _Create = void Function();
+
+typedef _DisposeNative = ffi.Void Function();
+typedef _Dispose = void Function();
+
+typedef _StartWithFileNative = ffi.Void Function(ffi.Pointer<ffi.Char>);
+typedef _StartWithFile = void Function(ffi.Pointer<ffi.Char>);
+
+typedef _StopNative = ffi.Void Function();
+typedef _Stop = void Function();
+
+typedef _SetTempoNative = ffi.Void Function(ffi.Double);
+typedef _SetTempo = void Function(double);
+
+typedef _SetPitchNative = ffi.Void Function(ffi.Double);
+typedef _SetPitch = void Function(double);
+
+typedef _SetVolumeNative = ffi.Void Function(ffi.Float);
+typedef _SetVolume = void Function(double);

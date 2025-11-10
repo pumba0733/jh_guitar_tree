@@ -30,7 +30,8 @@
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
 		9CA80CE2923DEB63B616C676 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3EF81DD44FE3E42BB4CE0344 /* Pods_RunnerTests.framework */; };
 		AABBCCDD0011223344556677 /* soundtouch_ffi_bridge.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0011223344556678 /* soundtouch_ffi_bridge.cpp */; };
-		AABBCCDD9988776655443322 /* BuildFile in Frameworks */ = {isa = PBXBuildFile; };
+		AABBCCDD0011223344556681 /* audio_chain_miniaudio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0011223344556680 /* audio_chain_miniaudio.cpp */; };
+        AABBCCDD9988776655443322 /* BuildFile in Frameworks */ = {isa = PBXBuildFile; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -90,7 +91,8 @@
 		A2EDC65CB05B75DD21F8BB20 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		AABBCCDD0011223344556678 /* soundtouch_ffi_bridge.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = soundtouch_ffi_bridge.cpp; path = Frameworks/soundtouch_ffi_bridge.cpp; sourceTree = "<group>"; };
 		AABBCCDD0011223344556679 /* soundtouch_ffi_bridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = soundtouch_ffi_bridge.h; path = Frameworks/soundtouch_ffi_bridge.h; sourceTree = "<group>"; };
-		C7950E9BB03E66A623871D8B /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
+		AABBCCDD0011223344556680 /* audio_chain_miniaudio.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = audio_chain_miniaudio.cpp; path = Frameworks/audio_chain_miniaudio.cpp; sourceTree = "<group>"; };
+        C7950E9BB03E66A623871D8B /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		CB7010211055ED134DF757C2 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -210,6 +212,7 @@
 				3EF81DD44FE3E42BB4CE0344 /* Pods_RunnerTests.framework */,
 				AABBCCDD0011223344556678 /* soundtouch_ffi_bridge.cpp */,
 				AABBCCDD0011223344556679 /* soundtouch_ffi_bridge.h */,
+                AABBCCDD0011223344556680 /* audio_chain_miniaudio.cpp */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -466,6 +469,7 @@
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 				AABBCCDD0011223344556677 /* soundtouch_ffi_bridge.cpp in Sources */,
+                AABBCCDD0011223344556681 /* audio_chain_miniaudio.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
