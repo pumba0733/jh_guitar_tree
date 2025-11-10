@@ -210,8 +210,6 @@
 			children = (
 				5C776B7307DF9510FAA377B6 /* Pods_Runner.framework */,
 				3EF81DD44FE3E42BB4CE0344 /* Pods_RunnerTests.framework */,
-				AABBCCDD0011223344556678 /* soundtouch_ffi_bridge.cpp */,
-				AABBCCDD0011223344556679 /* soundtouch_ffi_bridge.h */,
                 AABBCCDD0011223344556680 /* audio_chain_miniaudio.cpp */,
 			);
 			name = Frameworks;
@@ -462,17 +460,17 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		33CC10E92044A3C60003C045 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
-				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
-				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
-				AABBCCDD0011223344556677 /* soundtouch_ffi_bridge.cpp in Sources */,
+            isa = PBXSourcesBuildPhase;
+            buildActionMask = 2147483647;
+            files = (
+                33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
+                33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
+                335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
                 AABBCCDD0011223344556681 /* audio_chain_miniaudio.cpp in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
+            );
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */

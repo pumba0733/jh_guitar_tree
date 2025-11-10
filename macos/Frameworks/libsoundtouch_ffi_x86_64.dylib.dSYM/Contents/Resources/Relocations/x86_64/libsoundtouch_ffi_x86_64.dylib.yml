@@ -1,0 +1,5 @@
+---
+triple:          'x86_64-apple-darwin'
+binary-path:     libsoundtouch_ffi_x86_64.dylib
+relocations:     []
+...
