@@ -179,6 +179,9 @@ class _CenterFilledPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    print(
+      '[WF] paint() width=${size.width}, height=${size.height}, left=${left.length}',
+    );
     if (left.isEmpty ||
         size.width <= 0 ||
         size.height <= 0 ||
@@ -208,22 +211,32 @@ class _CenterFilledPainter extends CustomPainter {
     // 스타일
     final fill1 = Paint()
       ..style = PaintingStyle.fill
-      ..color = const Color(0xFF6EA8FE).withValues(alpha: 0.55);
+      ..color = const Color(0x8C6EA8FE); // 파형 기본색
     final fill2 = Paint()
       ..style = PaintingStyle.fill
-      ..color = const Color(0xFF9AD0F9).withValues(alpha: 0.55);
-    final loopFill = Paint()
-      ..color = const Color(0xFF66CCFF).withValues(alpha: 0.15);
+      ..color = const Color(0x8C9AD0F9);
+    final loopFill = Paint()..color = const Color(0x2666CCFF); // 루프 영역 (16% 투명)
     final linePos = Paint()
       ..color = const Color(0xFF1F4AFF)
       ..strokeWidth = 1.2;
+
+
+    // 🔹 Normalize amplitude
+    double maxAbs = 0.0;
+    for (final v in left) {
+      final av = v.abs();
+      if (av > maxAbs) maxAbs = av;
+    }
+    if (maxAbs < 1e-6) maxAbs = 1.0; // avoid div0
+    final double gain = 1.0 / maxAbs;
+
 
     if (!splitStereo || right == null || right!.isEmpty) {
       final centerY = height * 0.5;
       final halfH = height * 0.48;
       _drawCenterFillPath(
         canvas,
-        left,
+        left.map((e) => e * gain).toList(),
         startIdx,
         step,
         count,
@@ -233,6 +246,7 @@ class _CenterFilledPainter extends CustomPainter {
         halfH,
         fill1,
       );
+
     } else {
       final halfHeight = height / 2;
       final topCenter = halfHeight * 0.5;
@@ -521,10 +535,11 @@ class _CenterFilledPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CenterFilledPainter old) {
-    return left != old.left ||
+    // 🔵 viewport·zoom·range·markers 등 “전체 페인트가 필요한 경우”
+    final heavy =
+        left != old.left ||
         right != old.right ||
         splitStereo != old.splitStereo ||
-        position != old.position ||
         duration != old.duration ||
         loopA != old.loopA ||
         loopB != old.loopB ||
@@ -537,5 +552,13 @@ class _CenterFilledPainter extends CustomPainter {
         markerColors != old.markerColors ||
         startCue != old.startCue ||
         showStartCue != old.showStartCue;
+
+    if (heavy) return true;
+
+    // 🔴 position-only 변경 → 여기서는 false (position-only layer에서 그린다)
+    if (position != old.position) return false;
+
+    return false;
   }
+
 }

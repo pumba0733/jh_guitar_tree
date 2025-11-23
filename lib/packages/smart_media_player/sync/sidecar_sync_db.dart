@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 import 'package:path/path.dart' as p;
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -179,6 +180,8 @@ class SidecarSyncDb {
     }
   }
 
+  
+
   Future<void> _writeLocal(Map<String, dynamic> payload) async {
     final fp = await _localFilePath();
     final f = File(fp);
@@ -190,6 +193,39 @@ class SidecarSyncDb {
     final name = '${_studentId}_$_mediaHash.json';
     return p.join(_cacheDir, name);
   }
+
+    // ============================================================
+  // 3-3C 요구사항: pendingUploadAt + notifier + tryUploadNow()
+  // ============================================================
+
+  final ValueNotifier<DateTime?> pendingUploadAtNotifier =
+      ValueNotifier<DateTime?>(null);
+
+  DateTime? get pendingUploadAt => pendingUploadAtNotifier.value;
+
+  /// 즉시 업로드 시도. 실패하면 pending 상태 그대로 남김.
+  Future<void> tryUploadNow() async {
+    if (!_isBound) return;
+
+    final local = await _readLocalOrNull();
+    if (local == null || local.isEmpty) return;
+
+    try {
+      final nowIso = DateTime.now().toIso8601String();
+      await Supabase.instance.client.from('player_sidecars').upsert({
+        'student_id': _studentId!,
+        'media_hash': _mediaHash!,
+        'payload': local,
+        'updated_at': nowIso,
+      });
+      // 성공 → pending 해제
+      pendingUploadAtNotifier.value = null;
+    } catch (_) {
+      // 실패 → pending 유지
+      pendingUploadAtNotifier.value ??= DateTime.now();
+    }
+  }
+
 
   void dispose() {
     _rtSub?.cancel();

@@ -1,3 +1,8 @@
+// ─────────────────────────────────────────────────────────────
+//  SmartMediaPlayer FFI - SoundTouch + miniaudio (Final, A안)
+//  완전체 안정화 버전
+// ─────────────────────────────────────────────────────────────
+
 #define MINIAUDIO_IMPLEMENTATION
 #define MA_ENABLE_COREAUDIO
 
@@ -11,6 +16,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 
 using namespace soundtouch;
 
@@ -19,48 +25,106 @@ using namespace soundtouch;
 // ─────────────────────────────
 static ma_device gDevice;
 static SoundTouch gST;
-static std::thread gDecodeThread;
+
 static std::mutex gMutex;
 static std::atomic<bool> gRunning{false};
+
+// 재생 시간 = 실제 출력된 샘플 수
+static std::atomic<uint64_t> gProcessedSamples{0};
+
+// 출력 볼륨
 static float gVolume = 1.0f;
 
+// 파형·RMS 계산용 마지막 출력 버퍼
 static constexpr int BUF_FRAMES = 4096;
-static std::vector<float> gDecodeBuffer(BUF_FRAMES * 2);
-static std::vector<float> gOutputBuffer(BUF_FRAMES * 2);
+static std::vector<float> gLastBuffer(BUF_FRAMES * 2);
+
+// ─────────────────────────────
+// ⚙️ SoundTouch 파라미터 즉시 반영
+// ─────────────────────────────
+static inline void applySoundTouchParams_unsafe()
+{
+    // 변조 파라미터 변경 후 이전 큐 폐기
+    // → 다음 receiveSamples부터 즉시 새 변조 적용됨
+    gST.clear();
+    gST.flush();
+}
 
 // ─────────────────────────────
 // 🎧 Audio Callback
 // ─────────────────────────────
 void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_uint32 frameCount)
 {
+    float *out = (float *)pOutput;
+
     int received = 0;
+
     {
         std::lock_guard<std::mutex> lock(gMutex);
-        received = gST.receiveSamples(gOutputBuffer.data(), frameCount);
+
+        // 변조 샘플 받아오기
+        received = gST.receiveSamples(out, frameCount);
+
+        // tempo/pitch 변경 직후 buffer 비는 문제 대응
+        if (received == 0)
+        {
+            gST.flush();
+            received = gST.receiveSamples(out, frameCount);
+        }
+
+        // 🔥 최근 출력 버퍼 저장
+        if (received > 0)
+        {
+            int copyFrames = std::min<int>(received, BUF_FRAMES);
+            memcpy(gLastBuffer.data(), out, copyFrames * 2 * sizeof(float));
+        }
+        else
+        {
+            memset(gLastBuffer.data(), 0, BUF_FRAMES * 2 * sizeof(float));
+        }
     }
 
+    // underflow → 무음 패딩 + timeline 증가
     if (received <= 0)
     {
-        memset(pOutput, 0, frameCount * pDevice->playback.channels * sizeof(float));
+        memset(out, 0, frameCount * 2 * sizeof(float));
+        gProcessedSamples += frameCount;
         return;
     }
 
-    for (int i = 0; i < received * pDevice->playback.channels; ++i)
-        gOutputBuffer[i] *= gVolume;
+    // 🔊 Volume
+    int total = received * 2;
+    for (int i = 0; i < total; ++i)
+        out[i] *= gVolume;
 
-    memcpy(pOutput, gOutputBuffer.data(), received * pDevice->playback.channels * sizeof(float));
+    // 부족한 프레임 무음 패딩
+    if (received < (int)frameCount)
+    {
+        int padStart = received * 2;
+        int padSamples = (frameCount - received) * 2;
+        memset(out + padStart, 0, padSamples * sizeof(float));
+    }
+
+    // 타임라인 증가
+    gProcessedSamples += received;
 }
 
 // ─────────────────────────────
-// ⚙️ 내부 함수들
+// ⚙️ 내부 초기화
 // ─────────────────────────────
 void initSoundTouch()
 {
     std::lock_guard<std::mutex> lock(gMutex);
+
     gST.setSampleRate(44100);
     gST.setChannels(2);
+
     gST.setTempo(1.0f);
-    gST.setPitchSemiTones(0);
+    gST.setPitchSemiTones(0.0f);
+
+    gVolume = 1.0f;
+    gProcessedSamples.store(0);
+
     printf("[SoundTouch] ✅ Initialized\n");
 }
 
@@ -74,118 +138,108 @@ bool initAudioDevice()
 
     if (ma_device_init(nullptr, &config, &gDevice) != MA_SUCCESS)
     {
-        printf("[AudioChain] ❌ Failed to init device\n");
+        printf("[AudioChain] ❌ Device init failed\n");
         return false;
     }
-    printf("[AudioChain] ✅ Device ready: 44100 Hz, 2 ch\n");
+
+    printf("[AudioChain] ✅ Device ready (44100Hz/2ch)\n");
     return true;
 }
 
-void startPlayback(const char *path)
-{
-    printf("[AudioChain] ▶️ startPlayback(%s)\n", path);
-    if (gRunning.load())
-        return;
-
-    initSoundTouch();
-    if (initAudioDevice())
-    {
-        ma_device_start(&gDevice);
-        gRunning = true;
-        printf("[AudioChain] ▶️ Playback started\n");
-    }
-}
-
-void stopPlayback()
-{
-    if (!gRunning.load())
-        return;
-    gRunning = false;
-
-    ma_device_uninit(&gDevice);
-    printf("[AudioChain] ⏹️ Playback stopped\n");
-}
-
-void setTempo(double t)
-{
-    std::lock_guard<std::mutex> lock(gMutex);
-    gST.setTempo((float)t);
-    printf("[ST] tempo=%.3f\n", t);
-}
-
-void setPitch(double s)
-{
-    std::lock_guard<std::mutex> lock(gMutex);
-    gST.setPitchSemiTones((float)s);
-    printf("[ST] pitch=%.3f\n", s);
-}
-
-void setVolume(float v)
-{
-    gVolume = v;
-    printf("[ST] volume=%.3f\n", v);
-}
-
 // ─────────────────────────────
-// 🟢 PCM Feed (from Dart → SoundTouch)
-// ─────────────────────────────
-extern "C" void st_feed_pcm(float *data, int frames)
-{
-    if (!gRunning.load())
-        return;
-    {
-        std::lock_guard<std::mutex> lock(gMutex);
-        gST.putSamples(data, frames);
-    }
-}
-
-// ─────────────────────────────
-// 🔗 FFI Entry Points
+// 🧩 FFI Entry Points
 // ─────────────────────────────
 extern "C"
 {
+
     void st_create()
     {
-        printf("[FFI] st_create()\n");
+        if (gRunning.load())
+            return;
+
         initSoundTouch();
-        if (initAudioDevice())
+
+        if (!initAudioDevice())
+            return;
+
+        if (ma_device_start(&gDevice) == MA_SUCCESS)
         {
-            ma_device_start(&gDevice);
-            gRunning = true;
-            printf("[AudioChain] ▶️ Playback started\n");
+            gRunning.store(true);
+            printf("[FFI] ▶ Playback started\n");
         }
     }
 
     void st_dispose()
     {
-        stopPlayback();
-        printf("[FFI] st_dispose()\n");
+        if (!gRunning.load())
+            return;
+
+        gRunning.store(false);
+        ma_device_uninit(&gDevice);
+
+        {
+            std::lock_guard<std::mutex> lock(gMutex);
+            gST.clear();
+        }
+
+        printf("[FFI] ⏹ Disposed\n");
     }
 
-    void st_audio_start_with_file(const char *path)
+    void st_feed_pcm(float *data, int frames)
     {
-        startPlayback(path);
-        printf("[FFI] ▶️ Audio start (file=%s)\n", path);
+        if (!gRunning.load())
+            return;
+
+        std::lock_guard<std::mutex> lock(gMutex);
+        gST.putSamples(data, frames);
     }
 
-    void st_audio_stop()
+    void st_set_tempo(float t)
     {
-        stopPlayback();
-        printf("[FFI] ⏹️ Audio stop\n");
+        std::lock_guard<std::mutex> lock(gMutex);
+        gST.setTempo(t);
+        applySoundTouchParams_unsafe();
+        printf("[ST] tempo=%.3f\n", t);
     }
 
-    void st_set_tempo(double t)
+    void st_set_pitch_semitones(float semi)
     {
-        setTempo(t);
-    }
-
-    void st_set_pitch_semitones(double s)
-    {
-        setPitch(s);
+        std::lock_guard<std::mutex> lock(gMutex);
+        gST.setPitchSemiTones(semi);
+        applySoundTouchParams_unsafe();
+        printf("[ST] pitch=%.3f\n", semi);
     }
 
     void st_set_volume(float v)
     {
-        setVolume(v);
+        gVolume = v;
+        printf("[ST] volume=%.3f\n", v);
     }
-}
+
+    double st_get_playback_time()
+    {
+        return (double)gProcessedSamples.load() / 44100.0;
+    }
+
+    // 🔥 최근 출력 버퍼 전달
+    void st_copyLastBuffer(float *dst, int maxFrames)
+    {
+        int frames = std::min<int>(maxFrames, BUF_FRAMES);
+        memcpy(dst, gLastBuffer.data(), frames * 2 * sizeof(float));
+    }
+
+    // 🔥 RMS
+    double st_getRmsLevel()
+    {
+        double sum = 0.0;
+        int N = BUF_FRAMES * 2;
+
+        for (int i = 0; i < N; ++i)
+        {
+            float v = gLastBuffer[i];
+            sum += (double)v * v;
+        }
+        return sqrt(sum / N);
+    }
+
+} // extern "C"

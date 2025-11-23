@@ -1,15 +1,13 @@
-// lib/main.dart — v1.58.8 (빌드 안정화용 최소본)
-// A안 기준: 오디오는 SoundTouch 네이티브/FFI(별도 화면/서비스에서 제어), 비디오는 media_kit_video.
-// 여기서는 앱 부팅/창 세팅/Supabase/Hive/에러 핸들러만 유지한다.
-
 import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter/material.dart';
 
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:media_kit/media_kit.dart'; // ✅ 추가
 
 import 'app.dart';
 import 'supabase/supabase_options.dart';
@@ -41,6 +39,9 @@ Future<void> _initDesktopWindow() async {
 Future<void> main() async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
 
+  // ✅ 반드시 추가 — media_kit 내부 mpv 초기화
+  MediaKit.ensureInitialized();
+
   // 창 세팅은 비동기 (대기하지 않아도 됨)
   unawaited(_initDesktopWindow());
 
@@ -64,7 +65,7 @@ Future<void> main() async {
 
   final supa = Supabase.instance.client;
 
-  // 익명 로그인 (기존 로직)
+  // 익명 로그인
   if (supa.auth.currentUser == null) {
     try {
       await supa.auth.signInAnonymously();
@@ -73,7 +74,7 @@ Future<void> main() async {
     }
   }
 
-  // 부팅 시 부트스트랩 RPC들 (기존 로직)
+  // 부팅 시 RPC들
   final initialEmail = supa.auth.currentUser?.email;
   if (initialEmail != null && initialEmail.isNotEmpty) {
     try {
@@ -103,7 +104,7 @@ Future<void> main() async {
     }
   }
 
-  // 세션 리스너 (기존 로직)
+  // 세션 리스너
   supa.auth.onAuthStateChange.listen((state) async {
     final event = state.event;
     final email = state.session?.user.email ?? '';

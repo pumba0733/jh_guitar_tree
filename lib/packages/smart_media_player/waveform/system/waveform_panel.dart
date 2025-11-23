@@ -10,6 +10,8 @@ import 'package:flutter/material.dart';
 import '../waveform_cache.dart';
 import '../waveform_view.dart';
 import 'waveform_system.dart';
+import '../../audio/soundtouch_audio_chain.dart';
+
 
 class WaveformPanel extends StatefulWidget {
   final WaveformController controller;
@@ -38,7 +40,6 @@ class _WaveformPanelState extends State<WaveformPanel> {
   static const double _markerBandPx = 28; // 상단 말풍선 전용 밴드 높이
   static const double _viewHeight = 100; // 파형 높이
 
-  Future<void>? _loadFut;
   double _progress = 0.0;
 
   List<double> _rmsL = const [];
@@ -68,14 +69,29 @@ class _WaveformPanelState extends State<WaveformPanel> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _ensureLoaded());
   }
 
-  void _ensureLoaded() {
-    if (_loadFut != null) return;
-    _loadFut = _load().whenComplete(() => _loadFut = null);
+  void _ensureLoaded() async {
+    await _load(); // ✅ 실제 존재하는 함수명으로 수정
+
+    // 🔹 오디오 체인 연결 (재생 위치 자동 반영)
+    widget.controller.bindToAudioChain(SoundTouchAudioChain.instance);
+
+    setState(() {});
   }
+
+
 
   Future<void> _load() async {
     setState(() => _progress = 0.03);
-    final durHint = widget.controller.duration.value;
+    final chain = SoundTouchAudioChain.instance;
+
+    // 기본 fallback 길이 (5분) — 파일에서 읽기 전 안전값
+    Duration durHint = chain.duration.inMilliseconds > 0
+        ? chain.duration
+        : const Duration(seconds: 300);
+
+    // WaveformCache가 실제 duration을 반환한다면 업데이트
+
+
 
     final res = await WaveformCache.instance.loadOrBuildStereoVectors(
       mediaPath: widget.mediaPath,
@@ -87,12 +103,24 @@ class _WaveformPanelState extends State<WaveformPanel> {
         setState(() => _progress = p.clamp(0.0, 1.0));
       },
     );
+
     if (!mounted) return;
+
+    // 🔥🔥🔥 여기! — duration 업데이트
+    if (res.durationMs > 0) {
+      SoundTouchAudioChain.instance.setDuration(
+        Duration(milliseconds: res.durationMs),
+      );
+    }
+
     setState(() {
       _rmsL = res.rmsL;
       _progress = 1.0;
     });
+
+
   }
+  
 
   // === 좌표 <-> 시간 변환 ===
   Duration _dxToTime(Offset localPos, Size size) {
@@ -151,8 +179,10 @@ class _WaveformPanelState extends State<WaveformPanel> {
       c.selectionB.value = t;
       c.selectionA.value = b;
     }
+    _enforceStartCueLoopRules();
     widget.onStateDirty?.call();
   }
+
 
   void _setB(Duration t) {
     final c = widget.controller;
@@ -162,8 +192,24 @@ class _WaveformPanelState extends State<WaveformPanel> {
       c.selectionA.value = t;
       c.selectionB.value = a;
     }
+    _enforceStartCueLoopRules();
     widget.onStateDirty?.call();
   }
+
+  void _enforceStartCueLoopRules() {
+    final c = widget.controller;
+    final a = c.selectionA.value;
+    final b = c.selectionB.value;
+    var sc = c.startCue.value;
+
+    if (a != null && b != null && sc != null) {
+      if (sc < a) sc = a;
+      if (sc > b) sc = a;
+      if (sc != c.startCue.value) c.setStartCue(sc);
+    }
+  }
+
+
 
   void _clearAB() {
     final c = widget.controller;
@@ -278,6 +324,24 @@ class _WaveformPanelState extends State<WaveformPanel> {
                       widget.onStateDirty?.call();
                     } else if (_draggingMarkerIndex >= 0) {
                       _updateMarkerTime(_draggingMarkerIndex, t);
+
+                      // 🔒 Marker 이동 중 LoopOn 유지 & 범위 밖이면 A로 스냅
+                      final c = widget.controller;
+                      if (c.loopOn.value &&
+                          c.selectionA.value != null &&
+                          c.selectionB.value != null) {
+                        final a = c.selectionA.value!;
+                        final b = c.selectionB.value!;
+                        final pos = c.position.value;
+
+                        if (pos < a || pos > b) {
+                          // 규칙: Loop 범위 밖 → A로 스냅
+                          c.position.value = a;
+                          final cb = c.onSeek;
+                          if (cb != null) scheduleMicrotask(() => cb(a));
+                        }
+                      }
+
                     }
                     setState(() {});
                   },
@@ -301,6 +365,7 @@ class _WaveformPanelState extends State<WaveformPanel> {
                   },
                   child: SizedBox(
                     height: _viewHeight,
+                    width: double.infinity,
                     child: WaveformView(
                       peaks: _rmsL,
                       peaksRight: null,
@@ -333,23 +398,75 @@ class _WaveformPanelState extends State<WaveformPanel> {
                 ),
 
                 // === ② 클릭(탭) 전용, 드래그와 경쟁 방지 ===
+                // === ② 클릭(탭) 전용, 드래그와 경쟁 방지 ===
                 Positioned.fill(
                   child: Listener(
                     behavior: HitTestBehavior.translucent,
                     onPointerDown: (event) {
                       final local = event.localPosition;
 
-                      // ⬇ 상단 말풍선 밴드에서는 "클릭 시킹" 금지 (마커 전용)
-                      if (local.dy <= _markerBandPx) return;
+                      // -----------------------------------------------
+                      // ① Marker Jump: 상단 말풍선 밴드 클릭
+                      // -----------------------------------------------
+                      if (local.dy <= _markerBandPx) {
+                        final hit = _hitMarkerIndex(local, viewSize);
+                        if (hit >= 0) {
+                          final c = widget.controller;
+                          final m = c.markers.value[hit];
+                          Duration jump = m.time;
 
+                          // LoopOn이면 Jump가 Loop 범위 밖일 때 A로 스냅
+                          final a = c.selectionA.value;
+                          final b = c.selectionB.value;
+
+                          if (c.loopOn.value && a != null && b != null) {
+                            if (jump < a || jump > b) jump = a;
+                          }
+
+                          // 위치 이동
+                          c.position.value = jump;
+
+                          // StartCue 보정 (Loop 중 StartCue 변경 금지 규칙도 자동 적용됨)
+                          _enforceStartCueLoopRules();
+
+                          // fire seek
+                          final cb = c.onSeek;
+                          if (cb != null) scheduleMicrotask(() => cb(jump));
+
+
+                          return; // 👈 마커 클릭에서 일반 시킹으로 내려가지 않음
+                        }
+
+                        // 밴드지만 마커가 없는 경우: 아무 동작도 하지 않음
+                        return;
+                      }
+
+                      // -----------------------------------------------
+                      // ② 일반 클릭 시킹
+                      // -----------------------------------------------
                       final t = _dxToTime(local, viewSize);
 
-                      // UI 즉시 반영
+                      // 재생 위치 즉시 반영
                       c.position.value = t;
-                      _loopOff();
-                      c.setStartCue(t);
 
-                      // fire-and-forget seek
+                      // 🔒 LoopOn 중 StartCue 변경 금지
+                      if (!c.loopOn.value) {
+                        final a = c.selectionA.value;
+                        final b = c.selectionB.value;
+                        Duration adjusted = t;
+
+                        if (a != null && b != null) {
+                          if (t < a) adjusted = a;
+                          if (t > b) adjusted = a;
+                        }
+                        c.setStartCue(adjusted);
+                        _enforceStartCueLoopRules();
+                      }
+
+
+                      // 일반 클릭 = loopOff
+                      _loopOff();
+
                       final cb = c.onSeek;
                       if (cb != null) scheduleMicrotask(() => cb(t));
 

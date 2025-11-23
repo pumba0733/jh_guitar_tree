@@ -13,8 +13,17 @@ typedef WaveformProgressCallback = void Function(double p);
 class WaveformLoadResult {
   final List<double> rmsL; // 0..1
   final List<double> rmsR; // 0..1
-  const WaveformLoadResult({required this.rmsL, required this.rmsR});
+
+  /// 🔥 전체 오디오 길이 (milliseconds)
+  final int durationMs;
+
+  const WaveformLoadResult({
+    required this.rmsL,
+    required this.rmsR,
+    required this.durationMs,
+  });
 }
+
 
 class WaveformCache {
   WaveformCache._();
@@ -118,6 +127,10 @@ class WaveformCache {
     onProgress?.call(1.0);
     sw.stop();
     dev.log('[CACHE] done in ${sw.elapsedMilliseconds}ms, rms=${rmsL.length}');
-    return WaveformLoadResult(rmsL: rmsL, rmsR: rmsR);
+
+    final durationMs = wf.duration.inMilliseconds;
+
+    return WaveformLoadResult(rmsL: rmsL, rmsR: rmsR, durationMs: durationMs);
+
   }
 }

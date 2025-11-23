@@ -1,6 +1,7 @@
 //lib/packages/smart_media_player/waveform/system/waveform_system.dart
-
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../audio/soundtouch_audio_chain.dart';
 
 class WfMarker {
   final Duration time;
@@ -17,6 +18,7 @@ class WfMarker {
 }
 
 class WaveformController {
+  StreamSubscription<double>? _posSub;
   // ===== Timeline =====
   final ValueNotifier<Duration> duration = ValueNotifier(Duration.zero);
   final ValueNotifier<Duration> position = ValueNotifier(Duration.zero);
@@ -75,6 +77,23 @@ class WaveformController {
     markers.value = list;
   }
 
+  void bindToAudioChain(SoundTouchAudioChain chain) {
+    _posSub?.cancel(); // ✅ 기존 리스너 중복 방지
+    _posSub = chain.playbackTimeStream.listen((t) {
+      position.value = Duration(milliseconds: (t * 1000).toInt());
+    });
+    // durationStream은 현재 AudioChain에 없음
+  }
+
+  void attachTo(SoundTouchAudioChain chain) {
+    bindToAudioChain(chain);
+    updateFromPlayer(dur: chain.duration);
+  }
+
+  void dispose() {
+    _posSub?.cancel();
+  }
+
   // ===== debug (optional) =====
   bool debugTrackViewport = false;
   DateTime? _lastVpLogAt;
@@ -88,4 +107,9 @@ class WaveformController {
       _lastVpLogAt = now;
     }
   }
+
+  void setDuration(Duration d) {
+    duration.value = d;
+  }
+
 }
