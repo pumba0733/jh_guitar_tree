@@ -1,0 +1,1 @@
+config:aarch64::generic:darwin:Apple clang version 17.0.0 (clang-1700.0.13.5):--prefix=/Users/jaehyounglee/Desktop/guitartree/guitartree/macos/thirdparty/ffmpeg_src/build_arm64/../../ffmpeg/arm64 --arch=arm64 --target-os=darwin --enable-shared --disable-static --enable-pic --disable-programs --disable-doc --disable-debug

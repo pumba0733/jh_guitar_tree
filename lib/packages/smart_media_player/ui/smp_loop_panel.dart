@@ -71,13 +71,21 @@ class SmpLoopPanel extends StatelessWidget {
         height: 42,
         child: Row(
           children: [
-            // ---- Loop A/B ----
+                        // ---- Loop A/B ----
             AppMiniButton(
               compact: true,
               icon: Icons.playlist_add,
-              label: loopA == null ? '루프 시작' : '루프 시작 ${fmt(loopA!)}',
+              label: loopA == null ? 'A 지점 설정' : 'A: ${fmt(loopA!)}',
               onPressed: onLoopASet,
             ),
+            w6,
+            AppMiniButton(
+              compact: true,
+              icon: Icons.playlist_add_check,
+              label: loopB == null ? 'B 지점 설정' : 'B: ${fmt(loopB!)}',
+              onPressed: onLoopBSet,
+            ),
+
             w6,
             AppMiniButton(
               compact: true,
@@ -152,10 +160,14 @@ class SmpLoopPanel extends StatelessWidget {
             const SizedBox(width: 12),
 
             // ---- Remaining pill ----
-            RemainingPill(
-              loopEnabled: loopEnabled,
-              loopRepeat: loopRepeat,
-              loopRemaining: loopRemaining,
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 120),
+              child: RemainingPill(
+                key: ValueKey(loopRemaining),
+                loopEnabled: loopEnabled,
+                loopRepeat: loopRepeat,
+                loopRemaining: loopRemaining,
+              ),
             ),
           ],
         ),

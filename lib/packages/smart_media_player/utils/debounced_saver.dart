@@ -16,7 +16,12 @@ class DebouncedSaver with ChangeNotifier {
   SaveStatus _status = SaveStatus.idle;
   DateTime? _lastSavedAt;
   int _pendingRetryCount = 0;
-  bool _disposed = false; // ✅ 추가
+  bool _disposed = false;
+
+  // 🔥 6-D 추가: 재진입 방지 락
+  bool _saving = false; // flush/schedule 실제 실행 중
+  bool _pendingFlush = false; // flush 중 다시 flush 요구될 때 1번만 재실행
+
 
   SaveStatus get status => _status;
   DateTime? get lastSavedAt => _lastSavedAt;
@@ -36,11 +41,25 @@ class DebouncedSaver with ChangeNotifier {
 
   /// Schedule a save with debounce.
   void schedule(SaveTask task) {
-    if (_disposed) return; // ✅ dispose 이후 no-op
+    if (_disposed) return;
+
+    // 🔥 이미 saving 중이면 “예약만” 하고 빠진다.
+    if (_saving) {
+      _pendingFlush = true;
+      return;
+    }
+
     _timer?.cancel();
     _setStatus(SaveStatus.saving);
+
     _timer = Timer(delay, () async {
-      if (_disposed) return; // ✅ 타이머 만료 시점에도 가드
+      if (_disposed) return;
+      if (_saving) {
+        _pendingFlush = true;
+        return;
+      }
+
+      _saving = true;
       try {
         await task();
         _pendingRetryCount = 0;
@@ -49,15 +68,31 @@ class DebouncedSaver with ChangeNotifier {
       } catch (_) {
         _pendingRetryCount += 1;
         _setStatus(SaveStatus.failed);
+      } finally {
+        _saving = false;
+        if (_pendingFlush && !_disposed) {
+          _pendingFlush = false;
+          unawaited(flush(task));
+        }
       }
     });
   }
 
+
   /// Force immediate save (no debounce).
   Future<void> flush(SaveTask task) async {
-    if (_disposed) return; // ✅ dispose 이후 no-op
+    if (_disposed) return;
+
+    // 🔥 saving 중이면 중복 flush 금지 → 예약만
+    if (_saving) {
+      _pendingFlush = true;
+      return;
+    }
+
     _timer?.cancel();
     _setStatus(SaveStatus.saving);
+
+    _saving = true;
     try {
       await task();
       _pendingRetryCount = 0;
@@ -66,14 +101,25 @@ class DebouncedSaver with ChangeNotifier {
     } catch (_) {
       _pendingRetryCount += 1;
       _setStatus(SaveStatus.failed);
+    } finally {
+      _saving = false;
+
+      // 🔥 dispose 되지 않았고 pendingFlush 있으면 1회 실행
+      if (_pendingFlush && !_disposed) {
+        _pendingFlush = false;
+        unawaited(flush(task));
+      }
     }
   }
 
+
   @override
   void dispose() {
-    _disposed = true; // ✅ 먼저 플래그 ON
-    _timer?.cancel(); // ✅ 타이머 제거
+    _disposed = true;
+    _pendingFlush = false; // 🔥 dispose 중 flush 예약 제거
+    _timer?.cancel();
     _timer = null;
     super.dispose();
   }
+
 }

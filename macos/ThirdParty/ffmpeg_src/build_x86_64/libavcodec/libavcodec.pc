@@ -1,0 +1,14 @@
+prefix=/Users/jaehyounglee/Desktop/guitartree/guitartree/macos/thirdparty/ffmpeg_src/build_x86_64/../../ffmpeg/x86_64
+exec_prefix=${prefix}
+libdir=/Users/jaehyounglee/Desktop/guitartree/guitartree/macos/thirdparty/ffmpeg_src/build_x86_64/../../ffmpeg/x86_64/lib
+includedir=/Users/jaehyounglee/Desktop/guitartree/guitartree/macos/thirdparty/ffmpeg_src/build_x86_64/../../ffmpeg/x86_64/include
+
+Name: libavcodec
+Description: FFmpeg codec library
+Version: 60.31.102
+Requires: 
+Requires.private: libswresample >= 4.12.100, libavutil >= 58.29.100
+Conflicts:
+Libs: -L${libdir}  -lavcodec 
+Libs.private: -liconv -lm -framework AudioToolbox -pthread -lz -framework VideoToolbox -framework CoreFoundation -framework CoreMedia -framework CoreVideo -framework CoreServices
+Cflags: -I${includedir}

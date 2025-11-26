@@ -1,4 +1,4 @@
-// lib/packages/smart_media_player/widgets/sticky_video_overlay.dart
+// lib/packages/smart_media_player/video/sticky_video_overlay.dart
 // v1.0.0 — Reusable sticky video overlay widget (scroll-aware)
 
 import 'dart:ui' show lerpDouble;

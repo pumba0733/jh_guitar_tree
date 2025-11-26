@@ -1,21 +1,15 @@
 // lib/packages/smart_media_player/audio/audio_chain_service.dart
 //
-// SmartMediaPlayer v3.41 — Step 4-2
-// SoundTouch Layer 완전 분리: decode / duration / feed / chain control
+// SmartMediaPlayer v3.8-FF — STEP 3
+// Dart PCM feed 제거를 위한 호환 래퍼(stub) 버전
 //
-// 책임:
-//  - decodeToFloat32(path) 호출 (AudioDecoder 이용)
-//  - wav duration 계산
-//  - PCM chunk feed 스트림 생성
-//  - SoundTouchAudioChain.start / startFrom / stop 관리
-//  - playbackTime / duration 재노출
-//
-// EngineApi는 이 서비스를 통해서만 SoundTouch와 통신한다.
+// ✔ 더 이상 Dart에서 PCM 디코드/스트림 feed를 하지 않는다.
+// ✔ EngineApi와의 인터페이스를 유지하기 위해 시그니처만 보존한다.
+// ✔ tempo/pitch/volume/state는 SoundTouchAudioChain 스텁에 위임한다.
 
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:typed_data';
-import '../audio/audio_decoder.dart';
+
 import '../../smart_media_player/audio/soundtouch_audio_chain.dart' as ac;
 
 class AudioChainService {
@@ -30,49 +24,34 @@ class AudioChainService {
   double _lastPlaybackTime = 0.0;
   double get lastPlaybackTime => _lastPlaybackTime;
 
-  Stream<double> get playbackTime$ {
-    return _chain.playbackTimeStream.map((v) {
-      _lastPlaybackTime = v;
-      return v;
-    });
-  }
+  /// FFmpeg Hybrid 구조 이후에는 재생 시간 SoT가 네이티브 엔진에서 오므로
+  /// 여기서는 더 이상 pseudo-time 스트림을 생성하지 않는다.
+  Stream<double> get playbackTime$ => const Stream.empty();
 
   // ================================================================
-  // PUBLIC: decode + feed + duration
+  // PUBLIC: decode + feed + duration (레거시 호환용)
   // ================================================================
+  ///
+  /// 기존에는:
+  ///   - AudioDecoder.decodeToFloat32(path)로 PCM 디코드
+  ///   - 4096*2 샘플 단위로 chunk stream 생성
+  ///   - SoundTouchAudioChain.start(feed)에 Dart→FFI PCM feed
+  ///
+  /// FFmpeg Hybrid 이후에는 네이티브에서 전부 처리되므로,
+  /// 여기서는 "빈 PCM / 0 duration / 빈 스트림"만 반환한다.
   Future<(Float32List pcm, Duration duration, Stream<Float32List> feed)>
   decodeAndPrepare(String path) async {
-    // 1) PCM 디코드
-    final pcm = await AudioDecoder.decodeToFloat32(path);
-
-    // 2) Duration 계산
-    const sr = 44100;
-    const ch = 2;
-    final totalSamples = pcm.length / ch;
-    final sec = totalSamples / sr;
-    _duration = Duration(milliseconds: (sec * 1000).round());
-
-    // 3) chunk feed stream 생성
-    final ctl = StreamController<Float32List>();
-    const chunk = 4096 * 2;
-
-    () async {
-      for (int i = 0; i < pcm.length; i += chunk) {
-        final end = math.min(i + chunk, pcm.length);
-        ctl.add(pcm.sublist(i, end));
-        await Future.delayed(Duration.zero);
-      }
-      await ctl.close();
-    }();
-
-    return (pcm, _duration, ctl.stream);
+    _duration = Duration.zero;
+    return (Float32List(0), _duration, const Stream<Float32List>.empty());
   }
 
   // ================================================================
-  // PUBLIC: chain control
+  // PUBLIC: chain control (호환용 no-op)
   // ================================================================
+  ///
+  /// Dart PCM feed 구조는 제거되었으므로, start(feed)는 no-op로 둔다.
   Future<void> start(Stream<Float32List> feed) async {
-    await _chain.start(pcmStream: feed);
+    // no-op: FFmpeg 네이티브 엔진이 재생을 담당하게 될 예정이다.
   }
 
   Future<void> stop() async {

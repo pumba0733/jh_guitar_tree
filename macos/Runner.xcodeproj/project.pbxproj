@@ -29,9 +29,7 @@
 		33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F42044A3C60003C045 /* MainMenu.xib */; };
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
 		9CA80CE2923DEB63B616C676 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3EF81DD44FE3E42BB4CE0344 /* Pods_RunnerTests.framework */; };
-		AABBCCDD0011223344556677 /* soundtouch_ffi_bridge.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0011223344556678 /* soundtouch_ffi_bridge.cpp */; };
-		AABBCCDD0011223344556681 /* audio_chain_miniaudio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0011223344556680 /* audio_chain_miniaudio.cpp */; };
-        AABBCCDD9988776655443322 /* BuildFile in Frameworks */ = {isa = PBXBuildFile; };
+		AABBCCDD9988776655443322 /* BuildFile in Frameworks */ = {isa = PBXBuildFile; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -89,10 +87,8 @@
 		93AC4E67923856F159B3415F /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		A2EDC65CB05B75DD21F8BB20 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
-		AABBCCDD0011223344556678 /* soundtouch_ffi_bridge.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = soundtouch_ffi_bridge.cpp; path = Frameworks/soundtouch_ffi_bridge.cpp; sourceTree = "<group>"; };
-		AABBCCDD0011223344556679 /* soundtouch_ffi_bridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = soundtouch_ffi_bridge.h; path = Frameworks/soundtouch_ffi_bridge.h; sourceTree = "<group>"; };
 		AABBCCDD0011223344556680 /* audio_chain_miniaudio.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = audio_chain_miniaudio.cpp; path = Frameworks/audio_chain_miniaudio.cpp; sourceTree = "<group>"; };
-        C7950E9BB03E66A623871D8B /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
+		C7950E9BB03E66A623871D8B /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		CB7010211055ED134DF757C2 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -210,7 +206,7 @@
 			children = (
 				5C776B7307DF9510FAA377B6 /* Pods_Runner.framework */,
 				3EF81DD44FE3E42BB4CE0344 /* Pods_RunnerTests.framework */,
-                AABBCCDD0011223344556680 /* audio_chain_miniaudio.cpp */,
+				AABBCCDD0011223344556680 /* audio_chain_miniaudio.cpp */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -424,7 +420,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\necho \"⚙️ [Run Script] SoundTouch dylib auto-copy & sign start\"\n\nSRC_FFI=\"${PROJECT_DIR}/Frameworks/libsoundtouch_ffi.dylib\"\nSRC_ST=\"${PROJECT_DIR}/ThirdParty/soundtouch/build_universal/libSoundTouch.2.dylib\"\nDEST=\"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app/Contents/MacOS\"\n\necho \"📂 TARGET_BUILD_DIR=$TARGET_BUILD_DIR\"\necho \"📂 DEST=$DEST\"\n\n# 앱 실행파일 생성될 때까지 대기 (최대 90초)\nTIMEOUT=90\nwhile [ ! -f \"${DEST}/${PRODUCT_NAME}\" ] && [ $TIMEOUT -gt 0 ]; do\n  echo \"⏳ Waiting for ${PRODUCT_NAME} binary... ($TIMEOUT s left)\"\n  sleep 1\n  TIMEOUT=$((TIMEOUT - 1))\ndone\n\nif [ ! -f \"${DEST}/${PRODUCT_NAME}\" ]; then\n  echo \"❌ ERROR: App executable not found after waiting. DEST=$DEST\"\n  ls -lah \"${TARGET_BUILD_DIR}\" || true\n  exit 1\nfi\n\necho \"📦 Copying dylibs into $DEST\"\nmkdir -p \"$DEST\"\n\n# 1️⃣ libsoundtouch_ffi.dylib 복사\nif [ -f \"$SRC_FFI\" ]; then\n  cp -f \"$SRC_FFI\" \"$DEST/\"\n  chmod +x \"$DEST/libsoundtouch_ffi.dylib\"\n  echo \"✅ Copied libsoundtouch_ffi.dylib\"\nelse\n  echo \"❌ Missing: $SRC_FFI\"\nfi\n\n# 2️⃣ libSoundTouch.2.dylib 복사\nif [ -f \"$SRC_ST\" ]; then\n  cp -f \"$SRC_ST\" \"$DEST/\"\n  chmod +x \"$DEST/libSoundTouch.2.dylib\"\n  echo \"✅ Copied libSoundTouch.2.dylib\"\nelse\n  echo \"❌ Missing: $SRC_ST\"\nfi\n\n# 3️⃣ 코드서명 (Ad-hoc)\necho \"🔏 Signing dylibs...\"\ncodesign --force --deep --sign - \"$DEST/libSoundTouch.2.dylib\" || echo \"⚠️ sign warn\"\ncodesign --force --deep --sign - \"$DEST/libsoundtouch_ffi.dylib\" || echo \"⚠️ sign warn\"\ncodesign --force --deep --sign - \"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app\" || echo \"⚠️ sign warn\"\n\n# 4️⃣ 검증\necho \"🔍 Verifying copied files...\"\nls -lh \"$DEST\" | grep soundtouch || echo \"⚠️ Dylibs not found in $DEST\"\n\necho \"✅ Run Script completed successfully\"\n";
+			shellScript = "set -e\necho \"⚙️ [Run Script] SmartMediaPlayer FFI + FFmpeg packaging & codesign start\"\n\n# ----------------------------------------------------\n# 0) CONFIGURATION → build_soundtouch.sh 모드 결정\n# ----------------------------------------------------\nMODE_LOWER=$(echo \"${CONFIGURATION:-Debug}\" | tr '[:upper:]' '[:lower:]')\nPROJECT_ROOT=\"${PROJECT_DIR}\"\n\necho \"📂 PROJECT_DIR=${PROJECT_ROOT}\"\necho \"🔧 CONFIGURATION=${CONFIGURATION} (mode=${MODE_LOWER})\"\n\n# ----------------------------------------------------\n# 1) build_soundtouch.sh 실행\n#    - FFI + FFmpeg universal dylib 빌드\n#    - .../Contents/Frameworks 로 복사까지 담당\n# ----------------------------------------------------\nif [ -f \"${PROJECT_ROOT}/build_soundtouch.sh\" ]; then\n  echo \"🎸 Running build_soundtouch.sh (${MODE_LOWER})...\"\n  \"${PROJECT_ROOT}/build_soundtouch.sh\" \"${MODE_LOWER}\" || {\n    echo \"❌ build_soundtouch.sh failed\"\n    exit 1\n  }\nelse\n  echo \"⚠️ build_soundtouch.sh not found at ${PROJECT_ROOT}/build_soundtouch.sh (skipping build)\"\nfi\n\n# ----------------------------------------------------\n# 2) 앱 번들 / Frameworks 경로 설정 + 바이너리 대기\n# ----------------------------------------------------\nAPP_BUNDLE=\"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app\"\nEXECUTABLE=\"${APP_BUNDLE}/Contents/MacOS/${PRODUCT_NAME}\"\nFRAMEWORKS_DIR=\"${APP_BUNDLE}/Contents/Frameworks\"\n\necho \"📦 APP_BUNDLE=${APP_BUNDLE}\"\necho \"📂 FRAMEWORKS_DIR=${FRAMEWORKS_DIR}\"\n\nTIMEOUT=90\nwhile [ ! -f \"${EXECUTABLE}\" ] && [ ${TIMEOUT} -gt 0 ]; do\n  echo \"⏳ Waiting for ${PRODUCT_NAME} binary... (${TIMEOUT}s left)\"\n  sleep 1\n  TIMEOUT=$((TIMEOUT - 1))\ndone\n\nif [ ! -f \"${EXECUTABLE}\" ]; then\n  echo \"❌ ERROR: App executable not found after waiting.\"\n  ls -lah \"${TARGET_BUILD_DIR}\" || true\n  exit 1\nfi\n\nmkdir -p \"${FRAMEWORKS_DIR}\"\n\n# ----------------------------------------------------\n# 3) FFI + SoundTouch dylib 서명\n# ----------------------------------------------------\necho \"🔏 Signing FFI & SoundTouch dylibs in Frameworks...\"\n\nfor name in libsoundtouch_ffi.dylib libSoundTouch.2.dylib; do\n  if [ -f \"${FRAMEWORKS_DIR}/${name}\" ]; then\n    echo \"  🔐 signing ${name}\"\n    codesign --force --deep --sign - \"${FRAMEWORKS_DIR}/${name}\" || echo \"⚠️ sign warn (${name})\"\n  else\n    echo \"  ⚠️ missing ${FRAMEWORKS_DIR}/${name}\"\n  fi\ndone\n\n# ----------------------------------------------------\n# 4) FFmpeg core dylib 5종 서명\n# ----------------------------------------------------\nFFMPEG_LIBS=\"libavformat.60.dylib libavcodec.60.dylib libavutil.58.dylib libswresample.4.dylib libswscale.7.dylib\"\n\necho \"🔏 Signing FFmpeg dylibs in Frameworks...\"\n\nfor name in ${FFMPEG_LIBS}; do\n  if [ -f \"${FRAMEWORKS_DIR}/${name}\" ]; then\n    echo \"  🔐 signing ${name}\"\n    codesign --force --deep --sign - \"${FRAMEWORKS_DIR}/${name}\" || echo \"⚠️ sign warn (${name})\"\n  else\n    echo \"  ⚠️ FFmpeg dylib not found: ${FRAMEWORKS_DIR}/${name}\"\n  fi\ndone\n\n# ----------------------------------------------------\n# 5) 앱 번들 서명\n# ----------------------------------------------------\necho \"🔏 Signing app bundle...\"\ncodesign --force --deep --sign - \"${APP_BUNDLE}\" || echo \"⚠️ sign warn (app)\"\n\n# ----------------------------------------------------\n# 6) 간단 검증 로그\n# ----------------------------------------------------\necho \"🔍 Verifying Frameworks content...\"\nls -lh \"${FRAMEWORKS_DIR}\" | grep -E 'soundtouch|avcodec|avformat|avutil|swresample|swscale' || echo \"⚠️ expected dylibs not listed\"\n\necho \"✅ Run Script completed successfully\"\n";
 		};
 		FBAFB0BCFD68C21EC364E6EE /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -460,17 +456,15 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		33CC10E92044A3C60003C045 /* Sources */ = {
-            isa = PBXSourcesBuildPhase;
-            buildActionMask = 2147483647;
-            files = (
-                33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
-                33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
-                335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
-                AABBCCDD0011223344556681 /* audio_chain_miniaudio.cpp in Sources */,
-            );
-            runOnlyForDeploymentPostprocessing = 0;
-        };
-
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
+				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
+				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -637,7 +631,7 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
-					"@executable_path/../MacOS",
+					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				OTHER_LDFLAGS = (
@@ -872,7 +866,7 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
-					"@executable_path/../MacOS",
+					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				OTHER_LDFLAGS = (
@@ -994,7 +988,7 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
-					"@executable_path/../MacOS",
+					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 11.0;
 				OTHER_LDFLAGS = (

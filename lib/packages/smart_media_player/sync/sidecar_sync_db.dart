@@ -12,6 +12,7 @@ class SidecarSyncDb {
   SidecarSyncDb._();
   static final SidecarSyncDb instance = SidecarSyncDb._();
 
+  bool _rtBusy = false;
   String? _studentId;
   String? _mediaHash;
   late String _cacheDir;
@@ -41,54 +42,68 @@ class SidecarSyncDb {
     if (!_isBound) return;
 
     final supa = Supabase.instance.client;
+
     _rtSub = supa
         .from('player_sidecars')
         .stream(primaryKey: ['student_id', 'media_hash'])
-        // ↓ 필터 직접 적용
         .order('updated_at')
         .listen((rows) async {
-          final filtered = rows.where(
-            (r) =>
-                r['student_id'] == _studentId && r['media_hash'] == _mediaHash,
-          );
-          if (filtered.isEmpty) return;
-          final row = filtered.first;
+          if (_rtBusy) return; // 재진입 방지
+          if (!_isBound) return;
 
-          // payload는 jsonb
-          final payloadAny = row['payload'];
-          final payload = payloadAny is Map
-            ? Map<String, dynamic>.from(payloadAny)
-            : <String, dynamic>{};
+          _rtBusy = true;
+          try {
+            // === 1) 대상 row 추출 ===
+            final row = rows.firstWhere(
+              (r) =>
+                  r['student_id'] == _studentId &&
+                  r['media_hash'] == _mediaHash,
+              orElse: () => {},
+            );
+            if (row.isEmpty) return;
 
-          // LWW: payload.savedAt 기준으로 로컬/원격 비교 후 최신 반영
-          final remoteSavedAt = DateTime.tryParse(
-            (payload['savedAt'] ?? payload['saved_at'] ?? '') as String? ?? '',
-          );
+            // === 2) remote payload / timestamp ===
+            final payloadAny = row['payload'];
+            final payload = payloadAny is Map
+                ? Map<String, dynamic>.from(payloadAny)
+                : <String, dynamic>{};
 
-          final local = await _readLocalOrNull();
-          final localSavedAt = DateTime.tryParse(
-            (local?['savedAt'] ?? local?['saved_at'] ?? '') as String? ?? '',
-          );
+            final remoteTsRaw =
+                (payload['savedAt'] ?? payload['saved_at'] ?? '') as String?;
+            final remoteTs = DateTime.tryParse(remoteTsRaw ?? '');
 
-          final bool acceptRemote;
-          if (remoteSavedAt == null && localSavedAt == null) {
-            // 저장시각 정보가 없으면 원격을 우선
-            acceptRemote = true;
-          } else if (remoteSavedAt != null && localSavedAt == null) {
-            acceptRemote = true;
-          } else if (remoteSavedAt == null && localSavedAt != null) {
-            acceptRemote = false;
-          } else {
-            acceptRemote = !remoteSavedAt!.isBefore(localSavedAt!);
-          }
+            // === 3) local payload / timestamp ===
+            final local = await _readLocalOrNull();
+            final localTsRaw =
+                (local?['savedAt'] ?? local?['saved_at'] ?? '') as String?;
+            final localTs = DateTime.tryParse(localTsRaw ?? '');
 
-          if (acceptRemote) {
-            await _writeLocal(payload);
-            final cb = onRemoteChanged;
-            if (cb != null) cb(payload);
+            // === 4) LWW 판정 ===
+            bool acceptRemote = false;
+            if (remoteTs == null && localTs == null) {
+              acceptRemote = true;
+            } else if (remoteTs != null && localTs == null) {
+              acceptRemote = true;
+            } else if (remoteTs == null && localTs != null) {
+              acceptRemote = false;
+            } else {
+              // 🚩 핵심 LWW: remote >= local → remote 승
+              acceptRemote = !remoteTs!.isBefore(localTs!);
+            }
+
+            if (acceptRemote) {
+              // === 5) atomic write ===
+              await _writeLocal(payload);
+
+              final cb = onRemoteChanged;
+              if (cb != null) cb(payload);
+            }
+          } finally {
+            _rtBusy = false;
           }
         });
   }
+
 
   /// 초기 없으면 생성
   Future<void> upsertInitial({required Map<String, dynamic> initial}) async {
@@ -152,17 +167,21 @@ class SidecarSyncDb {
     await _writeLocal(payload);
 
     // DB 저장
-    final supa = Supabase.instance.client;
     final nowIso = DateTime.now().toIso8601String();
-    // savedAt 없으면 주입
-    payload['savedAt'] = payload['savedAt'] ?? nowIso;
+    payload['savedAt'] = nowIso;
 
-    await supa.from('player_sidecars').upsert({
+
+    // === atomic local write ===
+    await _writeLocal(payload);
+
+    // === DB upsert ===
+    await Supabase.instance.client.from('player_sidecars').upsert({
       'student_id': _studentId!,
       'media_hash': _mediaHash!,
       'payload': payload,
       'updated_at': nowIso,
     }, onConflict: 'student_id,media_hash');
+
   }
 
   Future<Map<String, dynamic>?> _readLocalOrNull() async {
@@ -172,10 +191,12 @@ class SidecarSyncDb {
     try {
       final txt = await f.readAsString();
       final j = jsonDecode(txt);
-      return j is Map
-          ? Map<String, dynamic>.from(j as Map)
-          : <String, dynamic>{};
+      return j is Map ? Map<String, dynamic>.from(j) : <String, dynamic>{};
     } catch (_) {
+      // 🚩 local 파일 손상 → 삭제 처리
+      try {
+        await f.delete();
+      } catch (_) {}
       return null;
     }
   }
@@ -184,10 +205,16 @@ class SidecarSyncDb {
 
   Future<void> _writeLocal(Map<String, dynamic> payload) async {
     final fp = await _localFilePath();
-    final f = File(fp);
-    await f.parent.create(recursive: true);
-    await f.writeAsString(jsonEncode(payload));
+    final file = File(fp);
+    await file.parent.create(recursive: true);
+
+    final tmp = '$fp.tmp';
+    final ftmp = File(tmp);
+
+    await ftmp.writeAsString(jsonEncode(payload), flush: true);
+    await ftmp.rename(fp); // atomic swap
   }
+
 
   Future<String> _localFilePath() async {
     final name = '${_studentId}_$_mediaHash.json';

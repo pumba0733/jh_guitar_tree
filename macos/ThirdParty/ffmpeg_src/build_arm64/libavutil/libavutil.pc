@@ -1,0 +1,14 @@
+prefix=/Users/jaehyounglee/Desktop/guitartree/guitartree/macos/thirdparty/ffmpeg_src/build_arm64/../../ffmpeg/arm64
+exec_prefix=${prefix}
+libdir=/Users/jaehyounglee/Desktop/guitartree/guitartree/macos/thirdparty/ffmpeg_src/build_arm64/../../ffmpeg/arm64/lib
+includedir=/Users/jaehyounglee/Desktop/guitartree/guitartree/macos/thirdparty/ffmpeg_src/build_arm64/../../ffmpeg/arm64/include
+
+Name: libavutil
+Description: FFmpeg utility library
+Version: 58.29.100
+Requires: 
+Requires.private: 
+Conflicts:
+Libs: -L${libdir}  -lavutil 
+Libs.private: -pthread -lm -framework VideoToolbox -L/opt/homebrew/Cellar/libx11/1.8.12/lib -lX11 -framework CoreFoundation -framework CoreMedia -framework CoreVideo -framework CoreServices
+Cflags: -I${includedir}

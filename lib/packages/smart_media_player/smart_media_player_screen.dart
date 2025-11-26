@@ -20,6 +20,8 @@ import 'ui/smp_shortcuts.dart';
 import 'ui/smp_waveform_gestures.dart';
 import 'ui/smp_notes_panel.dart';
 import 'engine/engine_api.dart';
+import 'qa/smart_media_player_qa_screen.dart';
+import 'video/sticky_video_overlay.dart';
 
 // NEW
 import 'package:guitartree/packages/smart_media_player/waveform/system/waveform_system.dart'
@@ -110,15 +112,16 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   // 🔊 볼륨(0~150)
   int _volume = 100;
 
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
-
   // AB 루프
   Duration? _loopA;
   Duration? _loopB;
   bool _loopEnabled = false;
   int _loopRepeat = 0; // 0=∞
   int _loopRemaining = -1;
+  // ===== Unified EngineApi fields (Step 4-1) =====
+  Duration _duration = Duration.zero; // engine_api onDuration 콜백에서 갱신됨
+  Duration get _position => _wf.position.value;
+
 
   void _onScrollTick() {
     if (!mounted) return;
@@ -133,10 +136,11 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   // 마커
   final List<MarkerPoint> _markers = [];
 
-  // 메모
+    // 메모
   String _notes = '';
-  late final TextEditingController _notesCtl;
+  final TextEditingController _notesCtl = TextEditingController();
   bool _notesInitApplying = true;
+
 
   Timer? _afWatchdog;
  
@@ -171,16 +175,25 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     super.initState();
    
     // === 3-3B: audioChain playbackTime → position single-source ===
+        // === 3-3B: audioChain playbackTime → position single-source ===
     EngineApi.instance.position$.listen((d) {
       if (!mounted || _isDisposing) return;
-      if (_wf.position.value == d) return;
 
-      _wf.position.value = d;
-      setState(() => _position = d);
-      // 5-4: position 변화 저장 금지 → 저장 호출 제거
+      // 엔진 기준 SoT
+      final enginePos = d;
+      final engineDur = _wf.duration.value > Duration.zero
+          ? _wf.duration.value
+          : _duration;
 
+      // ✅ 단일 진입점: WaveformController에 pos/dur 동기화
+      _wf.updateFromPlayer(pos: enginePos, dur: engineDur);
+
+      // 제스처 시스템도 같은 SoT로 맞춤
+      _gestures.setPosition(enginePos);
+
+      // TransportBar 등 전체 UI 갱신
+      setState(() {});
     });
-
 
 
       _loopExec = LoopExecutor(
@@ -190,7 +203,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       seek: (d) => EngineApi.instance.seekUnified(d),
       play: () => EngineApi.instance.play(),
       pause: () => EngineApi.instance.pause(),
-
+      
       onLoopStateChanged: (enabled) {
         setState(() {
           _wf.setLoop(a: _loopA, b: _loopB, on: _loopExec.loopOn);
@@ -227,6 +240,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     // === 컨트롤러 콜백 (패널 → 화면/플레이어) ===
     _gestures = SmpWaveformGestures(
       waveform: _wf,
+      onPause: () => EngineApi.instance.pause(),
       getDuration: () => _duration,
       getStartCue: () => _startCue,
       setStartCue: (d) {
@@ -247,16 +261,21 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       },
       onSeekRequest: (d) async {
         await EngineApi.instance.seekUnified(d);
-        _debouncedSave(saveToDb: false);
+        _requestSave(saveMemo: false);
       },
-      saveDebounced: ({saveToDb = false}) => _debouncedSave(saveToDb: saveToDb),
-    );
-    _gestures.attach();
 
+      saveDebounced: ({saveMemo = false}) => _requestSave(saveMemo: saveMemo),
+    );
+    _wf.updateFromPlayer(dur: const Duration(minutes: 5)); // fallback hint
+
+    _gestures.attach(); // Step 6-B: duration 반영 이후 attach
 
     // 🔧 비동기 초기화는 분리
     _initAsync();
-    _wf.updateFromPlayer(dur: const Duration(minutes: 5)); // fallback hint
+  
+    // [7-A] PIP auto-collapse 동작을 위한 scroll listener 연결
+    _scrollCtl.addListener(_onScrollTick);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focusNode.requestFocus();
     });
@@ -285,6 +304,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     };
     _saver.addListener(_saverListener!);
   }
+    
 
   // A 패치: 앱 라이프사이클 변화 시 즉시 저장 한번 보장
   @override
@@ -294,7 +314,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     unawaited(
       _saver.flush(() async {
         // 1) 사이드카 즉시 저장
-        await _saveSidecar(saveToDb: false);
+        await _saveEverything(saveMemo: false);
 
         // 2) flush 이후 DB 업로드 pending 체크
         final pending = SidecarSyncDb.instance.pendingUploadAt;
@@ -356,82 +376,100 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     } finally {
       _notesInitApplying = false;
     }
-    _debouncedSave(saveToDb: false);
+    _requestSave(saveMemo: false);
   }
 
   void _subscribeLessonMemoRealtime() {
     final today = _todayDateStr;
+
     LessonMemoSync.instance.subscribeRealtime(
       studentId: widget.studentId,
       dateISO: today,
       onMemoChanged: (memo) {
-        if (memo != _notes && mounted) {
-          _hydratingMemo = true;
-          setState(() {
-            _notes = memo;
-            _notesCtl.text = memo;
-          });
-          _saveSidecar(saveToDb: false);
-          Future.delayed(
-            const Duration(milliseconds: 50),
-            () => _hydratingMemo = false,
-          );
-        }
+        if (!mounted) return;
+
+        // 변경 없음 → 무시
+        if (memo == _notes) return;
+
+        // hydration 시작
+        _hydratingMemo = true;
+
+        setState(() {
+          _notes = memo;
+          _notesCtl.text = memo;
+        });
+
+        // sidecar 저장은 hydration 종료 후로 지연
+        Future.delayed(const Duration(milliseconds: 50), () {
+          _hydratingMemo = false;
+          _requestSave(saveMemo: false);
+        });
       },
     );
   }
+
 
   void _subscribeLocalNotesBus() {
     LessonMemoSync.instance.subscribeLocalBus((text) {
       if (!mounted) return;
       if (text == _notes) return;
+
       _hydratingMemo = true;
+
       setState(() {
         _notes = text;
         _notesCtl.text = text;
       });
-      _saveSidecar(saveToDb: false);
-      Future.delayed(
-        const Duration(milliseconds: 50),
-        () => _hydratingMemo = false,
-      );
+
+      Future.delayed(const Duration(milliseconds: 50), () {
+        _hydratingMemo = false;
+        _requestSave(saveMemo: true);
+      });
     });
   }
+
 
   @override
   void dispose() {
     _isDisposing = true;
-    _afWatchdog?.cancel();
-    _afWatchdog = null;
-    _loopExec.stop();
-    // 1) 가장 먼저 saver 리스너 해제
+
+    // 1) saver 리스너 먼저 제거
     if (_saverListener != null) {
       _saver.removeListener(_saverListener!);
       _saverListener = null;
     }
 
-    /// 5-4: positionMs는 세션 종료 시 단 1회 저장
+    // 2) 마지막 flush 1회 보장
     try {
-      unawaited(_saveSidecar(saveToDb: false));
+      unawaited(
+        _saver.flush(() async {
+          await _saveEverything(saveMemo: false);
+        }),
+      );
     } catch (_) {}
 
-    // 3) saver 자체 dispose
+    // 3) saver 종료 (flush 이후)
     _saver.dispose();
 
-    // 이하 기존 dispose 그대로…
+    // 4) SidecarSyncDb 종료 — 절대 이 위에서 save 호출 금지
     SidecarSyncDb.instance.dispose();
+
+    // 5) 나머지 정리
+    LessonMemoSync.instance.dispose();
+    _loopExec.stop();
     WidgetsBinding.instance.removeObserver(this);
-    _saveDebounce?.cancel();
     _notesCtl.dispose();
     _focusNode.dispose();
     _posWatchdog?.cancel();
-    _scrollCtl.removeListener(_onScrollTick);
     _scrollCtl.dispose();
-    LessonMemoSync.instance.dispose();
-    _gestures.dispose();
     _applyDebounce?.cancel();
+    _afWatchdog?.cancel();
+    _saveDebounce?.cancel();
+    _gestures.dispose();
+
     super.dispose();
   }
+
 
   void _applySidecarMap(Map<String, dynamic> m) {
     final a = m['loopA'];
@@ -491,16 +529,15 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     // === 위치 적용 ===
     if (posMs > 0) {
       final d = Duration(milliseconds: posMs);
-      if (_duration != Duration.zero && d < _duration) {
-        unawaited(EngineApi.instance.seekUnified(d));
-      } else {
-        WidgetsBinding.instance.addPostFrameCallback((_) async {
-          if (_duration != Duration.zero && d < _duration) {
-            await EngineApi.instance.seekUnified(d);
-          }
-        });
-      }
+
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        // duration 로드된 이후에만 적용
+        if (_wf.duration.value != Duration.zero && d < _wf.duration.value) {
+          await EngineApi.instance.seekUnified(d);
+        }
+      });
     }
+
 
     // === Waveform 반영 ===
     _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
@@ -545,10 +582,22 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     await EngineApi.instance.load(
       path: widget.mediaPath,
       onDuration: (d) {
+        final safeDuration = _wf.duration.value > Duration.zero
+            ? _wf.duration.value
+            : d;
+
         setState(() {
-          _duration = d;
+          _duration = safeDuration;
         });
-        _wf.setDuration(d);
+
+        _wf.setDuration(safeDuration);
+        // duration 즉시 반영 → transportBar/loop-panel 반응 개선
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_isDisposing) {
+            _wf.updateFromPlayer(dur: safeDuration);
+            setState(() {});
+          }
+        });
       },
     );
 
@@ -588,12 +637,36 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
       ),
     );
   }
-  // ===== 저장 =====
-  Future<void> _saveSidecar({
-    bool toast = false,
-    bool saveToDb = true, 
-  }) async {
+
+  // ============================================================
+  // 6-D: 저장 루틴 단일화 (ENTRY POINT)
+  // ============================================================
+  void _requestSave({bool saveMemo = true}) {
+    if (_isDisposing) return;
+
+    _saver.schedule(() async {
+      // dispose 중에는 flush만 허용
+      if (_isDisposing) return;
+
+      await _saveEverything(saveMemo: saveMemo);
+    });
+  }
+
+
+  // ============================================================
+  // 6-D: LWW(Latest-Write-Wins) + Sidecar/Memo 충돌 제거
+  // ============================================================
+  Future<void> _saveEverything({bool saveMemo = true}) async {
+    if (_isDisposing) return;
+
+    // 메모 hydration 중이면 sidecar overwrite 금지
+    if (_hydratingMemo && saveMemo) {
+      // 메모는 hydration 상태에서는 저장 스킵
+      saveMemo = false;
+    }
+
     final now = DateTime.now();
+
     final map = {
       'studentId': widget.studentId,
       'mediaHash': widget.mediaHash,
@@ -602,7 +675,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
       'loopA': _loopA?.inMilliseconds ?? 0,
       'loopB': _loopB?.inMilliseconds ?? 0,
       'loopOn': _loopEnabled,
-      'loopRepeat': _loopRepeat, // 0=∞
+      'loopRepeat': _loopRepeat,
       'positionMs': _position.inMilliseconds,
       'startCueMs': _startCue.inMilliseconds,
       'savedAt': now.toIso8601String(),
@@ -614,11 +687,20 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     };
 
     try {
+      // 1) sidecar 저장 (LWW 내부에서 자동 해결)
       await SidecarSyncDb.instance.save(map, debounce: false);
 
-      if (saveToDb && !_hydratingMemo) {
-        unawaited(_saveLessonMemoToSupabase());
+      // 2) memo 저장 (hydratingMemo에서는 skip)
+      if (saveMemo && !_hydratingMemo) {
+        await LessonMemoSync.instance.upsertMemo(
+          studentId: widget.studentId,
+          dateISO: _todayDateStr,
+          memo: _notes,
+        );
       }
+
+      // 3) pendingUploadAt → 즉시 업로드 시도
+      await SidecarSyncDb.instance.tryUploadNow();
 
       if (mounted) {
         setState(() {
@@ -627,44 +709,25 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
           _pendingRetryCount = 0;
         });
       }
-
-      if (toast && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('자동 저장됨')));
-      }
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() => _saveStatus = SaveStatus.failed);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('저장 실패: $e')));
     }
   }
 
-  Future<void> _saveLessonMemoToSupabase() async {
-    try {
-      await LessonMemoSync.instance.upsertMemo(
-        studentId: widget.studentId,
-        dateISO: _todayDateStr,
-        memo: _notes,
-      );
-    } catch (_) {}
-  }
 
-  void _debouncedSave({bool saveToDb = true}) {
-    _saver.schedule(() async {
-      await _saveSidecar(saveToDb: saveToDb);
-    });
-  }
 
   // ===== 2x 정/역재생(홀드) =====
-  Future<void> _startHoldFastForward() => EngineApi.instance.ffrw.startForward(
-    startCue: _startCue,
-    loopA: _loopA,
-    loopB: _loopB,
-    loopOn: _loopEnabled,
-  );
+  Future<void> _startHoldFastForward() async {
+    await EngineApi.instance.ffrw.startForward(
+      startCue: _startCue,
+      loopA: _loopA,
+      loopB: _loopB,
+      loopOn: _loopEnabled,
+    );
+    setState(() {}); // waveform/timeline 즉시 반응
+  }
+
 
   Future<void> _stopHoldFastForward() => EngineApi.instance.ffrw.stopForward();
 
@@ -756,15 +819,19 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
           _loopToggleMain(!_loopEnabled);
         },
 
-        onLoopASet: () => _loopSetA(_position),
-        onLoopBSet: () => _loopSetB(_position),
+        onLoopASet: () => _loopSetA(_wf.position.value),
+        onLoopBSet: () => _loopSetB(_wf.position.value),
 
         onMarkerAdd: _addMarker,
         onMarkerJump: _jumpToMarkerIndex,
         onMarkerPrev: () => _jumpPrevNextMarker(next: false),
         onMarkerNext: () => _jumpPrevNextMarker(next: true),
 
-        onZoom: (zoomIn) => _gestures.zoom(zoomIn ? 1.25 : 0.8),
+        onZoom: (zoomIn) {
+          final delta = zoomIn ? 1.10 : 0.90;
+          // 화면 중심 기준 zoom
+          _gestures.zoomAt(cursorFrac: 0.5, factor: delta);
+        },
         onZoomReset: _gestures.zoomReset,
 
         onPitchNudge: _pitchDelta,
@@ -780,48 +847,57 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
             actions: [
   // === 3-3C: pendingUploadAt 배지 ===
   ValueListenableBuilder<DateTime?>(
-    valueListenable: SidecarSyncDb.instance.pendingUploadAtNotifier,
-    builder: (ctx, pendingAt, _) {
-      final hasPending = pendingAt != null;
-      return Row(
-        children: [
-          if (hasPending)
-            Container(
-              margin: const EdgeInsets.only(right: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.9),
-                borderRadius: BorderRadius.circular(6),
+                valueListenable: SidecarSyncDb.instance.pendingUploadAtNotifier,
+                builder: (ctx, pendingAt, child) {
+                  final hasPending = pendingAt != null;
+                  return AnimatedSwitcher(
+                    // 🔥 깜빡임 제거
+                    duration: const Duration(milliseconds: 150),
+                    child: hasPending
+                        ? Container(
+                            key: const ValueKey('pending'),
+                            margin: const EdgeInsets.only(right: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withValues(alpha: 0.9),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              '업로드 대기중',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          )
+                        : const SizedBox.shrink(key: ValueKey('none')),
+                  );
+                },
               ),
-              child: const Text(
-                '업로드 대기중',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Center(
-              child: SaveStatusIndicator(
-                status: _saveStatus,
-                lastSavedAt: _lastSavedAt,
-                pendingRetryCount: _pendingRetryCount,
-              ),
-            ),
-          ),
-        ],
-      );
-    },
-  ),
+
 
   IconButton(
     tooltip: '단축키 안내',
     onPressed: _showHotkeys,
     icon: const Icon(Icons.help_outline),
   ),
+  IconButton(
+                tooltip: 'QA Tools',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const SmartMediaPlayerQaScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.bug_report),
+              ),
+
 ],
 
           ),
@@ -829,7 +905,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
             builder: (ctx, c) {
               final double viewportW = c.maxWidth;
               final double viewportH = c.maxHeight;
-              final double videoMaxHeight = EngineApi.instance.isVideoLoaded
+              final double videoMaxHeight = EngineApi.instance.hasVideo
                   ? viewportW * 9 / 16
                   : 0.0;
 
@@ -845,7 +921,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (EngineApi.instance.isVideoLoaded) ...[
+                          if (EngineApi.instance.hasVideo) ...[
                             SizedBox(height: videoMaxHeight, width: viewportW),
                             const SizedBox(height: 12),
                           ],
@@ -862,13 +938,13 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                                 mediaPath: widget.mediaPath,
                                 mediaHash: widget.mediaHash,
                                 cacheDir: _cacheDir,
-                                onStateDirty: () => _debouncedSave(),
+                                onStateDirty: () => _requestSave(),
                               ),
                             ),
                           ),
                           const SizedBox(height: 5),
 
-                          // === 트랜스포트 바 ===
+                                                    // === 트랜스포트 바 ===
                           SmpTransportBar(
                             position: _wf.position.value,
                             duration: _wf.duration.value,
@@ -899,16 +975,48 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 
                             onLoopPresetSelected: _loopApplyPreset,
 
-                            onZoomOut: () => _gestures.zoom(0.8),
+                            onZoomOut: () {
+                              _gestures.zoomAt(cursorFrac: 0.5, factor: 0.90);
+                            },
                             onZoomReset: _gestures.zoomReset,
-                            onZoomIn: () => _gestures.zoom(1.25),
-
+                            onZoomIn: () {
+                              _gestures.zoomAt(cursorFrac: 0.5, factor: 1.10);
+                            },
                             loopPresets: _loopPresets,
+                          ),
+
+                          const SizedBox(height: 4),
+
+                          // StartCue / Loop Indicator (UI-only)
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.flag,
+                                size: 16,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: 0.9),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Start Cue: ${_fmt(_startCue)}',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(fontWeight: FontWeight.w600),
+                              ),
+                              if (_loopA != null && _loopB != null) ...[
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Loop: ${_fmt(_loopA!)} ~ ${_fmt(_loopB!)}',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ],
                           ),
 
                           const SizedBox(height: 5),
 
                           // === Control Panel ===
+
                           SmpControlPanel(
                             speed: _speed,
                             pitchSemi: _pitchSemi,
@@ -923,7 +1031,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 
                           const SizedBox(height: 5),
 
-                          // === Marker Panel ===
+                                                    // === Marker Panel ===
                           SmpMarkerPanel(
                             markers: _markers,
                             onAdd: _addMarker,
@@ -932,7 +1040,10 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                             onDelete: _deleteMarker,
                             onJumpPrev: () => _jumpPrevNextMarker(next: false),
                             onJumpNext: () => _jumpPrevNextMarker(next: true),
+                            fmt: _fmt,
+                            onReorder: _reorderMarker,
                           ),
+
 
                           const SizedBox(height: 6),
                           Text('마커 점프: Alt+1..9'),
@@ -943,7 +1054,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                             onChanged: (v) {
                               if (_notesInitApplying) return;
                               _notes = v;
-                              _debouncedSave(saveToDb: true);
+                              _requestSave(saveMemo: true);
                               LessonMemoSync.instance.pushLocal(v);
                             },
                           ),
@@ -953,8 +1064,9 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                     ),
                   ),
 
-                  if (EngineApi.instance.isVideoLoaded)
-                    EngineApi.instance.buildVideoOverlay(
+                  if (EngineApi.instance.hasVideo)
+                    StickyVideoOverlay(
+                      controller: EngineApi.instance.videoController!,
                       scrollController: _scrollCtl,
                       viewportSize: Size(viewportW, viewportH),
                     ),
@@ -983,11 +1095,15 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 
   void _loopToggleMain(bool on) {
     _loopExec.setLoopEnabled(on);
-    setState(() {
-      _loopEnabled = _loopExec.loopOn;
-    });
-    _debouncedSave();
+
+    // Engine 반영 직후 UI 즉시 업데이트
+    final newOn = _loopExec.loopOn;
+    _loopEnabled = newOn;
+
+    setState(() {});
+    _requestSave();
   }
+
 
 
   // B. Loop A/B Points -------------------------------------------
@@ -1003,7 +1119,14 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 
     _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
     _wf.setStartCue(_startCue);
-    _debouncedSave();
+
+    // NEW
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
+
+    _requestSave();
+
   }
 
 
@@ -1026,7 +1149,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 
     _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
     _wf.setStartCue(_startCue);
-    _debouncedSave();
+    _requestSave();
   }
 
 
@@ -1042,7 +1165,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     });
 
     _wf.loopRepeat.value = _loopRepeat;
-    _debouncedSave();
+    _requestSave();
   }
 
 
@@ -1092,7 +1215,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
   Future<void> _setSpeed(double v) async {
     setState(() => _speed = v.clamp(0.5, 1.5));
     await EngineApi.instance.setTempo(_speed);
-    _debouncedSave();
+    _requestSave();
   }
 
   Future<void> _nudgeSpeed(int deltaPercent) async {
@@ -1106,20 +1229,20 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
       _pitchSemi = (_pitchSemi + d).clamp(-7, 7);
     });
     await EngineApi.instance.setPitch(_pitchSemi);
-    _debouncedSave();
+    _requestSave();
   }
 
   Future<void> _setPitch(int semis) async {
     setState(() => _pitchSemi = semis.clamp(-7, 7));
     await EngineApi.instance.setPitch(_pitchSemi);
-    _debouncedSave();
+    _requestSave();
   }
 
   // === Volume ===
   Future<void> _setVolume(int v) async {
     setState(() => _volume = v.clamp(0, 150));
     await EngineApi.instance.setVolume(_volume / 100.0);
-    _debouncedSave();
+    _requestSave();
   }
 
   Future<void> _nudgeVolume(int delta) async {
@@ -1137,9 +1260,9 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
   void _addMarker() {
     final idx = _markers.length + 1;
     final label = _lettersForIndex(idx);
-    setState(() => _markers.add(MarkerPoint(_position, label)));
+    _markers.add(MarkerPoint(_wf.position.value, label));
     _wf.setMarkers(_markers.map((m) => WfMarker(m.t, m.label)).toList());
-    _debouncedSave();
+    _requestSave();
   }
 
   String _lettersForIndex(int n1based) {
@@ -1190,40 +1313,102 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
             )
             .toList(),
       );
-      _debouncedSave();
+      _requestSave();
     }
   }
 
   Future<void> _jumpToMarkerIndex(int i1based) async {
     final i = i1based - 1;
     if (i < 0 || i >= _markers.length) return;
-    await EngineApi.instance.seekUnified(_markers[i].t);
+
+    final t = _markers[i].t;
+    final wasPlaying = EngineApi.instance.isPlaying;
+
+    await EngineApi.instance.seekUnified(t);
+
+    // loop 범위 재정합 (시크 이후 startCue 고려)
+    _startCue = _normalizeStartCueForLoop(_startCue);
+
+    // UI 즉시 업데이트
+    setState(() {});
+
+    // 재생 중이었으면 계속 재생 유지
+    if (wasPlaying) {
+      await EngineApi.instance.play();
+    }
   }
+
 
   Future<void> _jumpPrevNextMarker({required bool next}) async {
     if (_markers.isEmpty || _duration == Duration.zero) return;
 
     final nowMs = _position.inMilliseconds;
     final sorted = [..._markers]..sort((a, b) => a.t.compareTo(b.t));
+    final wasPlaying = EngineApi.instance.isPlaying;
+
+    Duration? target;
 
     if (next) {
+      // 다음 마커
       for (final m in sorted) {
-        if (m.t.inMilliseconds > nowMs + 10) {
-          await EngineApi.instance.seekUnified(m.t);
-          return;
+        if (m.t.inMilliseconds > nowMs) {
+          target = m.t;
+          break;
         }
       }
-      await EngineApi.instance.seekUnified(sorted.last.t);
+      target ??= sorted.last.t; // wrap
     } else {
-      for (var i = sorted.length - 1; i >= 0; i--) {
-        if (sorted[i].t.inMilliseconds < nowMs - 10) {
-          await EngineApi.instance.seekUnified(sorted[i].t);
-          return;
+      // 이전 마커
+      for (int i = sorted.length - 1; i >= 0; i--) {
+        if (sorted[i].t.inMilliseconds < nowMs) {
+          target = sorted[i].t;
+          break;
         }
       }
-      await EngineApi.instance.seekUnified(sorted.first.t);
+      target ??= sorted.first.t; // wrap
+    }
+
+    if (target == null) return;
+
+    await EngineApi.instance.seekUnified(target);
+
+    // loop 정합 보정
+    _startCue = _normalizeStartCueForLoop(_startCue);
+
+    // UI 즉시 업데이트
+    setState(() {});
+
+    if (wasPlaying) {
+      await EngineApi.instance.play();
     }
   }
+
+    void _reorderMarker(int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= _markers.length) return;
+
+    // ReorderableListView에서 newIndex가 length까지 올 수 있음
+    if (newIndex < 0) newIndex = 0;
+    if (newIndex >= _markers.length) {
+      newIndex = _markers.length - 1;
+    }
+
+    setState(() {
+      final item = _markers.removeAt(oldIndex);
+      _markers.insert(newIndex, item);
+
+      _wf.setMarkers(
+        _markers
+            .map(
+              (e) => WfMarker.named(time: e.t, label: e.label, color: e.color),
+            )
+            .toList(),
+      );
+    });
+
+    _requestSave();
+  }
+
+
 
   void _deleteMarker(int index) {
     if (index < 0 || index >= _markers.length) return;
@@ -1233,7 +1418,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
           .map((e) => WfMarker.named(time: e.t, label: e.label, color: e.color))
           .toList(),
     );
-    _debouncedSave();
+    _requestSave();
   }
 
   // ===============================================================

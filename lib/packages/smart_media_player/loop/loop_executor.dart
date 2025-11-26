@@ -7,6 +7,7 @@
 // StartCue는 screen.dart가 책임지므로 loopExecutor는 관여하지 않음.
 
 import 'dart:async';
+import '../engine/engine_api.dart';
 
 class LoopExecutor {
   // ===== 외부 주입 =====
@@ -201,6 +202,12 @@ class LoopExecutor {
 
         // Case: 무한 or 아직 남음 → A로 재진입
         await seek(a);
+
+        // 🔥 Step 6-C: loop 재진입 시 영상 즉시 align 보장
+        try {
+          EngineApi.instance.pendingAlignTarget = a;
+        } catch (_) {}
+
         await play();
       }
     } finally {

@@ -166,10 +166,12 @@ class SmpTransportBar extends StatelessWidget {
               color: theme.dividerColor.withValues(alpha: 0.28),
             ),
           ),
-          child: Text(
-            '${fmt(position)} / ${fmt(duration)}',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
+          child: SizedBox(
+            width: 130, // 고정폭 → 흔들림 제거
+            child: _TimelineText(
+              position: position,
+              duration: duration,
+              fmt: fmt,
             ),
           ),
         ),
@@ -182,10 +184,18 @@ class SmpTransportBar extends StatelessWidget {
         w4,
         IconButton(
           tooltip: isPlaying ? '일시정지' : '재생',
-          onPressed: onPlayPause,
-          icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-          iconSize: 22,
-          visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+          onPressed: () {
+            onPlayPause();
+          },
+          icon: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 0), // 즉시 전환
+            switchInCurve: Curves.linear,
+            switchOutCurve: Curves.linear,
+            child: Icon(
+              isPlaying ? Icons.pause : Icons.play_arrow,
+              key: ValueKey(isPlaying),
+            ),
+          ),
         ),
         w4,
         HoldIconButton(
@@ -216,12 +226,16 @@ class SmpTransportBar extends StatelessWidget {
           visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
         ),
         const SizedBox(width: 4),
-        IconButton(
-          tooltip: '줌 인',
-          onPressed: onZoomIn,
-          icon: const Icon(Icons.zoom_in),
-          iconSize: 22,
-          visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+        SizedBox(
+          width: 32,
+          height: 32,
+          child: IconButton(
+            tooltip: '줌 인',
+            onPressed: onZoomIn,
+            icon: const Icon(Icons.zoom_in, size: 22),
+            padding: EdgeInsets.zero,
+            splashRadius: 18,
+          ),
         ),
       ],
     );
@@ -237,38 +251,60 @@ class SmpTransportBar extends StatelessWidget {
               constraints: const BoxConstraints(minWidth: 220),
               child: left,
             ),
-
             const SizedBox(width: 6),
-
             // 🔥 LoopPanel 삽입 (TransportBar의 루프 UI 제거)
             Expanded(
-              child: SmpLoopPanel(
-                loopA: loopA,
-                loopB: loopB,
-                loopEnabled: loopEnabled,
-                loopRepeat: loopRepeat,
-                loopRemaining: loopRemaining,
-                onLoopASet: onLoopASet,
-                onLoopBSet: onLoopBSet,
-                onLoopToggle: onLoopToggle,
-                onLoopRepeatMinus1: onLoopRepeatMinus1,
-                onLoopRepeatPlus1: onLoopRepeatPlus1,
-                onLoopRepeatLongMinus5: onLoopRepeatLongMinus5,
-                onLoopRepeatLongPlus5: onLoopRepeatLongPlus5,
-                onLoopRepeatPrompt: onLoopRepeatPrompt,
-                loopPresets: loopPresets,
-                onLoopPresetSelected: onLoopPresetSelected,
-                fmt: fmt,
+              child: RepaintBoundary(
+                child: SmpLoopPanel(
+                  key: ValueKey('$loopEnabled-$loopRepeat-$loopRemaining'),
+                  loopA: loopA,
+                  loopB: loopB,
+                  loopEnabled: loopEnabled,
+                  loopRepeat: loopRepeat,
+                  loopRemaining: loopRemaining,
+                  onLoopASet: onLoopASet,
+                  onLoopBSet: onLoopBSet,
+                  onLoopToggle: onLoopToggle,
+                  onLoopRepeatMinus1: onLoopRepeatMinus1,
+                  onLoopRepeatPlus1: onLoopRepeatPlus1,
+                  onLoopRepeatLongMinus5: onLoopRepeatLongMinus5,
+                  onLoopRepeatLongPlus5: onLoopRepeatLongPlus5,
+                  onLoopRepeatPrompt: onLoopRepeatPrompt,
+                  loopPresets: loopPresets,
+                  onLoopPresetSelected: onLoopPresetSelected,
+                  fmt: fmt,
+                ),
               ),
             ),
-
             const SizedBox(width: 6),
-
             rightZoom,
           ],
         ),
       ),
     );
   }
+}
 
+class _TimelineText extends StatelessWidget {
+  final Duration position;
+  final Duration duration;
+  final String Function(Duration) fmt;
+
+  const _TimelineText({
+    required this.position,
+    required this.duration,
+    required this.fmt,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = '${fmt(position)} / ${fmt(duration)}';
+
+    return Text(
+      text,
+      textAlign: TextAlign.center,
+      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+    );
+  }
 }
