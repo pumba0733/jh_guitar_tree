@@ -59,8 +59,6 @@ class SmartMediaPlayerScreen extends StatefulWidget {
     ).push(MaterialPageRoute(builder: (_) => screen));
   }
 
-  
-
   static Future<void> pushFromPrepared(
     BuildContext context, {
     required String studentId,
@@ -81,8 +79,6 @@ class SmartMediaPlayerScreen extends StatefulWidget {
     );
   }
 
-  // ==== Zoom constants (one source of truth) ====
-
   @override
   State<SmartMediaPlayerScreen> createState() => _SmartMediaPlayerScreenState();
 }
@@ -93,6 +89,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   late LoopExecutor _loopExec;
   late final DebouncedSaver _saver;
   late SmpWaveformGestures _gestures;
+
+  // Engine position 스트림 구독 (SoT 단일 진입점)
+  StreamSubscription<Duration>? _positionSub;
+
   // media_kit
   Timer? _applyDebounce;
   bool _hydratingMemo = false; // 외부 주입 중 플래그
@@ -118,32 +118,32 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   bool _loopEnabled = false;
   int _loopRepeat = 0; // 0=∞
   int _loopRemaining = -1;
+
   // ===== Unified EngineApi fields (Step 4-1) =====
   Duration _duration = Duration.zero; // engine_api onDuration 콜백에서 갱신됨
   Duration get _position => _wf.position.value;
-
 
   void _onScrollTick() {
     if (!mounted) return;
     setState(() {}); // 스크롤 오프셋 변화에 맞춰 오버레이 재계산
   }
+
   // 시작점
   Duration _startCue = Duration.zero;
-  
+
   bool _isDisposing = false; // ✅ dispose 중 가드
   VoidCallback? _saverListener; // ✅ 리스너 핸들 보관
 
   // 마커
   final List<MarkerPoint> _markers = [];
 
-    // 메모
+  // 메모
   String _notes = '';
   final TextEditingController _notesCtl = TextEditingController();
   bool _notesInitApplying = true;
 
-
   Timer? _afWatchdog;
- 
+
   // 자동 저장
   Timer? _saveDebounce;
 
@@ -154,8 +154,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
   // 워치독
   Timer? _posWatchdog;
-
-  // 재생시간 타이머
 
   // 오늘 날짜
   late final String _todayDateStr = () {
@@ -173,47 +171,22 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   @override
   void initState() {
     super.initState();
-   
-    // === 3-3B: audioChain playbackTime → position single-source ===
-        // === 3-3B: audioChain playbackTime → position single-source ===
-    EngineApi.instance.position$.listen((d) {
-      if (!mounted || _isDisposing) return;
 
-      // 엔진 기준 SoT
-      final enginePos = d;
-      final engineDur = _wf.duration.value > Duration.zero
-          ? _wf.duration.value
-          : _duration;
-
-      // ✅ 단일 진입점: WaveformController에 pos/dur 동기화
-      _wf.updateFromPlayer(pos: enginePos, dur: engineDur);
-
-      // 제스처 시스템도 같은 SoT로 맞춤
-      _gestures.setPosition(enginePos);
-
-      // TransportBar 등 전체 UI 갱신
-      setState(() {});
-    });
-
-
-      _loopExec = LoopExecutor(
+    // 1) LoopExecutor 초기화
+    _loopExec = LoopExecutor(
       getPosition: () => _wf.position.value,
       getDuration: () => _wf.duration.value,
-
       seek: (d) => EngineApi.instance.seekUnified(d),
       play: () => EngineApi.instance.play(),
       pause: () => EngineApi.instance.pause(),
-      
       onLoopStateChanged: (enabled) {
         setState(() {
           _wf.setLoop(a: _loopA, b: _loopB, on: _loopExec.loopOn);
         });
       },
-
       onLoopRemainingChanged: (rem) {
         setState(() => _loopRemaining = rem);
       },
-
       onExitLoop: () async {
         setState(() {
           _loopEnabled = false;
@@ -222,8 +195,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
         await EngineApi.instance.loopExitToStartCue(_startCue);
       },
     );
-
-
     _loopExec.start();
 
     // A 패치: 라이프사이클 옵저버 등록
@@ -235,7 +206,17 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       ..visualExact = true
       ..useSignedAmplitude = true;
 
+    // saver 초기화 + 상태 listen
     _saver = DebouncedSaver(delay: const Duration(milliseconds: 800));
+    _saverListener = () {
+      if (!mounted || _isDisposing) return;
+      setState(() {
+        _saveStatus = _saver.status;
+        _lastSavedAt = _saver.lastSavedAt;
+        _pendingRetryCount = _saver.pendingRetryCount;
+      });
+    };
+    _saver.addListener(_saverListener!);
 
     // === 컨트롤러 콜백 (패널 → 화면/플레이어) ===
     _gestures = SmpWaveformGestures(
@@ -254,8 +235,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
         setState(() {
           _startCue = fixed;
         });
-      },
 
+        _logSoTScreen('START_CUE set via gesture', startCue: fixed);
+      },
       setPosition: (d) {
         // no-op
       },
@@ -263,76 +245,82 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
         await EngineApi.instance.seekUnified(d);
         _requestSave(saveMemo: false);
       },
-
       saveDebounced: ({saveMemo = false}) => _requestSave(saveMemo: saveMemo),
     );
-    _wf.updateFromPlayer(dur: const Duration(minutes: 5)); // fallback hint
 
+    // 파형 기본 힌트 (duration unknown 시)
+    _wf.updateFromPlayer(dur: const Duration(minutes: 5));
+
+    // 제스처 시스템 attach (WaveformController 연결)
     _gestures.attach(); // Step 6-B: duration 반영 이후 attach
 
-    // 🔧 비동기 초기화는 분리
+    // 비동기 초기화 (엔진 load)
     _initAsync();
-  
+
     // [7-A] PIP auto-collapse 동작을 위한 scroll listener 연결
     _scrollCtl.addListener(_onScrollTick);
 
+    // 포커스 자동 획득
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focusNode.requestFocus();
     });
 
-    _initNotesAndSidecarSync(); // [SYNC]
-    _subscribeLocalNotesBus(); // [NOTES BUS]
+    // [SYNC]
+    _initNotesAndSidecarSync();
+    _subscribeLocalNotesBus();
     _startPosWatchdog();
 
-    // =========================================================
-    // PATCH 3-3A: position/duration read-path를 WaveformController로 통일
-    // =========================================================
-
-    // 초기 브릿지
+    // 초기 브릿지: Loop/StartCue/Marker → WaveformController
     _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
     _wf.setStartCue(_startCue);
     _wf.setMarkers(_markers.map((m) => WfMarker(m.t, m.label)).toList());
 
-    // ✅ 변경: 리스너를 변수에 보관 + mounted/_isDisposing 가드
-    _saverListener = () {
+    // === 3-3B: audioChain playbackTime → position single-source ===
+    // ✅ P3: _gestures 생성/attach 이후에 position$ listen 등록
+    _positionSub = EngineApi.instance.position$.listen((d) {
       if (!mounted || _isDisposing) return;
-      setState(() {
-        _saveStatus = _saver.status;
-        _lastSavedAt = _saver.lastSavedAt;
-        _pendingRetryCount = _saver.pendingRetryCount;
-      });
-    };
-    _saver.addListener(_saverListener!);
+
+      // 엔진 기준 SoT
+      final enginePos = d;
+      final engineDur = _wf.duration.value > Duration.zero
+          ? _wf.duration.value
+          : _duration;
+
+      // ✅ 단일 진입점: WaveformController에 pos/dur 동기화
+      _wf.updateFromPlayer(pos: enginePos, dur: engineDur);
+
+      // 제스처 시스템도 같은 SoT로 맞춤
+      _gestures.setPosition(enginePos);
+
+      // TransportBar 등 전체 UI 갱신
+      setState(() {});
+    });
   }
-    
 
   // A 패치: 앱 라이프사이클 변화 시 즉시 저장 한번 보장
   @override
-void didChangeAppLifecycleState(AppLifecycleState state) {
-  if (state == AppLifecycleState.inactive ||
-      state == AppLifecycleState.paused) {
-    unawaited(
-      _saver.flush(() async {
-        // 1) 사이드카 즉시 저장
-        await _saveEverything(saveMemo: false);
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      unawaited(
+        _saver.flush(() async {
+          // 1) 사이드카 즉시 저장
+          await _saveEverything(saveMemo: false);
 
-        // 2) flush 이후 DB 업로드 pending 체크
-        final pending = SidecarSyncDb.instance.pendingUploadAt;
-        if (pending != null) {
-          // 즉시 업로드 시도 (실패하면 pending 유지됨)
-          unawaited(SidecarSyncDb.instance.tryUploadNow());
-        }
-      }),
-    );
+          // 2) flush 이후 DB 업로드 pending 체크
+          final pending = SidecarSyncDb.instance.pendingUploadAt;
+          if (pending != null) {
+            // 즉시 업로드 시도 (실패하면 pending 유지됨)
+            unawaited(SidecarSyncDb.instance.tryUploadNow());
+          }
+        }),
+      );
+    }
   }
-}
-
-
 
   Future<void> _initAsync() async {
     await _openMedia();
   }
-
 
   // =========================
   // [SYNC] 초기 동기화 시퀀스
@@ -408,7 +396,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     );
   }
 
-
   void _subscribeLocalNotesBus() {
     LessonMemoSync.instance.subscribeLocalBus((text) {
       if (!mounted) return;
@@ -428,10 +415,13 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     });
   }
 
-
   @override
   void dispose() {
     _isDisposing = true;
+
+    // Engine position 스트림 구독 해제
+    _positionSub?.cancel();
+    _positionSub = null;
 
     // 1) saver 리스너 먼저 제거
     if (_saverListener != null) {
@@ -469,7 +459,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 
     super.dispose();
   }
-
 
   void _applySidecarMap(Map<String, dynamic> m) {
     final a = m['loopA'];
@@ -511,7 +500,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
       // STEP 3-4: sidecar 로딩 시에도 StartCue 보정 적용
       _startCue = _normalizeStartCueForLoop(rawSc);
 
-
       _notes = notes;
       _notesCtl.text = notes;
 
@@ -526,6 +514,8 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
         );
     });
 
+    _logSoTScreen('APPLY_SIDECAR (loop/startCue restored)');
+
     // === 위치 적용 ===
     if (posMs > 0) {
       final d = Duration(milliseconds: posMs);
@@ -537,7 +527,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
         }
       });
     }
-
 
     // === Waveform 반영 ===
     _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
@@ -552,7 +541,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
       _wf.updateFromPlayer(dur: _duration);
     }
   }
-
 
   // ==== 이하 재생/체인/파형/루프/마커/키핸들 ===
 
@@ -569,6 +557,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
           debugPrint(
             '[SMP] position steady 5s (playing=${EngineApi.instance.isPlaying})',
           );
+          _logSoTScreen('WATCHDOG steady 5s');
           silentTicks = 0;
         }
       } else {
@@ -601,8 +590,9 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
       },
     );
 
+    _logSoTScreen('OPEN_MEDIA done (duration=${_fmt(_duration)})');
   }
-  
+
   // === 단축키 안내 다이얼로그 ===
   void _showHotkeys() {
     showDialog(
@@ -651,7 +641,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
       await _saveEverything(saveMemo: saveMemo);
     });
   }
-
 
   // ============================================================
   // 6-D: LWW(Latest-Write-Wins) + Sidecar/Memo 충돌 제거
@@ -715,8 +704,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     }
   }
 
-
-
   // ===== 2x 정/역재생(홀드) =====
   Future<void> _startHoldFastForward() async {
     await EngineApi.instance.ffrw.startForward(
@@ -727,7 +714,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     );
     setState(() {}); // waveform/timeline 즉시 반응
   }
-
 
   Future<void> _stopHoldFastForward() => EngineApi.instance.ffrw.stopForward();
 
@@ -743,7 +729,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
   // ===============================================================
   // STEP 4-1 — EngineApi 전면 이관: unified seek wrapper
   // ===============================================================
-    // ===============================================================
+  // ===============================================================
   // STEP 3-4 / 4-1 — Duration clamp helper (v3.41)
   // ===============================================================
   Duration _clamp(Duration x, Duration min, Duration max) {
@@ -751,8 +737,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     if (x > max) return max;
     return x;
   }
-
-
 
   // 키 업/다운 핸들 (=-)
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent evt) {
@@ -776,7 +760,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
           loopB: _loopB,
           loopOn: _loopEnabled,
         );
-
       } else if (evt is KeyUpEvent) {
         EngineApi.instance.ffrw.stopForward();
       }
@@ -791,7 +774,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
           loopB: _loopB,
           loopOn: _loopEnabled,
         );
-
       } else if (evt is KeyUpEvent) {
         EngineApi.instance.ffrw.stopReverse();
       }
@@ -818,26 +800,21 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
         onToggleLoop: () {
           _loopToggleMain(!_loopEnabled);
         },
-
         onLoopASet: () => _loopSetA(_wf.position.value),
         onLoopBSet: () => _loopSetB(_wf.position.value),
-
         onMarkerAdd: _addMarker,
         onMarkerJump: _jumpToMarkerIndex,
         onMarkerPrev: () => _jumpPrevNextMarker(next: false),
         onMarkerNext: () => _jumpPrevNextMarker(next: true),
-
         onZoom: (zoomIn) {
           final delta = zoomIn ? 1.10 : 0.90;
           // 화면 중심 기준 zoom
           _gestures.zoomAt(cursorFrac: 0.5, factor: delta);
         },
         onZoomReset: _gestures.zoomReset,
-
         onPitchNudge: _pitchDelta,
         onSpeedPreset: _setSpeed,
         onSpeedNudge: _nudgeSpeed,
-
         onKeyEvent: _onKeyEvent,
 
         // ===== 실제 화면 =====
@@ -845,8 +822,8 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
           appBar: AppBar(
             title: Text('스마트 미디어 플레이어 — $title'),
             actions: [
-  // === 3-3C: pendingUploadAt 배지 ===
-  ValueListenableBuilder<DateTime?>(
+              // === 3-3C: pendingUploadAt 배지 ===
+              ValueListenableBuilder<DateTime?>(
                 valueListenable: SidecarSyncDb.instance.pendingUploadAtNotifier,
                 builder: (ctx, pendingAt, child) {
                   final hasPending = pendingAt != null;
@@ -878,14 +855,12 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                   );
                 },
               ),
-
-
-  IconButton(
-    tooltip: '단축키 안내',
-    onPressed: _showHotkeys,
-    icon: const Icon(Icons.help_outline),
-  ),
-  IconButton(
+              IconButton(
+                tooltip: '단축키 안내',
+                onPressed: _showHotkeys,
+                icon: const Icon(Icons.help_outline),
+              ),
+              IconButton(
                 tooltip: 'QA Tools',
                 onPressed: () {
                   Navigator.push(
@@ -897,9 +872,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                 },
                 icon: const Icon(Icons.bug_report),
               ),
-
-],
-
+            ],
           ),
           body: LayoutBuilder(
             builder: (ctx, c) {
@@ -908,7 +881,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
               final double videoMaxHeight = EngineApi.instance.hasVideo
                   ? viewportW * 9 / 16
                   : 0.0;
-
 
               return Stack(
                 children: [
@@ -925,7 +897,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                             SizedBox(height: videoMaxHeight, width: viewportW),
                             const SizedBox(height: 12),
                           ],
-
 
                           // === 파형 ===
                           AppSection(
@@ -944,7 +915,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                           ),
                           const SizedBox(height: 5),
 
-                                                    // === 트랜스포트 바 ===
+                          // === 트랜스포트 바 ===
                           SmpTransportBar(
                             position: _wf.position.value,
                             duration: _wf.duration.value,
@@ -956,25 +927,20 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                             onHoldReverseEnd: _stopHoldFastReverse,
                             onHoldForwardStart: _startHoldFastForward,
                             onHoldForwardEnd: _stopHoldFastForward,
-
                             loopA: _loopA,
                             loopB: _loopB,
                             loopEnabled: _loopExec.loopOn,
                             loopRepeat: _loopRepeat,
                             loopRemaining: _loopRemaining,
-
                             onLoopASet: () => _loopSetA(_position),
                             onLoopBSet: () => _loopSetB(_position),
                             onLoopToggle: _loopToggleMain,
-
                             onLoopRepeatMinus1: () => _loopRepeatDelta(-1),
                             onLoopRepeatPlus1: () => _loopRepeatDelta(1),
                             onLoopRepeatLongMinus5: () => _loopRepeatDelta(-5),
                             onLoopRepeatLongPlus5: () => _loopRepeatDelta(5),
                             onLoopRepeatPrompt: _loopPromptRepeat,
-
                             onLoopPresetSelected: _loopApplyPreset,
-
                             onZoomOut: () {
                               _gestures.zoomAt(cursorFrac: 0.5, factor: 0.90);
                             },
@@ -1016,7 +982,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                           const SizedBox(height: 5),
 
                           // === Control Panel ===
-
                           SmpControlPanel(
                             speed: _speed,
                             pitchSemi: _pitchSemi,
@@ -1031,7 +996,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 
                           const SizedBox(height: 5),
 
-                                                    // === Marker Panel ===
+                          // === Marker Panel ===
                           SmpMarkerPanel(
                             markers: _markers,
                             onAdd: _addMarker,
@@ -1044,9 +1009,8 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                             onReorder: _reorderMarker,
                           ),
 
-
                           const SizedBox(height: 6),
-                          Text('마커 점프: Alt+1..9'),
+                          const Text('마커 점프: Alt+1..9'),
                           const SizedBox(height: 12),
 
                           SmpNotesPanel(
@@ -1058,7 +1022,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                               LessonMemoSync.instance.pushLocal(v);
                             },
                           ),
-
                         ],
                       ),
                     ),
@@ -1102,9 +1065,9 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 
     setState(() {});
     _requestSave();
+
+    _logSoTScreen('LOOP_TOGGLE on=$newOn');
   }
-
-
 
   // B. Loop A/B Points -------------------------------------------
 
@@ -1127,9 +1090,8 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 
     _requestSave();
 
+    _logSoTScreen('LOOP_SET_A', loopA: _loopA);
   }
-
-
 
   void _loopSetB(Duration pos) {
     if (_loopA == null) {
@@ -1150,9 +1112,9 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
     _wf.setStartCue(_startCue);
     _requestSave();
+
+    _logSoTScreen('LOOP_SET_B', loopB: _loopB);
   }
-
-
 
   // C. Loop Repeat ------------------------------------------------
 
@@ -1166,13 +1128,15 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 
     _wf.loopRepeat.value = _loopRepeat;
     _requestSave();
-  }
 
+    _logSoTScreen(
+      'LOOP_REPEAT_SET repeat=$_loopRepeat remaining=$_loopRemaining',
+    );
+  }
 
   void _loopRepeatDelta(int delta) {
     _loopSetRepeat(_loopRepeat + delta);
   }
-
 
   // D. Loop Preset ------------------------------------------------
 
@@ -1211,6 +1175,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
   }
 
   // E. StartCue <-> A sync ---------------------------------------
+
   // === Speed ===
   Future<void> _setSpeed(double v) async {
     setState(() => _speed = v.clamp(0.5, 1.5));
@@ -1249,6 +1214,37 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     await _setVolume(_volume + delta);
   }
 
+  // ===============================================================
+  // SCREEN-LEVEL SoT LOGGER (Loop / StartCue / Marker / Watchdog)
+  // ===============================================================
+  void _logSoTScreen(
+    String label, {
+    Duration? enginePos,
+    Duration? wfPos,
+    Duration? startCue,
+    Duration? loopA,
+    Duration? loopB,
+  }) {
+    // 기본값: 현재 상태 기준
+    enginePos ??= EngineApi.instance.position;
+    wfPos ??= _wf.position.value;
+    startCue ??= _startCue;
+    loopA ??= _loopA;
+    loopB ??= _loopB;
+
+    final loopAStr = loopA != null ? _fmt(loopA) : '--';
+    final loopBStr = loopB != null ? _fmt(loopB) : '--';
+
+    debugPrint(
+      '[SMP-SoT/SCREEN] $label'
+      ' | eng=${_fmt(enginePos)}'
+      ' | wf=${_fmt(wfPos)}'
+      ' | sc=${_fmt(startCue)}'
+      ' | loopA=$loopAStr'
+      ' | loopB=$loopBStr',
+    );
+  }
+
   String _fmt(Duration d) {
     String two(int n) => n.toString().padLeft(2, '0');
     final h = d.inHours;
@@ -1260,9 +1256,14 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
   void _addMarker() {
     final idx = _markers.length + 1;
     final label = _lettersForIndex(idx);
-    _markers.add(MarkerPoint(_wf.position.value, label));
+    final pos = _wf.position.value;
+
+    _markers.add(MarkerPoint(pos, label));
     _wf.setMarkers(_markers.map((m) => WfMarker(m.t, m.label)).toList());
     _requestSave();
+
+    debugPrint('[SMP-MARKER] ADD idx=$idx label=$label t=${_fmt(pos)}');
+    _logSoTScreen('MARKER_ADD idx=$idx', wfPos: pos);
   }
 
   String _lettersForIndex(int n1based) {
@@ -1314,6 +1315,11 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
             .toList(),
       );
       _requestSave();
+
+      debugPrint(
+        '[SMP-MARKER] EDIT idx=$index label="$m.label" t=${_fmt(m.t)}',
+      );
+      _logSoTScreen('MARKER_EDIT idx=$index', wfPos: m.t);
     }
   }
 
@@ -1336,8 +1342,12 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     if (wasPlaying) {
       await EngineApi.instance.play();
     }
-  }
 
+    debugPrint(
+      '[SMP-MARKER] JUMP idx=$i1based label="${_markers[i].label}" t=${_fmt(t)}',
+    );
+    _logSoTScreen('MARKER_JUMP idx=$i1based', wfPos: t);
+  }
 
   Future<void> _jumpPrevNextMarker({required bool next}) async {
     if (_markers.isEmpty || _duration == Duration.zero) return;
@@ -1381,9 +1391,15 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     if (wasPlaying) {
       await EngineApi.instance.play();
     }
+
+    debugPrint(
+      '[SMP-MARKER] JUMP_${next ? 'NEXT' : 'PREV'}'
+      ' t=${_fmt(target)} now=${_fmt(Duration(milliseconds: nowMs))}',
+    );
+    _logSoTScreen('MARKER_JUMP_${next ? 'NEXT' : 'PREV'}', wfPos: target);
   }
 
-    void _reorderMarker(int oldIndex, int newIndex) {
+  void _reorderMarker(int oldIndex, int newIndex) {
     if (oldIndex < 0 || oldIndex >= _markers.length) return;
 
     // ReorderableListView에서 newIndex가 length까지 올 수 있음
@@ -1408,10 +1424,10 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     _requestSave();
   }
 
-
-
   void _deleteMarker(int index) {
     if (index < 0 || index >= _markers.length) return;
+    final removed = _markers[index];
+
     setState(() => _markers.removeAt(index));
     _wf.setMarkers(
       _markers
@@ -1419,6 +1435,11 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
           .toList(),
     );
     _requestSave();
+
+    debugPrint(
+      '[SMP-MARKER] DELETE idx=$index label="${removed.label}" t=${_fmt(removed.t)}',
+    );
+    _logSoTScreen('MARKER_DELETE idx=$index', wfPos: removed.t);
   }
 
   // ===============================================================

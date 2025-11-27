@@ -186,7 +186,7 @@ final st_setPitch = _st_setPitch;
 /// Volume 설정: 0.0 ~ 1.0
 final st_setVolume = _st_setVolume;
 
-/// 레거시 재생 시간 (초 단위 SOT)
+/// 레거시 재생 시간 (초 단위 SoT)
 final st_getPlaybackTime = _st_getPlaybackTime;
 
 /// 내부 SoT(ms) 기반 seek — 기존 st_seekTo 이름과 호환 유지.
@@ -234,7 +234,9 @@ Duration stGetDuration() {
   if (ms.isNaN || ms.isInfinite) {
     return Duration.zero;
   }
-  return Duration(milliseconds: ms.round());
+  // 음수 방지: 가끔 초기화 타이밍 문제로 -0.x 같은 값이 들어올 수 있으므로 0으로 클램프.
+  final safeMs = ms < 0 ? 0.0 : ms;
+  return Duration(milliseconds: safeMs.round());
 }
 
 /// 현재 위치(Duration) — SoT 기준 (ms → Duration)
@@ -243,7 +245,9 @@ Duration stGetPosition() {
   if (ms.isNaN || ms.isInfinite) {
     return Duration.zero;
   }
-  return Duration(milliseconds: ms.round());
+  // SoT 축 하한 0 보장
+  final safeMs = ms < 0 ? 0.0 : ms;
+  return Duration(milliseconds: safeMs.round());
 }
 
 /// 재생 시간(초) — 기존 st_get_playback_time 래핑

@@ -29,6 +29,26 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../audio/engine_soundtouch_ffi.dart';
 import '../video/video_sync_service.dart';
 
+// ================================================================
+// SoT / Playback QA 로깅 헬퍼
+// ================================================================
+
+// ✅ 기본 이벤트(로드/플레이/일시정지/시크 등) 로그
+const bool kSmpEngineLogBasic = true;
+
+// ✅ SoT tick / FFRW tick 같이 "자주 찍히는 로그" 전용 스위치
+//   → 평소에는 false로 두고, QA 땐 true로 올려서 쓰면 됨.
+const bool kSmpEngineLogTick = false;
+
+void _logSmpEngine(String message, {bool tick = false}) {
+  if (tick) {
+    if (!kSmpEngineLogTick) return;
+  } else {
+    if (!kSmpEngineLogBasic) return;
+  }
+  debugPrint('[SMP/EngineApi] $message');
+}
+
 class EngineApi {
   EngineApi._();
   static final EngineApi instance = EngineApi._();
@@ -62,6 +82,7 @@ class EngineApi {
 
   // FFmpeg SoT polling용 타이머
   Timer? _positionTimer;
+  DateTime? _lastPosLogAt;
 
   // ================================================================
   // PUBLIC GETTERS
@@ -70,10 +91,12 @@ class EngineApi {
 
   Duration get duration => _duration;
 
-  /// FFmpeg SoT 기반 현재 위치
+  /// FFmpeg SoT 기반 현재 위치 (항상 [0, duration] 범위로 클램프)
   Duration get position {
-    if (!_hasFile) return Duration.zero;
-    return stGetPosition();
+    if (!_hasFile || _duration <= Duration.zero) return Duration.zero;
+    final raw = stGetPosition();
+    final pos = _clampToDuration(raw);
+    return pos;
   }
 
   bool get isPlaying => _nativePlaying;
@@ -99,13 +122,30 @@ class EngineApi {
 
     MediaKit.ensureInitialized();
     stInitEngine();
+    _logSmpEngine('init(): engine initialized');
 
     // FFmpeg SoT polling (position stream)
     _positionTimer?.cancel();
     _positionTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
       if (!_hasFile) return;
-      final pos = stGetPosition();
+
+      final raw = stGetPosition();
+      final pos = (_duration > Duration.zero)
+          ? _clampToDuration(raw)
+          : raw; // duration 미정일 때는 raw 그대로
+
       _positionCtl.add(pos);
+
+      // SoT 로깅 (500ms 이상 간격으로만 + tick 채널에만)
+      final now = DateTime.now();
+      if (_lastPosLogAt == null ||
+          now.difference(_lastPosLogAt!) >= const Duration(milliseconds: 500)) {
+        _lastPosLogAt = now;
+        _logSmpEngine(
+          'tick: pos=${pos.inMilliseconds}ms, dur=${_duration.inMilliseconds}ms, playing=$_nativePlaying',
+          tick: true,
+        );
+      }
     });
 
     // media_kit playing stream → playing$ (영상 상태와 오디오 상태를 최대한 맞춰준다)
@@ -114,17 +154,18 @@ class EngineApi {
       // 비디오 재생 상태도 함께 반영한다.
       final combined = _nativePlaying || v;
       _playingCtl.add(combined);
+      _logSmpEngine('player.stream.playing: mpvPlaying=$v, combined=$combined');
     });
 
     // 재생 완료 이벤트 (영상 기준)
     _player.stream.completed.listen((_) async {
       try {
-        // StartCue 기준으로 되돌리고 pause
-        Duration cue = _lastStartCue;
+        // StartCue는 항상 duration 범위로 클램프된 값 사용
+        final cue = _clampToDuration(_lastStartCue);
 
-        // global clamp
-        if (cue < Duration.zero) cue = Duration.zero;
-        if (cue > _duration) cue = _duration;
+        _logSmpEngine(
+          'completed: seek back to StartCue=${cue.inMilliseconds}ms',
+        );
 
         await seekUnified(cue, startCue: cue);
         await pause();
@@ -147,6 +188,8 @@ class EngineApi {
     if (!await f.exists()) {
       throw Exception('[EngineApi] File not found: $path');
     }
+
+    _logSmpEngine('load(): path=$path');
 
     // 이전 파일 정리
     stCloseFile();
@@ -172,6 +215,8 @@ class EngineApi {
     if (_duration < Duration.zero) {
       _duration = Duration.zero;
     }
+    _lastStartCue = Duration.zero;
+
     onDuration(_duration);
     _durationCtl.add(_duration);
 
@@ -203,6 +248,10 @@ class EngineApi {
 
     _positionCtl.add(Duration.zero);
 
+    _logSmpEngine(
+      'load(): duration=${_duration.inMilliseconds}ms, isVideo=$isVideo',
+    );
+
     return _duration;
   }
 
@@ -210,7 +259,12 @@ class EngineApi {
   // PLAYBACK CONTROL (네이티브 엔진 + 비디오 연동)
   // ================================================================
   Future<void> play() async {
-    // 네이티브 엔진에 play 신호 (현재는 stPlay()는 볼륨 기반 헬퍼)
+    final cur = position;
+    _logSmpEngine(
+      'play() requested at pos=${cur.inMilliseconds}ms, nativePlaying=$_nativePlaying',
+    );
+
+    // 네이티브 엔진에 play 신호
     stPlay();
     _nativePlaying = true;
 
@@ -221,10 +275,16 @@ class EngineApi {
     }
 
     _playingCtl.add(true);
+    _logSmpEngine('play(): now nativePlaying=$_nativePlaying');
   }
 
   Future<void> pause() async {
-    // 네이티브 엔진에 pause 신호 (현재는 stPause()가 볼륨=0으로 mute)
+    final cur = position;
+    _logSmpEngine(
+      'pause() requested at pos=${cur.inMilliseconds}ms, nativePlaying=$_nativePlaying',
+    );
+
+    // 네이티브 엔진에 pause 신호
     stPause();
     _nativePlaying = false;
 
@@ -235,9 +295,11 @@ class EngineApi {
     }
 
     _playingCtl.add(false);
+    _logSmpEngine('pause(): now nativePlaying=$_nativePlaying');
   }
 
   Future<void> toggle() async {
+    _logSmpEngine('toggle(): isPlaying=$isPlaying');
     if (isPlaying) {
       await pause();
     } else {
@@ -249,21 +311,36 @@ class EngineApi {
   // SPACE BEHAVIOR
   // ================================================================
   Future<void> spaceBehavior(Duration sc) async {
-    // 초기 drift 방지만 수행 (StartCue clamp는 screen/WF에서 수행)
-    if (position < const Duration(milliseconds: 200) &&
+    final cur = position;
+    final durMs = _duration.inMilliseconds;
+    _logSmpEngine(
+      'spaceBehavior() called with sc=${sc.inMilliseconds}ms, cur=${cur.inMilliseconds}ms, dur=$durMs, isPlaying=$isPlaying',
+    );
+
+    // 0 근처 + 정지 상태이면 StartCue를 0으로 정규화
+    if (cur < const Duration(milliseconds: 200) &&
         _duration > Duration.zero &&
         !isPlaying) {
       sc = Duration.zero;
+      _logSmpEngine(
+        'spaceBehavior(): normalize sc to 0 due to near-start & not playing',
+      );
     }
 
     // 1) 재생 중이면 pause
     if (isPlaying) {
+      _logSmpEngine('spaceBehavior(): currently playing → pause()');
       await pause();
       return;
     }
 
     // 2) 정지 상태면 StartCue로 seek 후 play
-    Duration cue = _clamp(sc, Duration.zero, _duration);
+    Duration cue = _clampToDuration(sc);
+    _lastStartCue = cue;
+
+    _logSmpEngine(
+      'spaceBehavior(): seek to cue=${cue.inMilliseconds}ms then play()',
+    );
 
     await seekUnified(cue, startCue: cue);
     _pendingSeekTarget = cue; // VideoSyncService와의 통합 경로
@@ -278,12 +355,23 @@ class EngineApi {
     Duration? loopA,
     Duration? loopB,
   }) async {
-    Duration cue = sc;
+    _logSmpEngine(
+      'loopExitToStartCue(): sc=${sc.inMilliseconds}ms, loopA=${loopA?.inMilliseconds}, loopB=${loopB?.inMilliseconds}',
+    );
+
+    Duration cue = _clampToDuration(sc);
 
     if (loopA != null && loopB != null && loopA < loopB) {
       if (cue < loopA) cue = loopA;
       if (cue > loopB) cue = loopA;
     }
+
+    cue = _clampToDuration(cue);
+    _lastStartCue = cue;
+
+    _logSmpEngine(
+      'loopExitToStartCue(): normalized cue=${cue.inMilliseconds}ms',
+    );
 
     await seekUnified(cue, loopA: loopA, loopB: loopB, startCue: cue);
     await pause();
@@ -294,17 +382,19 @@ class EngineApi {
   // ================================================================
   Future<void> setTempo(double v) async {
     final clamped = v.clamp(0.5, 1.5);
+    _logSmpEngine('setTempo(): v=$v → clamped=$clamped');
     st_setTempo(clamped.toDouble());
   }
 
   Future<void> setPitch(int semi) async {
     final clamped = semi.clamp(-7, 7);
+    _logSmpEngine('setPitch(): semi=$semi → clamped=$clamped');
     st_setPitch(clamped.toDouble());
   }
 
   Future<void> setVolume(double v01) async {
-    // 엔진은 0.0~1.0을 기대하지만, UI는 0.0~1.5까지 지원하므로 그대로 전달(엔진 쪽에서 추가 처리 가능)
     final clamped = v01.clamp(0.0, 1.5);
+    _logSmpEngine('setVolume(): v01=$v01 → clamped=$clamped');
     st_setVolume(clamped.toDouble());
   }
 
@@ -313,6 +403,9 @@ class EngineApi {
     required int pitchSemi,
     required double volume,
   }) async {
+    _logSmpEngine(
+      'restoreChainState(): tempo=$tempo, pitchSemi=$pitchSemi, volume=$volume',
+    );
     await setTempo(tempo);
     await setPitch(pitchSemi);
     await setVolume(volume);
@@ -349,6 +442,12 @@ class EngineApi {
     Duration? loopA,
     Duration? loopB,
   }) async {
+    final scNorm = _clampToDuration(startCue);
+
+    _logSmpEngine(
+      '_startFfRwTick(): forward=$forward, startCue=${scNorm.inMilliseconds}ms, loopA=${loopA?.inMilliseconds}, loopB=${loopB?.inMilliseconds}',
+    );
+
     _ffrwTick?.cancel();
 
     _ff = forward;
@@ -359,10 +458,15 @@ class EngineApi {
       if (_seeking) return;
 
       if (_pendingSeekTarget != null) {
-        final t = _pendingSeekTarget!;
+        final t = _clampToDuration(_pendingSeekTarget!);
         _pendingSeekTarget = null;
 
-        await seekUnified(t, startCue: startCue, loopA: loopA, loopB: loopB);
+        _logSmpEngine(
+          'FFRW tick: consume pendingSeekTarget=${t.inMilliseconds}ms',
+          tick: true,
+        );
+
+        await seekUnified(t, startCue: scNorm, loopA: loopA, loopB: loopB);
         return;
       }
 
@@ -375,30 +479,34 @@ class EngineApi {
         next = cur - _frStep;
       }
 
-      // global clamp
-      if (next < Duration.zero) next = Duration.zero;
-      if (next > _duration) next = _duration;
-
-      // loop/startCue 보정
-      next = _normalizeFfRwPosition(next, startCue, loopA: loopA, loopB: loopB);
+      next = _normalizeFfRwPosition(next, scNorm, loopA: loopA, loopB: loopB);
 
       if (_seeking) return;
 
       if (_pendingSeekTarget != null) {
-        final t = _pendingSeekTarget!;
+        final t = _clampToDuration(_pendingSeekTarget!);
         _pendingSeekTarget = null;
-        await seekUnified(t, startCue: startCue, loopA: loopA, loopB: loopB);
+        _logSmpEngine(
+          'FFRW tick: override by pendingSeekTarget=${t.inMilliseconds}ms',
+          tick: true,
+        );
+        await seekUnified(t, startCue: scNorm, loopA: loopA, loopB: loopB);
         return;
       }
 
-      await seekUnified(next, startCue: startCue, loopA: loopA, loopB: loopB);
+      await seekUnified(next, startCue: scNorm, loopA: loopA, loopB: loopB);
       _pendingAlignTarget = next;
 
       if (next == Duration.zero && _fr) {
-        await fastReverse(false, startCue: startCue);
+        _logSmpEngine('FFRW tick: reached 0ms in FR → stop', tick: true);
+        await fastReverse(false, startCue: scNorm);
       }
       if (next == _duration && _ff) {
-        await fastForward(false, startCue: startCue);
+        _logSmpEngine(
+          'FFRW tick: reached end(${_duration.inMilliseconds}ms) in FF → stop',
+          tick: true,
+        );
+        await fastForward(false, startCue: scNorm);
       }
     });
   }
@@ -409,8 +517,8 @@ class EngineApi {
     Duration? loopA,
     Duration? loopB,
   }) {
-    if (x < Duration.zero) return Duration.zero;
-    if (x > _duration) return _duration;
+    // 전체 duration 기준 1차 클램프
+    Duration v = _clampToDuration(x);
 
     final a = loopA;
     Duration? b = loopB;
@@ -420,16 +528,16 @@ class EngineApi {
         b = a + const Duration(milliseconds: 1);
       }
 
-      if (x < a) return a;
-      if (x > b) return a;
+      if (v < a) return a;
+      if (v > b) return a;
     }
 
-    if (x < startCue) return startCue;
+    if (v < startCue) return startCue;
     if (a != null && b != null && a < b) {
-      if (x > b) return a;
+      if (v > b) return a;
     }
 
-    return x;
+    return _clampToDuration(v);
   }
 
   Future<void> fastForward(
@@ -438,8 +546,14 @@ class EngineApi {
     Duration? loopA,
     Duration? loopB,
   }) async {
+    final scNorm = _clampToDuration(startCue);
+
     if (on) {
-      _lastStartCue = startCue;
+      _logSmpEngine(
+        'fastForward(on): startCue=${scNorm.inMilliseconds}ms, loopA=${loopA?.inMilliseconds}, loopB=${loopB?.inMilliseconds}',
+      );
+
+      _lastStartCue = scNorm;
 
       if (_ff) return;
 
@@ -447,13 +561,9 @@ class EngineApi {
       _ffStartedFromPause = !wasPlaying;
 
       if (!wasPlaying) {
-        await seekUnified(
-          startCue,
-          startCue: startCue,
-          loopA: loopA,
-          loopB: loopB,
-        );
-        _pendingSeekTarget = startCue;
+        _logSmpEngine('fastForward(on): wasPaused → seek to StartCue & play');
+        await seekUnified(scNorm, startCue: scNorm, loopA: loopA, loopB: loopB);
+        _pendingSeekTarget = scNorm;
         await play();
       }
 
@@ -462,7 +572,7 @@ class EngineApi {
 
       await _startFfRwTick(
         forward: true,
-        startCue: startCue,
+        startCue: scNorm,
         loopA: loopA,
         loopB: loopB,
       );
@@ -473,10 +583,13 @@ class EngineApi {
     if (!_ff) return;
     _ff = false;
 
+    _logSmpEngine('fastForward(off): stop FFRW');
+
     _ffrwTick?.cancel();
     _ffrwTick = null;
 
     if (_ffStartedFromPause) {
+      _logSmpEngine('fastForward(off): returning to pause()');
       await pause();
     }
 
@@ -489,8 +602,14 @@ class EngineApi {
     Duration? loopA,
     Duration? loopB,
   }) async {
+    final scNorm = _clampToDuration(startCue);
+
     if (on) {
-      _lastStartCue = startCue;
+      _logSmpEngine(
+        'fastReverse(on): startCue=${scNorm.inMilliseconds}ms, loopA=${loopA?.inMilliseconds}, loopB=${loopB?.inMilliseconds}',
+      );
+
+      _lastStartCue = scNorm;
 
       if (_fr) return;
 
@@ -498,8 +617,9 @@ class EngineApi {
       _frStartedFromPause = !wasPlaying;
 
       if (!wasPlaying) {
-        await seekUnified(startCue, startCue: startCue);
-        _pendingSeekTarget = startCue;
+        _logSmpEngine('fastReverse(on): wasPaused → seek to StartCue & play');
+        await seekUnified(scNorm, startCue: scNorm);
+        _pendingSeekTarget = scNorm;
         await play();
       }
 
@@ -508,7 +628,7 @@ class EngineApi {
 
       await _startFfRwTick(
         forward: false,
-        startCue: startCue,
+        startCue: scNorm,
         loopA: loopA,
         loopB: loopB,
       );
@@ -519,10 +639,13 @@ class EngineApi {
     if (!_fr) return;
     _fr = false;
 
+    _logSmpEngine('fastReverse(off): stop FFRW');
+
     _ffrwTick?.cancel();
     _ffrwTick = null;
 
     if (_frStartedFromPause) {
+      _logSmpEngine('fastReverse(off): returning to pause()');
       await pause();
     }
 
@@ -539,13 +662,25 @@ class EngineApi {
     Duration? startCue,
   }) async {
     if (_seeking) {
+      _logSmpEngine(
+        'seekUnified(): already seeking, ignore new request d=${d.inMilliseconds}ms',
+      );
       return;
     }
+
+    if (_duration <= Duration.zero) {
+      _logSmpEngine(
+        'seekUnified(): duration is zero, ignore seek d=${d.inMilliseconds}ms',
+      );
+      return;
+    }
+
     _seeking = true;
 
     final bool wasPlaying = isPlaying;
 
-    Duration target = _clamp(d, Duration.zero, _duration);
+    Duration target = _clampToDuration(d);
+    final originalTargetMs = target.inMilliseconds;
 
     // loop normalization
     final a = loopA;
@@ -558,13 +693,20 @@ class EngineApi {
 
     // start cue normalization
     if (startCue != null) {
-      Duration sc = startCue;
+      Duration sc = _clampToDuration(startCue);
       if (a != null && b != null && a < b) {
         if (sc < a) sc = a;
         if (sc > b) sc = a;
       }
       if (target < sc) target = sc;
+      _lastStartCue = sc;
     }
+
+    target = _clampToDuration(target);
+
+    _logSmpEngine(
+      'seekUnified(): d=${d.inMilliseconds}ms, origTarget=$originalTargetMs ms, loopA=${loopA?.inMilliseconds}, loopB=${loopB?.inMilliseconds}, startCue=${startCue?.inMilliseconds} → finalTarget=${target.inMilliseconds}ms, wasPlaying=$wasPlaying',
+    );
 
     _positionCtl.add(target);
 
@@ -589,17 +731,19 @@ class EngineApi {
     }
 
     if (wasPlaying) {
+      _logSmpEngine('seekUnified(): resume play after seek');
       await play();
     } else {
       // 오디오는 정지 상태 유지, 영상도 정지 상태로 맞춰준다.
       try {
         await _player.pause();
       } catch (_) {}
+      _logSmpEngine('seekUnified(): keep paused after seek');
     }
   }
 
   // ================================================================
-  // PUBLIC FACADES
+  // PUBLIC FFRW FACADE & HELPERS
   // ================================================================
   FfRwFacade get ffrw => FfRwFacade(this);
 
@@ -608,11 +752,19 @@ class EngineApi {
     Duration? loopA,
     Duration? loopB,
   }) async {
-    Duration cue = sc;
+    Duration cue = _clampToDuration(sc);
+    _logSmpEngine(
+      'playFromStartCue(): sc=${sc.inMilliseconds}ms (norm=${cue.inMilliseconds}ms), loopA=${loopA?.inMilliseconds}, loopB=${loopB?.inMilliseconds}',
+    );
+
     if (loopA != null && loopB != null && loopA < loopB) {
       if (cue < loopA) cue = loopA;
       if (cue > loopB) cue = loopA;
     }
+
+    cue = _clampToDuration(cue);
+    _lastStartCue = cue;
+
     await spaceBehavior(cue);
   }
 
@@ -639,6 +791,8 @@ class EngineApi {
   // CLEANUP
   // ================================================================
   Future<void> dispose() async {
+    _logSmpEngine('dispose(): cleaning up engine & player');
+
     try {
       _ffrwTick?.cancel();
       _ffrwTick = null;
@@ -667,6 +821,12 @@ class EngineApi {
     if (v < min) return min;
     if (v > max) return max;
     return v;
+  }
+
+  /// duration(SoT 축) 기준 글로벌 클램프
+  Duration _clampToDuration(Duration v) {
+    if (_duration <= Duration.zero) return Duration.zero;
+    return _clamp(v, Duration.zero, _duration);
   }
 }
 

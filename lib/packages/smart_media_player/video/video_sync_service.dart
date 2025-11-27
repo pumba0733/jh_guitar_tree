@@ -1,3 +1,5 @@
+// lib/packages/smart_media_player/video/video_sync_service.dart
+//
 // SmartMediaPlayer v3.8-FF — STEP 5 VideoSyncService (FFmpeg SoT 기반 최종본)
 //
 // 책임:
@@ -19,9 +21,29 @@
 //        VideoSyncService가 소비하여 mpv에 반영하기 위한 훅
 
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../engine/engine_api.dart';
+
+// ============================================================
+// SoT / Video Sync QA 로깅 헬퍼
+// ============================================================
+
+// ✅ attach/align 같은 큰 이벤트
+const bool kSmpVideoSyncLogBasic = true;
+
+// ✅ 50ms마다 도는 tick 안쪽 상세 이벤트 (pendingSeek, drift align 등)
+const bool kSmpVideoSyncLogTick = false;
+
+void _logSmpVideo(String message, {bool tick = false}) {
+  if (tick) {
+    if (!kSmpVideoSyncLogTick) return;
+  } else {
+    if (!kSmpVideoSyncLogBasic) return;
+  }
+  debugPrint('[SMP/VideoSync] $message');
+}
 
 class VideoSyncService {
   VideoSyncService._();
@@ -63,6 +85,10 @@ class VideoSyncService {
 
     _syncTimer?.cancel();
     _syncTimer = Timer.periodic(_tickInterval, (_) => _tick());
+
+    _logSmpVideo(
+      'attachPlayer(): start sync timer every ${_tickInterval.inMilliseconds}ms',
+    );
   }
 
   // ============================================================
@@ -74,35 +100,47 @@ class VideoSyncService {
 
     final engine = EngineApi.instance;
 
+    // duration(SoT 축)이 아직 정해지지 않았으면 아무것도 하지 않음
+    if (engine.duration <= Duration.zero) {
+      return;
+    }
+
     // 1) pendingSeekTarget 우선 소비
-    //
-    //    엔진에서 unified seek가 발생했을 때:
-    //      - 오디오는 이미 FFmpeg 엔진이 해당 위치로 seek 완료
-    //      - VideoSyncService는 이 값을 소비해 mpv를 한 번에 맞춘다.
     final pendingSeek = engine.pendingSeekTarget;
     if (pendingSeek != null) {
       engine.pendingSeekTarget = null;
       try {
+        _logSmpVideo(
+          '_tick(): consume pendingSeekTarget=${pendingSeek.inMilliseconds}ms',
+          tick: true,
+        );
         await p.seek(pendingSeek);
         _lastAlignAt = DateTime.now();
       } catch (_) {
-        // 비디오가 없거나 seek 실패해도 오디오는 이미 맞아 있으므로 무시
+        _logSmpVideo(
+          '_tick(): pendingSeekTarget seek failed (ignored)',
+          tick: true,
+        );
       }
-      return; // 이 tick에서는 추가 보정 하지 않고 종료
+      return;
     }
 
     // 2) pendingAlignTarget 소비
-    //
-    //    loop 재진입 / StartCue 이동 등에서 "해당 위치로 비디오만 강제 정렬"
-    //    이 필요한 경우 사용되는 훅.
     final pendingAlign = engine.pendingAlignTarget;
     if (pendingAlign != null) {
       engine.pendingAlignTarget = null;
       try {
+        _logSmpVideo(
+          '_tick(): consume pendingAlignTarget=${pendingAlign.inMilliseconds}ms',
+          tick: true,
+        );
         await p.seek(pendingAlign);
         _lastAlignAt = DateTime.now();
       } catch (_) {
-        // 실패 시에도 다음 tick에서 일반 drift 보정이 작동하므로 치명적이지 않다.
+        _logSmpVideo(
+          '_tick(): pendingAlignTarget seek failed (ignored)',
+          tick: true,
+        );
       }
       return;
     }
@@ -115,46 +153,61 @@ class VideoSyncService {
 
     // 4) FFmpeg SoT(EngineApi.position) 기준 drift 계산
     try {
-      // 오디오 절대 시간(FFmpeg SoT)
-      final audioPos = engine.position;
+      final audioPos = engine.position; // 이미 EngineApi에서 [0, duration]으로 클램프됨
       final videoPos = p.state.position;
 
       final diffMs = (videoPos - audioPos).inMilliseconds;
 
-      // |diff|가 하드 기준(100ms)을 넘을 때만 비디오를 오디오에 맞춘다.
       if (diffMs.abs() > _hardDriftMs) {
+        _logSmpVideo(
+          '_tick(): drift=${diffMs}ms (soft=$_softDriftMs, hard=$_hardDriftMs) → align video to audioPos=${audioPos.inMilliseconds}ms (videoPos=${videoPos.inMilliseconds}ms)',
+          tick: true,
+        );
         await p.seek(audioPos);
         _lastAlignAt = DateTime.now();
       }
     } catch (_) {
-      // 엔진이 아직 초기화 중이거나 파일이 없을 때 발생할 수 있는 예외는 무시
+      _logSmpVideo(
+        '_tick(): exception while checking drift (ignored)',
+        tick: true,
+      );
     }
   }
 
   // ============================================================
   // PUBLIC ALIGN
   // ============================================================
-  //
-  // 외부에서 특정 시점으로 비디오를 강제 정렬하고 싶을 때 사용하는 헬퍼.
-  // (예: 초기 load 직후 0ms 정렬, 특정 QA 도구 등)
-  //
-  // EngineApi.position이 이미 목표 시점을 반영하고 있다면
-  // _tick()의 drift 보정만으로도 충분하지만,
-  // 명시적으로 한 번에 맞추고 싶은 경우에 사용.
   Future<void> align(Duration d) async {
     final p = _player;
     if (p == null) return;
 
+    final engine = EngineApi.instance;
     final now = DateTime.now();
+
     if (_lastAlignAt != null && now.difference(_lastAlignAt!) < _tickInterval) {
+      _logSmpVideo(
+        'align($d): throttled, lastAlignAt=${_lastAlignAt!.toIso8601String()}',
+      );
       return;
     }
+
+    // SoT 축 기준으로 한 번 더 클램프
+    Duration target = d;
+    final dur = engine.duration;
+    if (dur > Duration.zero) {
+      if (target < Duration.zero) target = Duration.zero;
+      if (target > dur) target = dur;
+    }
+
     _lastAlignAt = now;
 
     try {
-      await p.seek(d);
+      _logSmpVideo(
+        'align($d): seek video to ${target.inMilliseconds}ms (dur=${dur.inMilliseconds}ms)',
+      );
+      await p.seek(target);
     } catch (_) {
-      // seek 실패는 치명적이지 않음. 다음 tick에서 다시 보정 기회를 가진다.
+      _logSmpVideo('align($d): seek failed (ignored)');
     }
   }
 
@@ -162,6 +215,7 @@ class VideoSyncService {
   // DISPOSE
   // ============================================================
   Future<void> dispose() async {
+    _logSmpVideo('dispose(): stop sync timer & clear controller/player');
     _syncTimer?.cancel();
     _syncTimer = null;
     _vc = null;

@@ -88,6 +88,7 @@ static double gDurationMs = 0.0;
 // 전체 엔진 상태
 static std::atomic<bool> gEngineCreated{false};
 static std::atomic<bool> gRunning{false}; // "엔진 활성 + 디바이스 동작" 의미
+static std::atomic<bool> gPaused{true};   // 🔴 기본은 "정지" 상태
 
 // ─────────────────────────────
 // 내부 유틸
@@ -318,6 +319,13 @@ static void decodeThreadFunc()
 
     while (gDecodeRunning.load())
     {
+        // 🔴 정지 상태면 아무것도 디코드하지 않고 잠깐 쉰다
+        if (gPaused.load())
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
+
         if (!gFmtCtx || !gCodecCtx || !gSwr || gAudioStreamIndex < 0)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -384,6 +392,21 @@ static void decodeThreadFunc()
 static void data_callback(ma_device * /*pDevice*/, void *pOutput, const void * /*pInput*/, ma_uint32 frameCount)
 {
     float *out = static_cast<float *>(pOutput);
+
+    // 🔴 정지 상태 또는 파일 미열림 상태에서는 항상 무음, SoT 증가 없음
+    if (gPaused.load() || !gFileOpened.load())
+    {
+        std::memset(out, 0, frameCount * CHANNELS * sizeof(float));
+
+        {
+            std::lock_guard<std::mutex> lock(gMutex);
+            int copyFrames = std::min<int>(static_cast<int>(frameCount), BUF_FRAMES);
+            std::memset(gLastBuffer.data(), 0, BUF_FRAMES * CHANNELS * sizeof(float));
+        }
+
+        // gProcessedSamples 증가시키지 않는다 → SoT 고정
+        return;
+    }
 
     int received = 0;
     {
@@ -496,6 +519,10 @@ extern "C"
             gDeviceStarted.store(true);
             gRunning.store(true);
             gEngineCreated.store(true);
+
+            // 🔴 추가: 엔진 생성 시 기본은 "정지"
+            gPaused.store(true);
+
             logLine("FFI", "playback device started");
         }
         else
@@ -560,6 +587,9 @@ extern "C"
             logLine("FFI", "st_openFile: open failed");
             return false;
         }
+
+        // 🔴 파일 열어도 여전히 "정지" 상태로 유지
+        gPaused.store(true);
 
         // 디코더 쓰레드 시작
         gDecodeRunning.store(true);
@@ -711,11 +741,30 @@ extern "C"
     // 레거시 PCM feed API (Step 1에서는 no-op 처리)
     // ─────────────────────────
 
-    // 기존 Dart PCM feed 경로: v3.8-FF에서는 더 이상 사용하지 않음.
-    // Step 2/3에서 완전히 제거될 예정. 지금은 crash 방지용 no-op.
     void st_feed_pcm(float * /*data*/, int /*frames*/)
     {
         // no-op
+    }
+
+    // 🔴 새 재생/일시정지 엔트리 (기존 심볼 유지용)
+    void st_play()
+    {
+        if (!gEngineCreated.load())
+        {
+            return;
+        }
+        logLine("FFI", "st_play called");
+        gPaused.store(false);
+    }
+
+    void st_pause()
+    {
+        if (!gEngineCreated.load())
+        {
+            return;
+        }
+        logLine("FFI", "st_pause called");
+        gPaused.store(true);
     }
 
 } // extern "C"

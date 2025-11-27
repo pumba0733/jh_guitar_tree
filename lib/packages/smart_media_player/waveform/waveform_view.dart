@@ -6,6 +6,27 @@ import 'package:flutter/material.dart';
 
 enum WaveDrawMode { auto, bars, candles, path } // 호환용(미사용)
 
+// ============================================================
+// WaveformView QA 로깅 헬퍼
+// ============================================================
+const bool kSmpWaveformLogEnabled = false; // 🔇 기본은 로그 OFF
+
+DateTime? _lastWaveformLogAt;
+
+void _logWaveform(String message) {
+  if (!kSmpWaveformLogEnabled) return;
+
+  final now = DateTime.now();
+  // 너무 자주 찍히는 것 방지: 최소 500ms 이상 간격
+  if (_lastWaveformLogAt != null &&
+      now.difference(_lastWaveformLogAt!) < const Duration(milliseconds: 500)) {
+    return;
+  }
+  _lastWaveformLogAt = now;
+
+  debugPrint('[WF] $message');
+}
+
 class WaveformView extends StatefulWidget {
   final List<double> peaks;
   final List<double>? peaksRight;
@@ -94,7 +115,7 @@ class _WaveformViewState extends State<WaveformView> {
     final right = widget.rmsRight ?? widget.peaksRight;
 
     final vs = widget.viewStart.clamp(0.0, 1.0);
-    final vw = widget.viewWidth.clamp(0.02, 1.0);
+    final vw = widget.viewWidth.clamp(0.02, 1.0); // 🔒 최소 2% 이상
 
     return CustomPaint(
       painter: _CenterFilledPainter(
@@ -169,19 +190,19 @@ class _CenterFilledPainter extends CustomPainter {
     required Size size,
   }) {
     if (duration <= Duration.zero) return 0.0;
-    final f = t.inMilliseconds / duration.inMilliseconds;
-    final v = ((f - viewStart) / (viewWidth <= 0 ? 1.0 : viewWidth)).clamp(
-      0.0,
-      1.0,
-    );
+    final safe = _clampDur(t, Duration.zero, duration);
+    final f = safe.inMilliseconds / duration.inMilliseconds;
+    final vw = viewWidth <= 0 ? 1.0 : viewWidth;
+    final v = ((f - viewStart) / vw).clamp(0.0, 1.0);
     return v * size.width;
   }
 
   @override
   void paint(Canvas canvas, Size size) {
-    print(
-      '[WF] paint() width=${size.width}, height=${size.height}, left=${left.length}',
+    _logWaveform(
+      'paint() width=${size.width}, height=${size.height}, samples=${left.length}',
     );
+
     if (left.isEmpty ||
         size.width <= 0 ||
         size.height <= 0 ||
@@ -220,8 +241,7 @@ class _CenterFilledPainter extends CustomPainter {
       ..color = const Color(0xFF1F4AFF)
       ..strokeWidth = 1.2;
 
-
-    // 🔹 Normalize amplitude
+    // 🔹 Normalize amplitude (left 채널 기준)
     double maxAbs = 0.0;
     for (final v in left) {
       final av = v.abs();
@@ -229,7 +249,6 @@ class _CenterFilledPainter extends CustomPainter {
     }
     if (maxAbs < 1e-6) maxAbs = 1.0; // avoid div0
     final double gain = 1.0 / maxAbs;
-
 
     if (!splitStereo || right == null || right!.isEmpty) {
       final centerY = height * 0.5;
@@ -246,7 +265,6 @@ class _CenterFilledPainter extends CustomPainter {
         halfH,
         fill1,
       );
-
     } else {
       final halfHeight = height / 2;
       final topCenter = halfHeight * 0.5;
@@ -255,7 +273,7 @@ class _CenterFilledPainter extends CustomPainter {
 
       _drawCenterFillPath(
         canvas,
-        left,
+        left.map((e) => e * gain).toList(),
         startIdx,
         step,
         count,
@@ -282,22 +300,28 @@ class _CenterFilledPainter extends CustomPainter {
       );
     }
 
-    // 루프 오버레이
-    double xOf(Duration t) {
-      final f = t.inMilliseconds / duration.inMilliseconds;
-      final v = ((f - viewStart) / viewWidth).clamp(0.0, 1.0);
-      return (v * width);
+    // 루프 오버레이 (SoT 안전 클램프)
+    double xOfLocal(Duration t) {
+      if (duration <= Duration.zero) return 0.0;
+      final safe = _clampDur(t, Duration.zero, duration);
+      final f = safe.inMilliseconds / duration.inMilliseconds;
+      final vw = viewWidth <= 0 ? 1.0 : viewWidth;
+      final v = ((f - viewStart) / vw).clamp(0.0, 1.0);
+      return v * width;
     }
 
     if (loopOn && loopA != null && loopB != null) {
-      final xa = xOf(loopA!);
-      final xb = xOf(loopB!);
+      final aSafe = _clampDur(loopA!, Duration.zero, duration);
+      final bSafe = _clampDur(loopB!, Duration.zero, duration);
+      final xa = xOfLocal(aSafe);
+      final xb = xOfLocal(bSafe);
       final r = Rect.fromLTWH(math.min(xa, xb), 0, (xa - xb).abs(), height);
       canvas.drawRect(r, loopFill);
     }
 
-    // 재생 포지션 라인
-    final xp = xOf(position);
+    // 재생 포지션 라인 (SoT 클램프 적용)
+    final posSafe = _clampDur(position, Duration.zero, duration);
+    final xp = xOfLocal(posSafe);
     canvas.drawLine(Offset(xp, 0), Offset(xp, height), linePos);
 
     // 🔹 A/B 핸들(삼각깃발)
@@ -306,10 +330,12 @@ class _CenterFilledPainter extends CustomPainter {
       final handlePaintB = Paint()..color = const Color(0xFF00B894);
 
       if (loopA != null) {
-        _drawHandle(canvas, xOf(loopA!), height, handlePaintA, isA: true);
+        final aSafe = _clampDur(loopA!, Duration.zero, duration);
+        _drawHandle(canvas, xOfLocal(aSafe), height, handlePaintA, isA: true);
       }
       if (loopB != null) {
-        _drawHandle(canvas, xOf(loopB!), height, handlePaintB, isA: false);
+        final bSafe = _clampDur(loopB!, Duration.zero, duration);
+        _drawHandle(canvas, xOfLocal(bSafe), height, handlePaintB, isA: false);
       }
     }
 
@@ -381,8 +407,10 @@ class _CenterFilledPainter extends CustomPainter {
     final durMs = duration.inMilliseconds.toDouble();
 
     double xOf(Duration t) {
-      final f = t.inMilliseconds / durMs;
-      final v = ((f - viewStart) / viewWidth).clamp(0.0, 1.0);
+      final safe = _clampDur(t, Duration.zero, duration);
+      final f = safe.inMilliseconds / durMs;
+      final vw = viewWidth <= 0 ? 1.0 : viewWidth;
+      final v = ((f - viewStart) / vw).clamp(0.0, 1.0);
       return v * width;
     }
 
@@ -560,5 +588,4 @@ class _CenterFilledPainter extends CustomPainter {
 
     return false;
   }
-
 }
