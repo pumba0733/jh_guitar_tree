@@ -1,4 +1,10 @@
 // lib/packages/smart_media_player/ui/smp_transport_bar.dart
+//
+// P3 기준 역할 정리:
+// - 이 위젯은 "순수 UI 전용" Transport Bar.
+// - 재생/일시정지/FF/FR/Loop/UI 제어는 모두 콜백으로만 외부에 위임한다.
+// - 실제 엔진 규칙(EngineApi.spaceBehavior / FFRW / Loop 규칙 통합)은
+//   smart_media_player_screen.dart 쪽에서 이 콜백을 통해 연결한다.
 
 import 'package:flutter/material.dart';
 import '../../../ui/components/app_controls.dart';
@@ -74,6 +80,8 @@ class RemainingPill extends StatelessWidget {
 
 /// ================================================================
 /// Transport Bar 본체 (UI-only)
+/// - onPlayPause  : P3에서 EngineApi.spaceBehavior(...)에 연결될 예정
+/// - onHold* 콜백 : EngineApi.ffrw.startForward/startReverse에 연결될 예정
 /// ================================================================
 class SmpTransportBar extends StatelessWidget {
   // --- 시간/재생 상태 ---
@@ -82,7 +90,12 @@ class SmpTransportBar extends StatelessWidget {
   final bool isPlaying;
 
   // --- 플레이어 제어 콜백 ---
+  /// P3 통합 규칙에서 "Space 행동"에 대응되는 콜백.
+  /// 실제 구현은 screen 쪽에서 EngineApi.spaceBehavior(...)로 연결한다.
   final VoidCallback onPlayPause;
+
+  /// P3 통합 규칙에서 FF/FR 진입점에 대응되는 콜백들.
+  /// 실제 구현은 screen 쪽에서 EngineApi.ffrw.start*/stop*에 연결한다.
   final VoidCallback onHoldReverseStart;
   final VoidCallback onHoldReverseEnd;
   final VoidCallback onHoldForwardStart;
@@ -252,7 +265,7 @@ class SmpTransportBar extends StatelessWidget {
               child: left,
             ),
             const SizedBox(width: 6),
-            // 🔥 LoopPanel 삽입 (TransportBar의 루프 UI 제거)
+            // LoopPanel (Loop UI는 별도 패널로 위임, TransportBar는 순수 View)
             Expanded(
               child: RepaintBoundary(
                 child: SmpLoopPanel(

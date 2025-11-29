@@ -104,7 +104,6 @@ class SidecarSyncDb {
         });
   }
 
-
   /// 초기 없으면 생성
   Future<void> upsertInitial({required Map<String, dynamic> initial}) async {
     if (!_isBound) return;
@@ -148,8 +147,8 @@ class SidecarSyncDb {
     if (rows.isNotEmpty) {
       final payloadAny = rows.first['payload'];
       final payload = payloadAny is Map
-        ? Map<String, dynamic>.from(payloadAny)
-        : <String, dynamic>{};
+          ? Map<String, dynamic>.from(payloadAny)
+          : <String, dynamic>{};
       await _writeLocal(payload);
       return payload;
     }
@@ -159,17 +158,14 @@ class SidecarSyncDb {
   /// 저장: 로컬 쓰기 → DB upsert (LWW는 서버/구독 측에서 처리)
   Future<void> save(Map<String, dynamic> map, {bool debounce = false}) async {
     if (!_isBound) return;
+
     // null 값은 jsonb에 굳이 넣지 않도록 제거
     final payload = Map<String, dynamic>.from(map)
       ..removeWhere((k, v) => v == null);
 
-    // 로컬 저장
-    await _writeLocal(payload);
-
-    // DB 저장
+    // 타임스탬프 부여
     final nowIso = DateTime.now().toIso8601String();
     payload['savedAt'] = nowIso;
-
 
     // === atomic local write ===
     await _writeLocal(payload);
@@ -181,7 +177,6 @@ class SidecarSyncDb {
       'payload': payload,
       'updated_at': nowIso,
     }, onConflict: 'student_id,media_hash');
-
   }
 
   Future<Map<String, dynamic>?> _readLocalOrNull() async {
@@ -201,8 +196,6 @@ class SidecarSyncDb {
     }
   }
 
-  
-
   Future<void> _writeLocal(Map<String, dynamic> payload) async {
     final fp = await _localFilePath();
     final file = File(fp);
@@ -215,13 +208,12 @@ class SidecarSyncDb {
     await ftmp.rename(fp); // atomic swap
   }
 
-
   Future<String> _localFilePath() async {
     final name = '${_studentId}_$_mediaHash.json';
     return p.join(_cacheDir, name);
   }
 
-    // ============================================================
+  // ============================================================
   // 3-3C 요구사항: pendingUploadAt + notifier + tryUploadNow()
   // ============================================================
 
@@ -252,7 +244,6 @@ class SidecarSyncDb {
       pendingUploadAtNotifier.value ??= DateTime.now();
     }
   }
-
 
   void dispose() {
     _rtSub?.cancel();

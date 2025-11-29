@@ -10,6 +10,11 @@
 // - WaveformController.duration / position (FFmpeg SoT)만 사용
 // - withOpacity → withValues(alpha: ...) 교체
 //
+// P2/P3 정렬 (StartCue / Loop / Space / FR 규칙):
+// - WaveformPanel은 "타임라인 제스처 전용" 레이어로 동작
+// - StartCue는 여기서 절대 수정하지 않고, Screen/Engine에서만 관리
+// - Loop(A/B)는 draw/선택·설정만 담당, seek/marker 이동을 클램프하지 않음
+//   (FF/FR/파형 드래그/마커 점프 = 항상 자유 시킹; Loop/StartCue는 단지 값)
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -75,6 +80,7 @@ class _WaveformPanelState extends State<WaveformPanel> {
 
   void _ensureLoaded() async {
     await _load();
+    if (!mounted) return;
     setState(() {});
   }
 
@@ -173,7 +179,7 @@ class _WaveformPanelState extends State<WaveformPanel> {
   void _setA(Duration t) {
     final c = widget.controller;
 
-    // viewport 확대 시 A가 튀지 않도록 clamp
+    // viewport 확대 시 A가 튀지 않도록 clamp (duration 범위 안으로만)
     final durMs = c.duration.value.inMilliseconds;
     if (durMs > 0) {
       final ms = t.inMilliseconds.clamp(0, durMs);
@@ -200,12 +206,19 @@ class _WaveformPanelState extends State<WaveformPanel> {
       }
     }
 
-    _enforceStartCueLoopRules();
+    // StartCue는 Panel에서 건드리지 않는다 (Screen/Engine 전용)
     widget.onStateDirty?.call();
   }
 
   void _setB(Duration t) {
     final c = widget.controller;
+
+    // duration 범위 안으로만 clamp
+    final durMs = c.duration.value.inMilliseconds;
+    if (durMs > 0) {
+      final ms = t.inMilliseconds.clamp(0, durMs);
+      t = Duration(milliseconds: ms);
+    }
 
     // ① selectionB 업데이트
     c.selectionB.value = t;
@@ -226,53 +239,49 @@ class _WaveformPanelState extends State<WaveformPanel> {
       }
     }
 
-    _enforceStartCueLoopRules();
     widget.onStateDirty?.call();
   }
 
-  void _enforceStartCueLoopRules() {
-    final c = widget.controller;
-
-    // ✅ 실제 루프가 있으면 loopA/B 우선, 없으면 selectionA/B 사용
-    final a = c.loopA.value ?? c.selectionA.value;
-    final b = c.loopB.value ?? c.selectionB.value;
-    var sc = c.startCue.value;
-
-    if (a == null || b == null || sc == null) return;
-    if (a >= b) return; // 잘못된 루프는 보정하지 않음
-
-    if (sc < a) sc = a;
-    if (sc > b) sc = a;
-
-    if (sc != c.startCue.value) {
-      c.setStartCue(sc);
-    }
-  }
-
-  void _clearAB() {
+    // selection만 지우는 헬퍼 (엔진/LoopExecutor에는 영향 없음)
+  void _clearSelectionOnly() {
     final c = widget.controller;
     c.selectionA.value = null;
     c.selectionB.value = null;
-    widget.onStateDirty?.call();
   }
 
   void _loopOff() {
     final c = widget.controller;
 
-    // ✅ 현재 loopA/B 상태를 유지한 채 loopOn만 끄고, 외부(onLoopSet)에도 알림
-    final a = c.loopA.value;
-    final b = c.loopB.value;
-
-    c.setLoop(a: a, b: b, on: false);
+    // 루프 범위 자체를 제거 = “루프 모드 자체를 끈다”
+    c.setLoop(a: null, b: null, on: false);
 
     final cb = c.onLoopSet;
-    if (cb != null && a != null && b != null) {
-      scheduleMicrotask(() => cb(a, b));
+    if (cb != null) {
+      // 임시 프로토콜: 0,0 = "루프 없음"
+      scheduleMicrotask(() => cb(Duration.zero, Duration.zero));
     }
 
-    // selection은 시각적 편집 상태이므로 별도로 정리
-    _clearAB();
+    _clearSelectionOnly(); // 파형 위 A/B 강조 제거
+    widget.onStateDirty?.call();
   }
+
+  void _clearAB() {
+    final c = widget.controller;
+
+    // 더블탭 = A/B 해제 = 루프 자체도 함께 제거하는 쪽으로 통일
+    c.setLoop(a: null, b: null, on: false);
+
+    final cb = c.onLoopSet;
+    if (cb != null) {
+      // 0,0 = 루프 없음
+      scheduleMicrotask(() => cb(Duration.zero, Duration.zero));
+    }
+
+    _clearSelectionOnly();
+    widget.onStateDirty?.call();
+  }
+
+
 
   void _updateMarkerTime(int index, Duration t) {
     final c = widget.controller;
@@ -403,29 +412,12 @@ class _WaveformPanelState extends State<WaveformPanel> {
                     } else if (_draggingB) {
                       _setB(t);
                     } else if (_dragSelecting) {
+                      // 드래그 중에는 selectionB만 업데이트, loopA/B는 종료 시 확정
                       c.selectionB.value = t;
                       widget.onStateDirty?.call();
                     } else if (_draggingMarkerIndex >= 0) {
+                      // 마커 이동: LoopOn 여부와 관계없이 순수 타임라인 이동
                       _updateMarkerTime(_draggingMarkerIndex, t);
-
-                      // 🔒 Marker 이동 중 LoopOn 유지 & 범위 밖이면 A로 스냅
-                      final c = widget.controller;
-                      if (c.loopOn.value) {
-                        final a = c.loopA.value ?? c.selectionA.value;
-                        final b = c.loopB.value ?? c.selectionB.value;
-                        final pos = c.position.value;
-
-                        if (a != null && b != null && a < b) {
-                          if (pos < a || pos > b) {
-                            // 규칙: Loop 범위 밖 → A로 스냅
-                            c.position.value = a;
-                            final cb = c.onSeek;
-                            if (cb != null) {
-                              scheduleMicrotask(() => cb(a));
-                            }
-                          }
-                        }
-                      }
                     }
 
                     setState(() {});
@@ -475,7 +467,7 @@ class _WaveformPanelState extends State<WaveformPanel> {
                           .toList(),
                       markerColors: markerColors,
 
-                      // ✅ StartCue는 Controller 단일 소스
+                      // ✅ StartCue는 Controller 단일 소스 (Screen에서만 설정)
                       startCue: widget.controller.startCue.value,
                       showStartCue: true,
                       showHandles: true,
@@ -492,33 +484,26 @@ class _WaveformPanelState extends State<WaveformPanel> {
 
                       // -----------------------------------------------
                       // ① Marker Jump: 상단 말풍선 밴드 클릭
+                      //    LoopOn 여부와 무관하게 해당 마커 위치로 점프
                       // -----------------------------------------------
                       if (local.dy <= _markerBandPx) {
                         final hit = _hitMarkerIndex(local, viewSize);
                         if (hit >= 0) {
                           final c = widget.controller;
                           final m = c.markers.value[hit];
-                          Duration jump = m.time;
+                          final jump = m.time;
 
-                          // LoopOn이면 Jump가 Loop 범위 밖일 때 A로 스냅
-                          final a = c.selectionA.value;
-                          final b = c.selectionB.value;
-
-                          if (c.loopOn.value && a != null && b != null) {
-                            if (jump < a || jump > b) jump = a;
-                          }
-
-                          // 위치 이동
+                          // 위치 이동 (순수 seek)
                           c.position.value = jump;
 
-                          // StartCue 보정
-                          _enforceStartCueLoopRules();
-
-                          // fire seek
+                          // seek 요청 전달
                           final cb = c.onSeek;
-                          if (cb != null) scheduleMicrotask(() => cb(jump));
+                          if (cb != null) {
+                            scheduleMicrotask(() => cb(jump));
+                          }
 
-                          return; // 👈 마커 클릭에서 일반 시킹으로 내려가지 않음
+                          // StartCue/Loop는 이 레이어에서 건드리지 않음
+                          return; // 마커 클릭에서 일반 시킹으로 내려가지 않음
                         }
 
                         // 밴드지만 마커가 없는 경우: 아무 동작도 하지 않음
@@ -526,32 +511,23 @@ class _WaveformPanelState extends State<WaveformPanel> {
                       }
 
                       // -----------------------------------------------
-                      // ② 일반 클릭 시킹
+                      // ② 일반 클릭 시킹 (anywhere else)
+                      //    - LoopOn 여부와 무관하게 순수 seek
+                      //    - StartCue/Loop는 Screen/Engine에서만 관리
                       // -----------------------------------------------
                       final t = _dxToTime(local, viewSize);
+                      final c = widget.controller;
 
-                      // 재생 위치 즉시 반영
+                      // 재생 위치 즉시 반영 (SoT는 EngineApi가 최종 소스)
                       c.position.value = t;
 
-                      // 🔒 LoopOn 중 StartCue 변경 금지
-                      if (!c.loopOn.value) {
-                        final a = c.selectionA.value;
-                        final b = c.selectionB.value;
-                        Duration adjusted = t;
-
-                        if (a != null && b != null) {
-                          if (t < a) adjusted = a;
-                          if (t > b) adjusted = a;
-                        }
-                        c.setStartCue(adjusted);
-                        _enforceStartCueLoopRules();
-                      }
-
-                      // 일반 클릭 = loopOff
+                      // 일반 클릭 = loopOff (기존 UX 유지)
                       _loopOff();
 
                       final cb = c.onSeek;
-                      if (cb != null) scheduleMicrotask(() => cb(t));
+                      if (cb != null) {
+                        scheduleMicrotask(() => cb(t));
+                      }
 
                       setState(() {});
                     },
@@ -564,4 +540,6 @@ class _WaveformPanelState extends State<WaveformPanel> {
       },
     );
   }
+
+  
 }

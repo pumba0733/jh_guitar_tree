@@ -26,6 +26,8 @@ import 'package:ffi/ffi.dart';
 ///    - void   st_copyLastBuffer(float* dst, int maxFrames)
 ///    - double st_getRmsLevel()
 ///    - void   st_feed_pcm(float* data, int frames) // no-op
+///    - void   st_play()
+///    - void   st_pause()
 ///
 ///  Dart 쪽에서:
 ///    - st_create / st_dispose : 엔진 수명 관리
@@ -35,6 +37,7 @@ import 'package:ffi/ffi.dart';
 ///    - stSeekTo(Duration / ms)
 ///    - stGetLastBuffer(), stGetRmsLevel()
 ///    - feedPcmToFFI(...)는 기존호환용 no-op 래퍼
+///    - stPlay() / stPause() 는 STEP 2-B에서 네이티브 재생/일시정지로 연결
 /// ===============================================================
 
 ffi.DynamicLibrary _openNativeLibrary() {
@@ -77,6 +80,9 @@ typedef _st_close_native = ffi.Void Function();
 typedef _st_feedPcm_native =
     ffi.Void Function(ffi.Pointer<ffi.Float>, ffi.Int32);
 
+typedef _st_play_native = ffi.Void Function();
+typedef _st_pause_native = ffi.Void Function();
+
 /// ------------------------------
 /// Dart typedefs
 /// ------------------------------
@@ -102,6 +108,9 @@ typedef _st_openFile_dart = bool Function(ffi.Pointer<Utf8>);
 typedef _st_close_dart = void Function();
 
 typedef _st_feedPcm_dart = void Function(ffi.Pointer<ffi.Float>, int);
+
+typedef _st_play_dart = void Function();
+typedef _st_pause_dart = void Function();
 
 /// ===============================================================
 /// Raw FFI bindings (C 심볼과 1:1 매핑)
@@ -164,6 +173,12 @@ final _st_close = _lib.lookupFunction<_st_close_native, _st_close_dart>(
 /// feedPcm (레거시/테스트용, 네이티브는 no-op)
 final st_feedPcm = _lib.lookupFunction<_st_feedPcm_native, _st_feedPcm_dart>(
   'st_feed_pcm',
+);
+
+final _st_play = _lib.lookupFunction<_st_play_native, _st_play_dart>('st_play');
+
+final _st_pause = _lib.lookupFunction<_st_pause_native, _st_pause_dart>(
+  'st_pause',
 );
 
 /// ===============================================================
@@ -316,21 +331,18 @@ void feedPcmToFFI(Float32List pcm) {
 }
 
 /// ===============================================================
-/// Optional: 임시 play/pause 헬퍼
-///  - STEP 1 C++ 엔진에는 별도 play/pause 심볼이 없으므로
-///    여기서는 "open 후 자동 재생" 전제를 유지한다.
-///  - pause는 임시로 volume=0.0을 사용하고,
-///    resume은 1.0(또는 호출자가 관리하는 값)으로 되돌리는 식으로
-///    EngineApi에서 래핑 가능.
+/// play/pause 헬퍼
+///  - STEP 2-B에서 네이티브 st_play / st_pause를 실제로 사용.
+///  - 볼륨은 순수 음량 컨트롤만 담당하고,
+///    pause 시 volume=0.0으로 내려버리는 기존 동작은 제거.
 /// ===============================================================
 
-/// (임시) 재생 시작: 현재 구조에서는 stOpenFile 이후 자동 재생이므로 no-op.
+/// 재생 시작: 네이티브 st_play() 호출
 void stPlay() {
-  // 필요 시 나중에 네이티브 st_play() 심볼 추가 후 교체.
+  _st_play();
 }
 
-/// (임시) 재생 일시정지: 볼륨을 0으로 내려 mute 수준만 제공.
-/// 실제 pause/resume는 추후 C++ 심볼이 생기면 그때 교체.
+/// 재생 일시정지: 네이티브 st_pause() 호출
 void stPause() {
-  st_setVolume(0.0);
+  _st_pause();
 }

@@ -105,53 +105,43 @@ class VideoSyncService {
       return;
     }
 
-    // 1) pendingSeekTarget 우선 소비
+    // 1) EngineApi → VideoSync로 전달된 pending* 타겟 단일 소비
+    //
+    //  - pendingSeekTarget / pendingAlignTarget 둘 중 "마지막으로 설정된 값"만 유효
+    //  - 둘 중 하나라도 존재하면, 이번 tick에서는 drift 체크를 건너뛰고
+    //    해당 target으로 한 번만 비디오를 강제 정렬한다.
     final pendingSeek = engine.pendingSeekTarget;
-    if (pendingSeek != null) {
-      engine.pendingSeekTarget = null;
-      try {
-        _logSmpVideo(
-          '_tick(): consume pendingSeekTarget=${pendingSeek.inMilliseconds}ms',
-          tick: true,
-        );
-        await p.seek(pendingSeek);
-        _lastAlignAt = DateTime.now();
-      } catch (_) {
-        _logSmpVideo(
-          '_tick(): pendingSeekTarget seek failed (ignored)',
-          tick: true,
-        );
-      }
-      return;
-    }
-
-    // 2) pendingAlignTarget 소비
     final pendingAlign = engine.pendingAlignTarget;
-    if (pendingAlign != null) {
+    if (pendingSeek != null || pendingAlign != null) {
+      // 새 요청이 들어올 수 있으니, 일단 양쪽 채널 모두 정리한 뒤 로컬 변수만 사용
+      engine.pendingSeekTarget = null;
       engine.pendingAlignTarget = null;
+
+      final Duration target = pendingSeek ?? pendingAlign!;
+      final String label = pendingSeek != null
+          ? 'pendingSeekTarget'
+          : 'pendingAlignTarget';
+
       try {
         _logSmpVideo(
-          '_tick(): consume pendingAlignTarget=${pendingAlign.inMilliseconds}ms',
+          '_tick(): consume $label=${target.inMilliseconds}ms',
           tick: true,
         );
-        await p.seek(pendingAlign);
+        await p.seek(target);
         _lastAlignAt = DateTime.now();
       } catch (_) {
-        _logSmpVideo(
-          '_tick(): pendingAlignTarget seek failed (ignored)',
-          tick: true,
-        );
+        _logSmpVideo('_tick(): $label seek failed (ignored)', tick: true);
       }
       return;
     }
 
-    // 3) 주기(throttle) 체크
+    // 2) 주기(throttle) 체크
     final now = DateTime.now();
     if (_lastAlignAt != null && now.difference(_lastAlignAt!) < _tickInterval) {
       return;
     }
 
-    // 4) FFmpeg SoT(EngineApi.position) 기준 drift 계산
+    // 3) FFmpeg SoT(EngineApi.position) 기준 drift 계산
     try {
       final audioPos = engine.position; // 이미 EngineApi에서 [0, duration]으로 클램프됨
       final videoPos = p.state.position;

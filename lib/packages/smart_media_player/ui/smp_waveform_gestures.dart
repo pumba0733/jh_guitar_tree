@@ -19,7 +19,13 @@
 // - viewport(viewStart/viewWidth) 기준으로 시간 매핑(_toTime / hit-test)
 // 을 적용함.
 //
-// ===============================================================
+// P2/P3 규칙:
+//  - 이 레벨에서는 StartCue/Loop를 "표시/콜백 전달"만 담당
+//  - StartCue/Loop를 기준으로 시킹을 막거나 clamp하지 않는다.
+//  - 엔진 SoT(position$)는 Screen → WaveformController로 단일 진입점이며,
+//    필요 시 setPosition()으로 제스처 레벨에서 참조만 한다.
+//  - drag/스크럽/FF/FR로 이동하는 위치는 항상 0ms ~ duration 범위로만 clamp한다.
+//
 
 import 'package:flutter/material.dart';
 import 'package:guitartree/packages/smart_media_player/waveform/system/waveform_system.dart';
@@ -44,7 +50,9 @@ class SmpWaveformGestures {
 
   // 화면의 상태 변경 함수
   final void Function(Duration) setStartCue;
-  final void Function(Duration) setPosition;
+
+  // 🟢 P3: Screen 콜백은 내부 전용 핸들로 보관
+  final void Function(Duration) _setPositionCallback;
 
   // 실제 엔진 seek 호출
   final Future<void> Function(Duration) onSeekRequest;
@@ -66,11 +74,13 @@ class SmpWaveformGestures {
     required this.getDuration,
     required this.getStartCue,
     required this.setStartCue,
-    required this.setPosition,
+    // 🟢 P3: Screen에서 넘겨주는 setPosition 콜백은
+    //        내부 핸들(_setPositionCallback)로만 보관한다.
+    required void Function(Duration) setPosition,
     required this.onSeekRequest,
     required this.onPause,
     required this.saveDebounced,
-  });
+  }) : _setPositionCallback = setPosition;
 
   // ===== Pinch Zoom State =====
   double? _pinchOriginFrac;
@@ -79,9 +89,15 @@ class SmpWaveformGestures {
 
   GestureMode _mode = GestureMode.idle;
 
+  GestureMode get mode => _mode;
+
   // ===============================================================
-  // Handle HitTest (Loop A/B, Selection)
+  // Handle HitTest (Loop A/B, Selection) — 필요 시 Panel에서 사용
   // ===============================================================
+  bool hitLoopA(double globalFrac) => _hitLoopA(globalFrac);
+  bool hitLoopB(double globalFrac) => _hitLoopB(globalFrac);
+  bool hitSelection(double globalFrac) => _hitSelection(globalFrac);
+
   bool _hitLoopA(double globalFrac) {
     final a = waveform.loopA.value;
     if (a == null) return false;
@@ -135,7 +151,6 @@ class SmpWaveformGestures {
     waveform.onPause = onPause;
 
     // ----- Loop A/B 설정 -----
-    // 타입 추론 사용해서 WaveformController.onLoopSet과 일치
     waveform.onLoopSet = (a, b) {
       _handleLoopSetFromGesture(a, b);
     };
@@ -173,37 +188,60 @@ class SmpWaveformGestures {
   }
 
   // ===============================================================
-  // Drag 상태 관리 — Step 5-4
+  // Drag 상태 관리
   // ===============================================================
 
   void onDragStart() {
+    _mode = GestureMode.scrubbing;
     // drag 시작 시 저장 금지 (필요 시 onPause 호출 가능)
   }
 
   void onDragEnd() {
+    _mode = GestureMode.idle;
     // drag 종료 시 단 1회 저장
     saveDebounced(saveMemo: false);
   }
 
+  // ===============================================================
+  // Seek from Gesture → clamp(0~duration) + SoT race guard
+  // ===============================================================
   void _handleSeekFromGesture(Duration d) {
+    // 0 ~ duration 범위로 clamp
+    final dur = getDuration();
+    Duration target = d;
+
+    if (dur > Duration.zero) {
+      if (target.isNegative) {
+        target = Duration.zero;
+      } else if (target > dur) {
+        target = dur;
+      }
+    } else {
+      if (target.isNegative) {
+        target = Duration.zero;
+      }
+    }
+
     // FFmpeg SoT 기반 seek 시, 엔진 position 스트림의 오래된 값 무시를 위해
     // 먼저 timestamp 기록
     waveform.recordSeekTimestamp();
 
     // UI 즉시 반영
-    waveform.position.value = d;
-    setPosition(d);
+    waveform.position.value = target;
+
+    // Screen 콜백에도 전달 (현재는 no-op이지만 시그니처 유지)
+    _setPositionCallback(target);
 
     // Engine seek 요청 (비동기)
-    onSeekRequest(d);
+    onSeekRequest(target);
   }
 
   // ===============================================================
-  // 2) Loop 설정(a,b) → UI단에서 viewport 조정만 담당
+  // 2) Loop 설정(a,b) → UI단에서 viewport 조정/저장만 담당
   // ===============================================================
   void _handleLoopSetFromGesture(Duration? a, Duration? b) {
     // 화면에서 loopA/B는 screen.dart가 setState()로 처리
-    // 이곳은 viewport 처리 필요 시 확장 가능
+    // 이곳은 viewport/저장 등 보조 로직만 담당
     saveDebounced(saveMemo: false);
   }
 
@@ -211,14 +249,43 @@ class SmpWaveformGestures {
   // 3) StartCue 설정
   // ===============================================================
   void _handleStartCueFromGesture(Duration t) {
+    // P2/P3: StartCue는 loop와 독립 — 여기서는 단순 전달만
     setStartCue(t);
     saveDebounced(saveMemo: false);
   }
 
   // ===============================================================
+  // 3-B) Screen → Gestures SoT 동기화 진입점
+  //
+  //  - Screen 쪽 EngineApi.position$ 리스너에서 호출됨
+  //  - 현재 구조에서는 WaveformController.updateFromPlayer()가
+  //    이미 SoT를 관장하므로, 여기서는 position Value만 정렬해 둔다.
+  //  - 필요 시 GestureMode(scrubbing 등)에 따라 필터링 확장 가능.
+  // ===============================================================
+  void setPosition(Duration pos) {
+    // 엔진에서 넘어온 SoT도 안전하게 0~duration 범위로 정리
+    final dur = getDuration();
+    Duration target = pos;
+
+    if (dur > Duration.zero) {
+      if (target.isNegative) {
+        target = Duration.zero;
+      } else if (target > dur) {
+        target = dur;
+      }
+    } else {
+      if (target.isNegative) {
+        target = Duration.zero;
+      }
+    }
+
+    waveform.position.value = target;
+  }
+
+  // ===============================================================
   // 4) Zoom / Viewport
   // ===============================================================
-  // Zoom with Origin (Alt + Drag / Pinch) — Step 7-2
+  // Zoom with Origin (Alt + Drag / Pinch)
   // cursorFrac: 0.0 ~ 1.0 (화면 좌표 → waveform 상대 좌표)
   // factor: >1 확대 / <1 축소
   // ===============================================================
@@ -256,7 +323,7 @@ class SmpWaveformGestures {
     saveDebounced(saveMemo: false);
   }
 
-  // Step 7-2 Patch 5-C: prevent marker/loop/startCue override during zoom
+  // zoom 중 충돌 방지 플래그
   bool _isZooming = false;
 
   void zoomReset() {
@@ -286,7 +353,7 @@ class SmpWaveformGestures {
   }
 
   // ===============================================================
-  // 5-A) Controller → Gestures 양방향 동기화 (Step 6-B)
+  // 5-A) Controller → Gestures 양방향 동기화 (viewport)
   // ===============================================================
   void _bindViewportListeners() {
     waveform.viewStart.addListener(() {
@@ -302,6 +369,8 @@ class SmpWaveformGestures {
   // ===============================================================
   void onPinchStart({required double localX, required double widthPx}) {
     if (widthPx <= 0) return;
+
+    _mode = GestureMode.pinchZooming;
 
     // 화면 비율로 변환 (0~1, viewport 상대 좌표)
     final frac = (localX / widthPx).clamp(0.0, 1.0);
@@ -341,223 +410,9 @@ class SmpWaveformGestures {
   // Pinch End — origin 초기화
   // ===============================================================
   void onPinchEnd() {
+    _mode = GestureMode.idle;
     _pinchOriginFrac = null;
     _lastScale = 1.0;
-  }
-
-  // ===============================================================
-  // Wheel Zoom — macOS 지원
-  // ===============================================================
-  void onWheelZoom({
-    required double deltaY,
-    required double localX,
-    required double widthPx,
-  }) {
-    // deltaY > 0 → zoom out, deltaY < 0 → zoom in
-    double factor = deltaY < 0 ? 1.05 : 0.95;
-
-    final frac = (localX / widthPx).clamp(0.0, 1.0);
-    zoomAt(cursorFrac: frac, factor: factor);
-  }
-
-  void onLoopDragUpdate({required double localX, required double widthPx}) {
-    autoScrollDuringDrag(localX, widthPx);
-  }
-
-  void autoScrollDuringDrag(double localX, double widthPx) {
-    if (widthPx <= 0) return;
-
-    final fracView = (localX / widthPx).clamp(0.0, 1.0);
-    final vStart = waveform.viewStart.value;
-    final vWidth = waveform.viewWidth.value;
-
-    const edge = 0.12;
-    const step = 0.03; // DAW-level scroll step
-
-    if (fracView > (1.0 - edge)) {
-      // 오른쪽 끝 → 오른쪽으로 autoscroll
-      final newStart = (vStart + vWidth * step).clamp(0.0, 1.0 - vWidth);
-      waveform.setViewport(start: newStart, width: vWidth);
-    } else if (fracView < edge) {
-      // 왼쪽 끝 → 왼쪽으로 autoscroll
-      final newStart = (vStart - vWidth * step).clamp(0.0, 1.0 - vWidth);
-      waveform.setViewport(start: newStart, width: vWidth);
-    }
-  }
-
-  void onPointerDown({
-    required double localX,
-    required double widthPx,
-    bool altKey = false,
-    bool shiftKey = false,
-  }) {
-    if (widthPx <= 0) return;
-
-    // 뷰포트 상대 좌표(0~1)
-    final fracView = (localX / widthPx).clamp(0.0, 1.0);
-    final vStart = waveform.viewStart.value;
-    final vWidth = waveform.viewWidth.value.clamp(0.0001, 1.0);
-
-    // 전체 타임라인(global)에서의 비율
-    final globalFrac = (vStart + vWidth * fracView).clamp(0.0, 1.0);
-
-    // ===== 1) 핀치/휠 모드 선점 =====
-    if (_mode == GestureMode.pinchZooming ||
-        _mode == GestureMode.wheelZooming) {
-      return;
-    }
-
-    // ===== 2) Alt + Drag → Zoom 모드 =====
-    if (altKey) {
-      _mode = GestureMode.zooming;
-      return;
-    }
-
-    // ===== 3) Loop A Handle =====
-    if (_hitLoopA(globalFrac)) {
-      _mode = GestureMode.loopA;
-      return;
-    }
-
-    // ===== 4) Loop B Handle =====
-    if (_hitLoopB(globalFrac)) {
-      _mode = GestureMode.loopB;
-      return;
-    }
-
-    // ===== 5) Shift → Selection =====
-    if (shiftKey) {
-      _mode = GestureMode.selecting;
-      waveform.selectionA.value = _toTime(localX, widthPx);
-      waveform.selectionB.value = _toTime(localX, widthPx);
-      return;
-    }
-
-    // ===== 6) Default → Scrubbing =====
-    _mode = GestureMode.scrubbing;
-  }
-
-  void onPointerMove({required double localX, required double widthPx}) {
-    // Zoom 모드는 drag/scrub과 구분
-    if (_mode == GestureMode.zooming) {
-      // zoomAt은 외부 제스처에서 호출됨
-      return;
-    }
-
-    if (_mode == GestureMode.pinchZooming ||
-        _mode == GestureMode.wheelZooming) {
-      return;
-    }
-
-    switch (_mode) {
-      case GestureMode.scrubbing:
-        _handleSeekDrag(localX, widthPx);
-        break;
-      case GestureMode.loopA:
-        _handleLoopADrag(localX, widthPx);
-        break;
-      case GestureMode.loopB:
-        _handleLoopBDrag(localX, widthPx);
-        break;
-      case GestureMode.selecting:
-        _handleSelectingDrag(localX, widthPx);
-        break;
-      default:
-        break;
-    }
-  }
-
-  void onPointerUp() {
-    if (_mode == GestureMode.scrubbing ||
-        _mode == GestureMode.loopA ||
-        _mode == GestureMode.loopB ||
-        _mode == GestureMode.selecting) {
-      saveDebounced(saveMemo: false);
-    }
-
-    _mode = GestureMode.idle;
-    _isZooming = false;
-  }
-
-  Duration _toTime(double localX, double widthPx) {
-    if (widthPx <= 0) return Duration.zero;
-
-    final dur = getDuration();
-    if (dur <= Duration.zero) return Duration.zero;
-
-    // 뷰포트 상대 비율
-    final fracView = (localX / widthPx).clamp(0.0, 1.0);
-    final vStart = waveform.viewStart.value;
-    final vWidth = waveform.viewWidth.value.clamp(0.0001, 1.0);
-
-    // 전체 타임라인(global)에서의 비율
-    final globalFrac = (vStart + vWidth * fracView).clamp(0.0, 1.0);
-
-    return Duration(milliseconds: (dur.inMilliseconds * globalFrac).toInt());
-  }
-
-  void _handleSeekDrag(double localX, double widthPx) {
-    final t = _toTime(localX, widthPx);
-
-    // FFmpeg SoT seek와 race 방지용 timestamp 기록
-    waveform.recordSeekTimestamp();
-
-    waveform.position.value = t;
-    setPosition(t);
-    onSeekRequest(t);
-  }
-
-  void _handleLoopADrag(double localX, double widthPx) {
-    final t = _toTime(localX, widthPx);
-
-    // A 지점만 이동
-    final oldA = waveform.loopA.value;
-    final oldB = waveform.loopB.value;
-
-    // B보다 뒤로 못 가도록 clamp
-    Duration newA = t;
-    if (oldB != null && newA > oldB) {
-      newA = oldB;
-    }
-
-    waveform.loopA.value = newA;
-
-    // 필요 시 오토 스크롤
-    autoScrollDuringDrag(localX, widthPx);
-  }
-
-  void _handleLoopBDrag(double localX, double widthPx) {
-    final t = _toTime(localX, widthPx);
-
-    // B 지점만 이동
-    final oldA = waveform.loopA.value;
-    final oldB = waveform.loopB.value;
-
-    // A보다 앞으로 못 가도록 clamp
-    Duration newB = t;
-    if (oldA != null && newB < oldA) {
-      newB = oldA;
-    }
-
-    waveform.loopB.value = newB;
-
-    // 필요 시 오토 스크롤
-    autoScrollDuringDrag(localX, widthPx);
-  }
-
-  void _handleSelectingDrag(double localX, double widthPx) {
-    final t = _toTime(localX, widthPx);
-
-    final start = waveform.selectionA.value;
-
-    // selection 시작점이 없으면 지금이 시작점
-    if (start == null) {
-      waveform.selectionA.value = t;
-      waveform.selectionB.value = t;
-    } else {
-      waveform.selectionB.value = t;
-    }
-
-    autoScrollDuringDrag(localX, widthPx);
+    _lastPinchAt = null;
   }
 }

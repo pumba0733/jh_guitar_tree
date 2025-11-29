@@ -419,6 +419,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   void dispose() {
     _isDisposing = true;
 
+    // P1: 좀비 재생 방지 — 화면 종료 시 엔진/플레이어 완전 정리
+    // 화면을 떠나는 순간, 지금 재생 중인 트랙/비디오는 반드시 멈춘다.
+    unawaited(EngineApi.instance.stopAndUnload());
+
     // Engine position 스트림 구독 해제
     _positionSub?.cancel();
     _positionSub = null;
@@ -491,14 +495,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       _loopRemaining = -1;
       _pitchSemi = (ps as num).toInt().clamp(-7, 7);
 
-      final rawSc = _clamp(
-        Duration(milliseconds: scMs),
-        Duration.zero,
-        _duration,
-      );
-
-      // STEP 3-4: sidecar 로딩 시에도 StartCue 보정 적용
-      _startCue = _normalizeStartCueForLoop(rawSc);
+      // STEP 2-P1:
+      //  - 여기서는 duration=0 상태에서도 원시 sidecar 값을 그대로 싣고,
+      //  - 실제 duration이 준비된 이후 _normalizeTimedState()에서 정규화한다.
+      _startCue = Duration(milliseconds: scMs);
 
       _notes = notes;
       _notesCtl.text = notes;
@@ -512,6 +512,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
             (e) => MarkerPoint.fromJson(Map<String, dynamic>.from(e)),
           ),
         );
+
+      // duration이 이미 준비된 상태라면 이 시점에서 정규화
+      _normalizeTimedState();
     });
 
     _logSoTScreen('APPLY_SIDECAR (loop/startCue restored)');
@@ -521,8 +524,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       final d = Duration(milliseconds: posMs);
 
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        // duration 로드된 이후에만 적용
-        if (_wf.duration.value != Duration.zero && d < _wf.duration.value) {
+        // STEP 2-P1: EngineApi/Waveform duration 중 실제 값이 준비된 이후에만 적용
+        final dur = _effectiveDuration;
+        if (dur != Duration.zero && d < dur) {
           await EngineApi.instance.seekUnified(d);
         }
       });
@@ -536,9 +540,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
           .map((e) => WfMarker.named(time: e.t, label: e.label, color: e.color))
           .toList(),
     );
-    if (_duration != Duration.zero) {
-      _wf.setDuration(_duration);
-      _wf.updateFromPlayer(dur: _duration);
+    final effDur = _effectiveDuration;
+    if (effDur != Duration.zero) {
+      _wf.setDuration(effDur);
+      _wf.updateFromPlayer(dur: effDur);
     }
   }
 
@@ -571,15 +576,27 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     await EngineApi.instance.load(
       path: widget.mediaPath,
       onDuration: (d) {
-        final safeDuration = _wf.duration.value > Duration.zero
-            ? _wf.duration.value
-            : d;
+        final engineDuration = d;
+        final waveDuration = _wf.duration.value;
+
+        // STEP 2-P1:
+        //  - FFmpeg(EngineApi)의 duration을 마스터로 사용
+        //  - 필요 시 Waveform duration을 보조로 활용
+        final safeDuration = engineDuration > Duration.zero
+            ? engineDuration
+            : (waveDuration > Duration.zero ? waveDuration : Duration.zero);
 
         setState(() {
           _duration = safeDuration;
+          // duration이 준비되었으므로 sidecar 기반 시간값 정규화
+          _normalizeTimedState();
         });
 
+        // Waveform에도 동일 duration 및 loop/startCue 반영
         _wf.setDuration(safeDuration);
+        _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
+        _wf.setStartCue(_startCue);
+
         // duration 즉시 반영 → transportBar/loop-panel 반응 개선
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && !_isDisposing) {
@@ -656,6 +673,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
     final now = DateTime.now();
 
+    // STEP 2-P1: 저장 직전에 시간계 상태를 duration 기준으로 정규화
+    _normalizeTimedState();
+
     final map = {
       'studentId': widget.studentId,
       'mediaHash': widget.mediaHash,
@@ -705,38 +725,133 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   }
 
   // ===== 2x 정/역재생(홀드) =====
+  //
+  // P3 규칙:
+  //  - FF/FR은 항상 현재 pos 기준 자유 이동
+  //  - StartCue/Loop는 FF/FR에 하한/상한으로 개입하지 않는다.
+  //
+  // 따라서 FFRW 엔트리에는 항상 "중립값"을 전달한다.
   Future<void> _startHoldFastForward() async {
     await EngineApi.instance.ffrw.startForward(
-      startCue: _startCue,
-      loopA: _loopA,
-      loopB: _loopB,
-      loopOn: _loopEnabled,
+      startCue: Duration.zero,
+      loopA: null,
+      loopB: null,
+      loopOn: false,
     );
     setState(() {}); // waveform/timeline 즉시 반응
   }
 
   Future<void> _stopHoldFastForward() => EngineApi.instance.ffrw.stopForward();
 
-  Future<void> _startHoldFastReverse() => EngineApi.instance.ffrw.startReverse(
-    startCue: _startCue,
-    loopA: _loopA,
-    loopB: _loopB,
-    loopOn: _loopEnabled,
-  );
+  Future<void> _startHoldFastReverse() async {
+    await EngineApi.instance.ffrw.startReverse(
+      startCue: Duration.zero,
+      loopA: null,
+      loopB: null,
+      loopOn: false,
+    );
+  }
 
   Future<void> _stopHoldFastReverse() => EngineApi.instance.ffrw.stopReverse();
 
-  // ===============================================================
-  // STEP 4-1 — EngineApi 전면 이관: unified seek wrapper
-  // ===============================================================
-  // ===============================================================
+  // ============================================================
   // STEP 3-4 / 4-1 — Duration clamp helper (v3.41)
-  // ===============================================================
+  // ============================================================
   Duration _clamp(Duration x, Duration min, Duration max) {
     if (x < min) return min;
     if (x > max) return max;
     return x;
   }
+
+  // ============================================================
+  // P2 — FFmpeg SoT 기반 duration 단일화
+  //  - EngineApi.duration(FFmpeg) 우선
+  //  - WaveformController.duration 보조
+  // ============================================================
+  Duration get _effectiveDuration {
+    if (_duration > Duration.zero) return _duration;
+    if (_wf.duration.value > Duration.zero) return _wf.duration.value;
+    return Duration.zero;
+  }
+
+  // ============================================================
+  // P2 — loopA/loopB/StartCue/loopRepeat 저장 직전 정규화
+  //
+  //  - _effectiveDuration 기준으로 loopA/B/startCue를 clamp
+  //  - loopA >= loopB 이면 loop 해제
+  //  - loopRepeat은 [0,200] 범위로 강제
+  //  - WaveformController에도 동일 상태를 반영
+  // ============================================================
+    void _normalizeTimedState() {
+    final dur = _effectiveDuration;
+
+    // duration 미정이면 최소한 음수만 막고 return
+    if (dur <= Duration.zero) {
+      if (_loopA != null && _loopA! < Duration.zero) {
+        _loopA = Duration.zero;
+      }
+      if (_loopB != null && _loopB! < Duration.zero) {
+        _loopB = Duration.zero;
+      }
+      if (_startCue < Duration.zero) {
+        _startCue = Duration.zero;
+      }
+      // duration이 아직 없을 땐 LoopExecutor를 굳이 건드리지 않는다.
+      return;
+    }
+
+    Duration? a = _loopA;
+    Duration? b = _loopB;
+
+    if (a != null) {
+      a = _clamp(a, Duration.zero, dur);
+    }
+    if (b != null) {
+      b = _clamp(b, Duration.zero, dur);
+    }
+
+    bool loopValid = false;
+    if (a != null && b != null && a < b) {
+      loopValid = true;
+    } else {
+      // 잘못된 루프는 과감히 해제
+      a = null;
+      b = null;
+    }
+
+    _loopA = a;
+    _loopB = b;
+    _loopEnabled = loopValid && _loopEnabled;
+
+    // 루프 반복 횟수는 0~200 사이로 강제
+    _loopRepeat = _loopRepeat.clamp(0, 200);
+
+    // StartCue는 loop 규칙을 포함한 정규화 규칙 사용
+    _startCue = _normalizeStartCueForLoop(_startCue);
+
+    // WaveformController와 동기화
+    _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
+    _wf.setStartCue(_startCue);
+
+    // 🔥 NEW: LoopExecutor 상태도 함께 정합 유지
+    _loopExec.setLoopEnabled(_loopEnabled);
+    if (_loopA != null) {
+      _loopExec.setA(_loopA!);
+    }
+    if (_loopB != null) {
+      _loopExec.setB(_loopB!);
+    }
+    _loopExec.setRepeat(_loopRepeat);
+
+    _logSoTScreen(
+      'NORMALIZE_TIMED_STATE',
+      pos: _position,
+      startCue: _startCue,
+      loopA: _loopA,
+      loopB: _loopB,
+    );
+  }
+
 
   // 키 업/다운 핸들 (=-)
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent evt) {
@@ -752,13 +867,15 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       return KeyEventResult.ignored;
     }
 
+    // P3: FF/FR 단축키도 StartCue/Loop에 구속되지 않는
+    // "자유 타임라인 스캔"으로 고정.
     if (evt.logicalKey == LogicalKeyboardKey.equal) {
       if (evt is KeyDownEvent) {
         EngineApi.instance.ffrw.startForward(
-          startCue: _startCue,
-          loopA: _loopA,
-          loopB: _loopB,
-          loopOn: _loopEnabled,
+          startCue: Duration.zero,
+          loopA: null,
+          loopB: null,
+          loopOn: false,
         );
       } else if (evt is KeyUpEvent) {
         EngineApi.instance.ffrw.stopForward();
@@ -769,10 +886,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     if (evt.logicalKey == LogicalKeyboardKey.minus) {
       if (evt is KeyDownEvent) {
         EngineApi.instance.ffrw.startReverse(
-          startCue: _startCue,
-          loopA: _loopA,
-          loopB: _loopB,
-          loopOn: _loopEnabled,
+          startCue: Duration.zero,
+          loopA: null,
+          loopB: null,
+          loopOn: false,
         );
       } else if (evt is KeyUpEvent) {
         EngineApi.instance.ffrw.stopReverse();
@@ -922,7 +1039,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
                             isPlaying: EngineApi.instance.isPlaying,
                             fmt: _fmt,
                             onPlayPause: () =>
-                                EngineApi.instance.playFromStartCue(_startCue),
+                                EngineApi.instance.spaceBehavior(_startCue),
                             onHoldReverseStart: _startHoldFastReverse,
                             onHoldReverseEnd: _stopHoldFastReverse,
                             onHoldForwardStart: _startHoldFastForward,
@@ -1056,6 +1173,25 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
   // A. Loop Toggle ------------------------------------------------
 
+  // E/D로 루프 범위를 잡을 때,
+  // "앞쪽 점 하나"를 StartCue + LoopA로 맞추기 위한 헬퍼.
+  Duration _computeStartCueFromLoopOrPos(Duration fallbackPos) {
+    // 1) 우선 loopA/loopB 중 앞쪽 점이 있으면 그걸 쓰고
+    // 2) 둘 다 없으면 지금 위치(fallbackPos)를 사용
+    Duration candidate = fallbackPos;
+
+    if (_loopA != null && _loopB != null) {
+      candidate = _loopA! <= _loopB! ? _loopA! : _loopB!;
+    } else if (_loopA != null) {
+      candidate = _loopA!;
+    } else if (_loopB != null) {
+      candidate = _loopB!;
+    }
+
+    // 최종적으로 duration/loop 규칙에 맞게 정규화
+    return _normalizeStartCueForLoop(candidate);
+  }
+
   void _loopToggleMain(bool on) {
     _loopExec.setLoopEnabled(on);
 
@@ -1072,48 +1208,64 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   // B. Loop A/B Points -------------------------------------------
 
   void _loopSetA(Duration pos) {
-    setState(() {
-      _loopA = pos;
-      _loopExec.setA(pos);
+    final dur = _effectiveDuration;
+    final clamped = dur > Duration.zero ? _clamp(pos, Duration.zero, dur) : pos;
 
-      // STEP 3-4: A 재설정 → StartCue 보정
-      _startCue = _normalizeStartCueForLoop(_startCue);
+    setState(() {
+      // 1) 루프 앞점(A) 갱신
+      _loopA = clamped;
+      _loopExec.setA(clamped);
+
+      // 2) "앞점 = StartCue" 규칙
+      //    - duration/loop 규칙을 포함해서 정규화
+      _startCue = _normalizeStartCueForLoop(clamped);
     });
 
+    // Waveform와 동기화
     _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
     _wf.setStartCue(_startCue);
 
-    // NEW
+    // NEW: UI 즉시 갱신
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) setState(() {});
     });
 
     _requestSave();
 
-    _logSoTScreen('LOOP_SET_A', loopA: _loopA);
+    _logSoTScreen('LOOP_SET_A', loopA: _loopA, startCue: _startCue);
   }
 
   void _loopSetB(Duration pos) {
+    final dur = _effectiveDuration;
+    final clamped = dur > Duration.zero ? _clamp(pos, Duration.zero, dur) : pos;
+
+    // 아직 A가 없으면: "앞점부터 세팅" (E와 같은 의미)
     if (_loopA == null) {
-      _loopSetA(pos);
+      _loopSetA(clamped);
       return;
     }
 
-    _loopExec.setB(pos);
+    _loopExec.setB(clamped);
 
     setState(() {
       _loopB = _loopExec.loopB;
       _loopEnabled = _loopExec.loopOn;
 
-      // STEP 3-4: B 재설정 → StartCue 보정
+      // B가 바뀌면 StartCue가 loop 범위 밖으로 튀지 않게만 보정
       _startCue = _normalizeStartCueForLoop(_startCue);
     });
 
     _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
     _wf.setStartCue(_startCue);
+
     _requestSave();
 
-    _logSoTScreen('LOOP_SET_B', loopB: _loopB);
+    _logSoTScreen(
+      'LOOP_SET_B',
+      loopA: _loopA,
+      loopB: _loopB,
+      startCue: _startCue,
+    );
   }
 
   // C. Loop Repeat ------------------------------------------------
@@ -1138,7 +1290,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     _loopSetRepeat(_loopRepeat + delta);
   }
 
-  // D. Loop Preset ------------------------------------------------
+  // D. Loop Preset -----------------------------------------------
 
   Future<void> _loopApplyPreset(int repeat) async {
     await _loopSetRepeat(repeat);
@@ -1214,43 +1366,50 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     await _setVolume(_volume + delta);
   }
 
-  // ===============================================================
-  // SCREEN-LEVEL SoT LOGGER (Loop / StartCue / Marker / Watchdog)
-  // ===============================================================
+  // ============================================================
+  // P2 — Screen 레벨 SoT 로깅 헬퍼
+  //  - EngineApi 쪽 로그와 겹치지 않게 prefix 분리
+  // ============================================================
   void _logSoTScreen(
     String label, {
-    Duration? enginePos,
-    Duration? wfPos,
+    Duration? pos,
     Duration? startCue,
     Duration? loopA,
     Duration? loopB,
   }) {
-    // 기본값: 현재 상태 기준
-    enginePos ??= EngineApi.instance.position;
-    wfPos ??= _wf.position.value;
-    startCue ??= _startCue;
-    loopA ??= _loopA;
-    loopB ??= _loopB;
+    final effDur = _effectiveDuration;
+    final buf = StringBuffer('[SMP/Screen] $label');
 
-    final loopAStr = loopA != null ? _fmt(loopA) : '--';
-    final loopBStr = loopB != null ? _fmt(loopB) : '--';
+    if (pos != null) {
+      buf.write(' pos=${pos.inMilliseconds}ms');
+    }
+    if (startCue != null) {
+      buf.write(' sc=${startCue.inMilliseconds}ms');
+    }
+    if (loopA != null || loopB != null) {
+      buf.write(
+        ' loopA=${loopA?.inMilliseconds}ms, loopB=${loopB?.inMilliseconds}ms',
+      );
+    }
+    if (effDur > Duration.zero) {
+      buf.write(' dur=${effDur.inMilliseconds}ms');
+    }
 
-    debugPrint(
-      '[SMP-SoT/SCREEN] $label'
-      ' | eng=${_fmt(enginePos)}'
-      ' | wf=${_fmt(wfPos)}'
-      ' | sc=${_fmt(startCue)}'
-      ' | loopA=$loopAStr'
-      ' | loopB=$loopBStr',
-    );
+    debugPrint(buf.toString());
   }
 
+  // ============================================================
+  // 공통 타임 포맷터 (mm:ss)
+  //  - 필요하면 나중에 mm:ss.SS로 확장 가능
+  // ============================================================
   String _fmt(Duration d) {
-    String two(int n) => n.toString().padLeft(2, '0');
-    final h = d.inHours;
-    final m = d.inMinutes % 60;
-    final s = d.inSeconds % 60;
-    return h > 0 ? '${two(h)}:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
+    if (d < Duration.zero) d = Duration.zero;
+    final totalSeconds = d.inMilliseconds ~/ 1000;
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+
+    return '${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
   }
 
   void _addMarker() {
@@ -1263,7 +1422,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     _requestSave();
 
     debugPrint('[SMP-MARKER] ADD idx=$idx label=$label t=${_fmt(pos)}');
-    _logSoTScreen('MARKER_ADD idx=$idx', wfPos: pos);
+    _logSoTScreen('MARKER_ADD idx=$idx', pos: pos);
   }
 
   String _lettersForIndex(int n1based) {
@@ -1319,7 +1478,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       debugPrint(
         '[SMP-MARKER] EDIT idx=$index label="$m.label" t=${_fmt(m.t)}',
       );
-      _logSoTScreen('MARKER_EDIT idx=$index', wfPos: m.t);
+      _logSoTScreen('MARKER_EDIT idx=$index', pos: m.t);
     }
   }
 
@@ -1346,7 +1505,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     debugPrint(
       '[SMP-MARKER] JUMP idx=$i1based label="${_markers[i].label}" t=${_fmt(t)}',
     );
-    _logSoTScreen('MARKER_JUMP idx=$i1based', wfPos: t);
+    _logSoTScreen('MARKER_JUMP idx=$i1based', pos: t);
   }
 
   Future<void> _jumpPrevNextMarker({required bool next}) async {
@@ -1396,7 +1555,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       '[SMP-MARKER] JUMP_${next ? 'NEXT' : 'PREV'}'
       ' t=${_fmt(target)} now=${_fmt(Duration(milliseconds: nowMs))}',
     );
-    _logSoTScreen('MARKER_JUMP_${next ? 'NEXT' : 'PREV'}', wfPos: target);
+    _logSoTScreen('MARKER_JUMP_${next ? 'NEXT' : 'PREV'}', pos: target);
   }
 
   void _reorderMarker(int oldIndex, int newIndex) {
@@ -1439,35 +1598,35 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     debugPrint(
       '[SMP-MARKER] DELETE idx=$index label="${removed.label}" t=${_fmt(removed.t)}',
     );
-    _logSoTScreen('MARKER_DELETE idx=$index', wfPos: removed.t);
+    _logSoTScreen('MARKER_DELETE idx=$index', pos: removed.t);
   }
 
-  // ===============================================================
-  // STEP 3-4 — StartCue 정합 보정 함수
-  // ===============================================================
-  /// Loop 규칙에 따라 startCue를 자동 보정한다.
-  /// 규칙:
-  ///  - Loop 설정이 없으면 그대로 반환
-  ///  - LoopA < LoopB 구조일 때만 적용
-  ///  - StartCue < LoopA → LoopA로 보정
-  ///  - StartCue > LoopB → LoopA로 보정
+  // ============================================================
+  // P2 — StartCue 정규화 규칙 단일화
+  //
+  //  - 항상 [0, duration] 범위에서 clamp
+  //  - 유효한 loopA/B가 있으면:
+  //      * startCue < loopA → loopA로 올림
+  //      * startCue > loopB → loopA로 워프 (엔진 규칙과 동일)
+  // ============================================================
   Duration _normalizeStartCueForLoop(Duration sc) {
-    if (_loopA == null || _loopB == null) {
-      return sc;
-    }
-    final a = _loopA!;
-    final b = _loopB!;
-
-    if (a >= b) {
-      // 잘못된 루프(무효 루프)는 보정하지 않음
+    final dur = _effectiveDuration;
+    if (dur <= Duration.zero) {
+      // duration 미정이면 음수만 방지
+      if (sc < Duration.zero) return Duration.zero;
       return sc;
     }
 
-    // LoopOn일 때만 보정이 아니라,
-    // Step 3-4 규칙: Loop 범위가 존재하면 항상 정합 상태 유지
-    if (sc < a) return a;
-    if (sc > b) return a;
+    var v = _clamp(sc, Duration.zero, dur);
 
-    return sc;
+    if (_loopA != null && _loopB != null && _loopA! < _loopB!) {
+      final a = _clamp(_loopA!, Duration.zero, dur);
+      final b = _clamp(_loopB!, Duration.zero, dur);
+
+      if (v < a) v = a;
+      if (v > b) v = a; // loop 범위 밖이면 항상 loopA로 귀속
+    }
+
+    return v;
   }
 }

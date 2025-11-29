@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────
 //  SmartMediaPlayer FFI - FFmpeg + SoundTouch + miniaudio
-//  v3.8-FF — STEP 1 / Snapshot FF-1
+//  v3.8-FF — STEP 1 / Snapshot FF-1 (STEP 2-B 수정 반영)
 //
 //  구조:
 //    FFmpeg 디코더 쓰레드 → SoundTouch.putSamples()
@@ -11,7 +11,6 @@
 //    - 현 시점에서는 FFI 시그니처 변경 없음
 //    - 기존 심볼(st_create, st_dispose, st_feed_pcm, st_get_playback_time 등)은 유지
 //    - 새 심볼(st_openFile, st_close, st_getDurationMs, st_getPositionMs, st_seekToMs) 추가
-//    - STEP 2에서 engine_soundtouch_ffi.dart를 이 네이티브 엔진에 맞게 교체 예정
 // ─────────────────────────────────────────────────────────────
 
 #define MINIAUDIO_IMPLEMENTATION
@@ -37,6 +36,7 @@ extern "C"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <algorithm> // std::min, std::fill
 
 // ─────────────────────────────
 // 네임스페이스
@@ -88,7 +88,7 @@ static double gDurationMs = 0.0;
 // 전체 엔진 상태
 static std::atomic<bool> gEngineCreated{false};
 static std::atomic<bool> gRunning{false}; // "엔진 활성 + 디바이스 동작" 의미
-static std::atomic<bool> gPaused{true};   // 🔴 기본은 "정지" 상태
+static std::atomic<bool> gPaused{true};   // 기본은 "정지" 상태
 
 // ─────────────────────────────
 // 내부 유틸
@@ -99,13 +99,14 @@ static inline void logLine(const char *tag, const char *msg)
     std::printf("[%s] %s\n", tag, msg);
 }
 
-// SoundTouch 파라미터 변경 시 큐 flush
+// SoundTouch 파라미터 변경 시 큐를 강제로 비우지 않는다.
+// - tempo/pitch는 내부적으로 점진 적용이 가능하고
+// - 큐를 통째로 clear/flush 하면 드물게 이후 receiveSamples()가
+//   계속 0을 반환하면서 장시간 무음 상태에 빠지는 문제가 있었다.
+// - seek 글리치/짧은 루프 문제는 st_seekToMs 쪽에서만 처리한다.
 static inline void applySoundTouchParams_unsafe()
 {
-    // tempo/pitch 변경 후 이전 큐를 비워서
-    // 다음 receiveSamples부터 즉시 새 파라미터가 반영되게 한다.
-    gST.clear();
-    gST.flush();
+    // no-op: 파라미터만 바꾸고 큐는 그대로 유지
 }
 
 // FFmpeg 초기화 (한 번만)
@@ -171,6 +172,7 @@ static void closeFileInternal()
         std::lock_guard<std::mutex> lock(gMutex);
         gST.clear();
         gST.flush();
+        std::fill(gLastBuffer.begin(), gLastBuffer.end(), 0.0f);
     }
 
     logLine("FFmpeg", "file closed");
@@ -300,6 +302,7 @@ static bool openFileInternal(const char *path)
         std::lock_guard<std::mutex> lock(gMutex);
         gST.clear();
         gST.flush();
+        std::fill(gLastBuffer.begin(), gLastBuffer.end(), 0.0f);
     }
 
     gFileOpened.store(true);
@@ -319,7 +322,7 @@ static void decodeThreadFunc()
 
     while (gDecodeRunning.load())
     {
-        // 🔴 정지 상태면 아무것도 디코드하지 않고 잠깐 쉰다
+        // 정지 상태면 디코딩도 잠시 쉰다
         if (gPaused.load())
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -393,7 +396,7 @@ static void data_callback(ma_device * /*pDevice*/, void *pOutput, const void * /
 {
     float *out = static_cast<float *>(pOutput);
 
-    // 🔴 정지 상태 또는 파일 미열림 상태에서는 항상 무음, SoT 증가 없음
+    // 정지 상태 또는 파일 미열림 상태에서는 항상 무음, SoT 증가 없음
     if (gPaused.load() || !gFileOpened.load())
     {
         std::memset(out, 0, frameCount * CHANNELS * sizeof(float));
@@ -415,14 +418,13 @@ static void data_callback(ma_device * /*pDevice*/, void *pOutput, const void * /
         // SoundTouch에서 변조 샘플 가져오기
         received = gST.receiveSamples(out, static_cast<int>(frameCount));
 
-        // tempo/pitch 변경 직후 buffer 비는 문제 대응
-        if (received == 0)
-        {
-            gST.flush();
-            received = gST.receiveSamples(out, static_cast<int>(frameCount));
-        }
+        // NOTE:
+        // - tempo/pitch 변경 직후 아주 짧은 공백(underflow)은 허용한다.
+        // - 여기서 flush()를 또 호출하면, 이미 비어 있는 큐를 더 흔들어서
+        //   "계속 0만 나오는" 상태를 길게 만들 수 있다.
+        // - seek 시점 큐 정리는 st_seekToMs에서만 수행한다.
 
-        // 최근 출력 버퍼 저장
+        // 최근 출력 버퍼 저장 ...
         if (received > 0)
         {
             int copyFrames = std::min<int>(received, BUF_FRAMES);
@@ -442,11 +444,17 @@ static void data_callback(ma_device * /*pDevice*/, void *pOutput, const void * /
         }
     }
 
-    // underflow → 무음 패딩 + 타임라인 증가
+    // underflow → 무음 패딩 (SoT는 그대로 유지)
+    //
+    // - 디코더/FFmpeg/SoundTouch가 아직 새 샘플을 못 채워준 상태일 뿐,
+    //   실제 파일 상 "앞으로 진행된" 것은 아니다.
+    // - 여기서 gProcessedSamples를 늘려버리면,
+    //   SoT(엔진 위치)와 실제 파일 위치가 어긋나면서
+    //   StartCue/Loop 쪽에서 "짧게 잘리는 느낌"을 만든다.
     if (received <= 0)
     {
         std::memset(out, 0, frameCount * CHANNELS * sizeof(float));
-        gProcessedSamples += frameCount;
+        // gProcessedSamples += frameCount;  // ❌ 제거
         return;
     }
 
@@ -520,7 +528,7 @@ extern "C"
             gRunning.store(true);
             gEngineCreated.store(true);
 
-            // 🔴 추가: 엔진 생성 시 기본은 "정지"
+            // 기본은 "정지" 상태
             gPaused.store(true);
 
             logLine("FFI", "playback device started");
@@ -554,10 +562,12 @@ extern "C"
         {
             std::lock_guard<std::mutex> lock(gMutex);
             gST.clear();
+            std::fill(gLastBuffer.begin(), gLastBuffer.end(), 0.0f);
         }
 
         gRunning.store(false);
         gEngineCreated.store(false);
+        gPaused.store(true);
 
         logLine("FFI", "disposed");
     }
@@ -588,7 +598,7 @@ extern "C"
             return false;
         }
 
-        // 🔴 파일 열어도 여전히 "정지" 상태로 유지
+        // 파일 열어도 여전히 "정지" 상태로 유지
         gPaused.store(true);
 
         // 디코더 쓰레드 시작
@@ -665,6 +675,15 @@ extern "C"
 
         logLine("FFI", "st_seekToMs called");
 
+        // 🔸 현재 재생/일시정지 상태 저장
+        bool wasPaused = gPaused.load();
+
+        // 🔸 seek 수행 동안에는 무조건 pause 상태로 두어
+        //     - data_callback에서 이전 tail이 한 번 더 출력되는 것
+        //     - seek 중 SoT가 엉뚱하게 진행되는 것
+        //   을 막는다.
+        gPaused.store(true);
+
         // 디코더 쓰레드 잠시 멈추고 join
         gDecodeRunning.store(false);
         if (gDecodeThread.joinable())
@@ -685,16 +704,17 @@ extern "C"
         if (gSwr)
         {
             // FFmpeg 6.x: swr_flush 제거됨 → swr_convert로 내부 버퍼 플러시
-            if (gSwr)
-            {
-                swr_convert(gSwr, nullptr, 0, nullptr, 0);
-            }
+            swr_convert(gSwr, nullptr, 0, nullptr, 0);
         }
 
         {
             std::lock_guard<std::mutex> lock(gMutex);
+            // SoundTouch 큐 비우기
             gST.clear();
             gST.flush();
+
+            // 🔸 마지막 출력 버퍼도 비워서 tail 조각이 wave/RMS에 남지 않게
+            std::fill(gLastBuffer.begin(), gLastBuffer.end(), 0.0f);
         }
 
         // SoT를 타겟 위치로 재설정
@@ -704,6 +724,9 @@ extern "C"
         // 디코더 다시 시작
         gDecodeRunning.store(true);
         gDecodeThread = std::thread(decodeThreadFunc);
+
+        // 🔸 원래 재생/일시정지 상태 복원
+        gPaused.store(wasPaused);
     }
 
     // ─────────────────────────
@@ -746,7 +769,7 @@ extern "C"
         // no-op
     }
 
-    // 🔴 새 재생/일시정지 엔트리 (기존 심볼 유지용)
+    // 🔴 재생/일시정지 엔트리
     void st_play()
     {
         if (!gEngineCreated.load())
