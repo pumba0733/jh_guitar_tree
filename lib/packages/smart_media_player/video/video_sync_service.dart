@@ -1,215 +1,233 @@
 // lib/packages/smart_media_player/video/video_sync_service.dart
 //
-// SmartMediaPlayer v3.8-FF — STEP 5 VideoSyncService (FFmpeg SoT 기반 최종본)
+// SmartMediaPlayer v3.8-FF — Step 3 / P2
+// Audio = Master / Video = Slave 단방향 VideoSyncService
 //
-// 책임:
-//  - VideoController 생성 및 보관
-//  - mpv(Player)와 EngineApi(FFmpeg 오디오 SoT) 사이 A/V 싱크 유지
-//  - pendingSeekTarget / pendingAlignTarget 소비
-//  - 50ms 주기 드리프트 체크 + ±100ms 기준 보정
+// ✅ 책임
+//  - media_kit Player / VideoController 관리 (영상 전용)
+//  - EngineApi의 SoT(position, duration, pendingVideoTarget) 기준으로
+//    "영상만" seek/재생 상태를 맞춰줌
+//  - EngineApi.seekUnified / play / pause 를 절대 호출하지 않음
 //
-// A/V 싱크 원칙 (Hybrid APlan v3.8-FF):
-//  - 오디오 = 마스터 (FFmpeg + SoundTouch + miniaudio 타임라인)
-//  - 비디오 = 슬레이브 (mpv; 오차가 커질 때만 오디오 시각에 맞춰 seek)
-//  - 목표 오차 범위: ±50ms 이내 유지
-//  - 실제 보정 트리거: |video - audio| > 100ms 일 때만 강제 align
-//
-// 참고:
-//  - EngineApi.position  → FFmpeg 오디오 SoT(Duration)
-//  - EngineApi.pendingSeekTarget / pendingAlignTarget
-//      → EngineApi에서 발생한 unified seek / 강제 align 요청을
-//        VideoSyncService가 소비하여 mpv에 반영하기 위한 훅
+// ✅ 제약
+//  - Audio는 100% EngineApi(FFmpeg SoT)가 책임
+//  - 이 서비스는 EngineApi에 역으로 영향을 주지 않는다.
+//    (seekUnified / play / pause / stopAndUnload 등 호출 금지)
 
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+
 import '../engine/engine_api.dart';
 
-// ============================================================
-// SoT / Video Sync QA 로깅 헬퍼
-// ============================================================
+void _logVideoSync(String msg, {bool tick = false}) {
+  // 기본은 EngineApi 쪽 로그에 묻히지 않게 필요할 때만 켠다고 가정
+  const bool kLogTick = false;
 
-// ✅ attach/align 같은 큰 이벤트
-const bool kSmpVideoSyncLogBasic = true;
+  if (tick && !kLogTick) return;
 
-// ✅ 50ms마다 도는 tick 안쪽 상세 이벤트 (pendingSeek, drift align 등)
-const bool kSmpVideoSyncLogTick = false;
-
-void _logSmpVideo(String message, {bool tick = false}) {
-  if (tick) {
-    if (!kSmpVideoSyncLogTick) return;
-  } else {
-    if (!kSmpVideoSyncLogBasic) return;
-  }
-  debugPrint('[SMP/VideoSync] $message');
+  debugPrint('[SMP/VideoSync] $msg');
 }
 
 class VideoSyncService {
   VideoSyncService._();
   static final VideoSyncService instance = VideoSyncService._();
 
-  VideoController? _vc;
   Player? _player;
-  Timer? _syncTimer;
-  DateTime? _lastAlignAt;
+  VideoController? _controller;
 
-  // ============================================================
-  // CONSTS (A/V Sync Parameters)
-  // ============================================================
+  Timer? _tickTimer;
+  bool _tickRunning = false;
+  bool _disposed = false;
 
-  /// 싱크 체크 주기 (Hybrid APlan 예시 기준: 50ms)
-  static const Duration _tickInterval = Duration(milliseconds: 50);
+  // 마지막으로 강제 align 했던 타임스탬프 (동일 위치 반복 seek 방지용)
+  Duration? _lastAlignedTarget;
 
-  /// 실제 강제 보정이 일어나는 드리프트 기준 (|video - audio| > 100ms)
-  static const int _hardDriftMs = 100;
+  // ===============================================================
+  // PUBLIC API
+  // ===============================================================
 
-  /// 논리적 목표 오차 범위(±50ms). 현재 코드는 하드 기준만 사용하지만,
-  /// 디버깅/로깅 용도로 남겨둠.
-  static const int _softDriftMs = 50;
-
-  // ============================================================
-  // PUBLIC GETTERS
-  // ============================================================
-  VideoController? get controller => _vc;
-  bool get isVideoLoaded => _vc != null;
-
-  Duration get videoPosition => _player?.state.position ?? Duration.zero;
-
-  // ============================================================
-  // ATTACH PLAYER
-  // ============================================================
+  /// SmartMediaPlayerScreen에서 EngineApi.load() 이후
+  /// EngineApi가 video 파일로 판단하면 attachPlayer()가 호출됨.
+  ///
+  /// - Player는 audio=off, keep-open=yes 상태로 열려 있음.
+  /// - 여기서는 VideoController 생성 + tick loop 시작만 담당.
   Future<void> attachPlayer(Player player) async {
+    if (_disposed) return;
+
     _player = player;
-    _vc = VideoController(player);
+    _controller ??= VideoController(player);
 
-    _syncTimer?.cancel();
-    _syncTimer = Timer.periodic(_tickInterval, (_) => _tick());
+    _logVideoSync('attachPlayer(): player attached');
 
-    _logSmpVideo(
-      'attachPlayer(): start sync timer every ${_tickInterval.inMilliseconds}ms',
+    _startTickLoop();
+  }
+
+  bool get isVideoLoaded => _player != null && _controller != null;
+
+  VideoController? get controller => _controller;
+
+  /// media_kit Player의 현재 영상 position.
+  Duration get videoPosition {
+    final p = _player;
+    if (p == null) return Duration.zero;
+    // media_kit Player.state.position 은 Duration.
+    return p.state.position;
+  }
+
+  // ===============================================================
+  // INTERNAL TICK LOOP
+  // ===============================================================
+
+  void _startTickLoop() {
+    if (_tickTimer != null) return;
+    if (_disposed) return;
+
+    // 대략 80ms 간격 (Audio SoT 50ms 폴링보다 약간 느리게)
+    _tickTimer = Timer.periodic(
+      const Duration(milliseconds: 80),
+      (_) => _onTick(),
+    );
+
+    _logVideoSync('tick loop started');
+  }
+
+  void _stopTickLoop() {
+    _tickTimer?.cancel();
+    _tickTimer = null;
+    _logVideoSync('tick loop stopped');
+  }
+
+  void _onTick() {
+    if (_tickRunning) return;
+    if (_disposed) return;
+    if (_player == null || _controller == null) return;
+
+    _tickRunning = true;
+    _tick().whenComplete(() {
+      _tickRunning = false;
+    });
+  }
+
+  Future<void> _tick() async {
+    final engine = EngineApi.instance;
+
+    // 오디오 트랙이 없거나 duration 미정이면 아무 것도 하지 않음
+    final dur = engine.duration;
+    if (dur <= Duration.zero) {
+      return;
+    }
+
+    // 영상도 로드된 상태가 아니면 skip
+    final player = _player;
+    if (player == null) return;
+
+    final audioPos = engine.position;
+    final videoPos = player.state.position;
+
+    // 1) pendingVideoTarget 우선 소비 (seekUnified 호출 직후 강제 align)
+    Duration? pending = engine.pendingVideoTarget;
+    if (pending != null) {
+      // EngineApi 쪽 채널은 여기서 소비 후 null로 초기화
+      engine.pendingVideoTarget = null;
+
+      // duration 기준 클램프
+      if (pending < Duration.zero) pending = Duration.zero;
+      if (pending > dur) pending = dur;
+
+      // 동일 타겟으로 반복 seek 방지
+      if (_lastAlignedTarget != pending) {
+        _lastAlignedTarget = pending;
+        await _seekVideo(pending);
+        _logVideoSync(
+          'tick(): consume pendingVideoTarget=${pending.inMilliseconds}ms',
+        );
+      } else {
+        _logVideoSync(
+          'tick(): pendingVideoTarget=${pending.inMilliseconds}ms (same as last), skip',
+        );
+      }
+
+      return;
+    }
+
+    // 2) 일반 SoT 기반 soft sync
+    final diffMs = (videoPos - audioPos).inMilliseconds.abs();
+
+    // 너무 작은 차이는 무시
+    const softThresholdMs = 60; // 60ms 이내면 그대로 둠
+    const hardThresholdMs = 250; // 250ms 이상이면 강제 align
+
+    if (diffMs < softThresholdMs) {
+      _logVideoSync(
+        'tick(): diff=$diffMs ms (<$softThresholdMs ms), no action',
+        tick: true,
+      );
+      return;
+    }
+
+    // hard threshold 이상이면 Audio SoT로 강제 align
+    if (diffMs >= hardThresholdMs) {
+      // 동일 위치 반복 seek 방지
+      final target = audioPos.inMilliseconds < 0
+          ? Duration.zero
+          : (audioPos > dur ? dur : audioPos);
+
+      if (_lastAlignedTarget == target) {
+        _logVideoSync(
+          'tick(): diff=$diffMs ms, but target=${target.inMilliseconds}ms already aligned, skip',
+        );
+        return;
+      }
+
+      _lastAlignedTarget = target;
+      _logVideoSync(
+        'tick(): hard align video to audio, '
+        'audio=${audioPos.inMilliseconds}ms, '
+        'video=${videoPos.inMilliseconds}ms',
+      );
+      await _seekVideo(target);
+      return;
+    }
+
+    // soft 구간(softThreshold ~ hardThreshold)에서는
+    // 굳이 seek해서 프레임을 튕기기보다는 자연스러운 차이로 두는 쪽을 채택.
+    _logVideoSync(
+      'tick(): diff=$diffMs ms (soft zone), keep as is',
+      tick: true,
     );
   }
 
-  // ============================================================
-  // INTERNAL DRIFT CORRECTION
-  // ============================================================
-  Future<void> _tick() async {
-    final p = _player;
-    if (p == null) return;
+  Future<void> _seekVideo(Duration target) async {
+    final player = _player;
+    if (player == null) return;
 
-    final engine = EngineApi.instance;
-
-    // duration(SoT 축)이 아직 정해지지 않았으면 아무것도 하지 않음
-    if (engine.duration <= Duration.zero) {
-      return;
-    }
-
-    // 1) EngineApi → VideoSync로 전달된 pending* 타겟 단일 소비
-    //
-    //  - pendingSeekTarget / pendingAlignTarget 둘 중 "마지막으로 설정된 값"만 유효
-    //  - 둘 중 하나라도 존재하면, 이번 tick에서는 drift 체크를 건너뛰고
-    //    해당 target으로 한 번만 비디오를 강제 정렬한다.
-    final pendingSeek = engine.pendingSeekTarget;
-    final pendingAlign = engine.pendingAlignTarget;
-    if (pendingSeek != null || pendingAlign != null) {
-      // 새 요청이 들어올 수 있으니, 일단 양쪽 채널 모두 정리한 뒤 로컬 변수만 사용
-      engine.pendingSeekTarget = null;
-      engine.pendingAlignTarget = null;
-
-      final Duration target = pendingSeek ?? pendingAlign!;
-      final String label = pendingSeek != null
-          ? 'pendingSeekTarget'
-          : 'pendingAlignTarget';
-
-      try {
-        _logSmpVideo(
-          '_tick(): consume $label=${target.inMilliseconds}ms',
-          tick: true,
-        );
-        await p.seek(target);
-        _lastAlignAt = DateTime.now();
-      } catch (_) {
-        _logSmpVideo('_tick(): $label seek failed (ignored)', tick: true);
-      }
-      return;
-    }
-
-    // 2) 주기(throttle) 체크
-    final now = DateTime.now();
-    if (_lastAlignAt != null && now.difference(_lastAlignAt!) < _tickInterval) {
-      return;
-    }
-
-    // 3) FFmpeg SoT(EngineApi.position) 기준 drift 계산
     try {
-      final audioPos = engine.position; // 이미 EngineApi에서 [0, duration]으로 클램프됨
-      final videoPos = p.state.position;
-
-      final diffMs = (videoPos - audioPos).inMilliseconds;
-
-      if (diffMs.abs() > _hardDriftMs) {
-        _logSmpVideo(
-          '_tick(): drift=${diffMs}ms (soft=$_softDriftMs, hard=$_hardDriftMs) → align video to audioPos=${audioPos.inMilliseconds}ms (videoPos=${videoPos.inMilliseconds}ms)',
-          tick: true,
-        );
-        await p.seek(audioPos);
-        _lastAlignAt = DateTime.now();
-      }
-    } catch (_) {
-      _logSmpVideo(
-        '_tick(): exception while checking drift (ignored)',
-        tick: true,
-      );
+      await player.seek(target);
+    } catch (e) {
+      debugPrint('[SMP/VideoSync] seekVideo error: $e');
     }
   }
 
-  // ============================================================
-  // PUBLIC ALIGN
-  // ============================================================
-  Future<void> align(Duration d) async {
-    final p = _player;
-    if (p == null) return;
+  // ===============================================================
+  // LIFECYCLE
+  // ===============================================================
 
-    final engine = EngineApi.instance;
-    final now = DateTime.now();
-
-    if (_lastAlignAt != null && now.difference(_lastAlignAt!) < _tickInterval) {
-      _logSmpVideo(
-        'align($d): throttled, lastAlignAt=${_lastAlignAt!.toIso8601String()}',
-      );
-      return;
-    }
-
-    // SoT 축 기준으로 한 번 더 클램프
-    Duration target = d;
-    final dur = engine.duration;
-    if (dur > Duration.zero) {
-      if (target < Duration.zero) target = Duration.zero;
-      if (target > dur) target = dur;
-    }
-
-    _lastAlignAt = now;
-
-    try {
-      _logSmpVideo(
-        'align($d): seek video to ${target.inMilliseconds}ms (dur=${dur.inMilliseconds}ms)',
-      );
-      await p.seek(target);
-    } catch (_) {
-      _logSmpVideo('align($d): seek failed (ignored)');
-    }
-  }
-
-  // ============================================================
-  // DISPOSE
-  // ============================================================
   Future<void> dispose() async {
-    _logSmpVideo('dispose(): stop sync timer & clear controller/player');
-    _syncTimer?.cancel();
-    _syncTimer = null;
-    _vc = null;
+    _disposed = true;
+    _stopTickLoop();
+
+    // VideoController는 위젯 트리 / 상위 레이어에서 관리되고,
+    // 현재 media_kit_video 버전에서는 명시적인 dispose() API가 없다.
+    // 여기서는 참조만 끊어준다.
+    _controller = null;
+
+    // Player의 생명주기는 EngineApi가 관리하므로 여기서 stop/dispose하지 않음.
     _player = null;
-    _lastAlignAt = null;
+
+    _logVideoSync('dispose(): service disposed');
   }
 }

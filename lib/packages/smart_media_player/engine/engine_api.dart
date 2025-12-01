@@ -7,7 +7,7 @@
 //  - 파일 로드(FFmpeg 네이티브 엔진 openFile)
 //  - play/pause/seekUnified
 //  - tempo/pitch/volume (네이티브 엔진)
-//  - spaceBehavior / playFromStartCue
+//  - spaceBehavior / playFromStartCue / loopExitToStartCue
 //  - unified seek (audio master, video slave)
 //  - video sync 보조 (VideoSyncService에 pending target 제공)
 //  - position/duration stream (FFmpeg SoT 기반)
@@ -69,9 +69,8 @@ class EngineApi {
   // SEEK LOCKING SYSTEM
   bool _seeking = false; // seekUnified() 실행 중 보호 플래그
 
-  // VideoSyncService에서 소비하는 pending 타겟들
-  Duration? _pendingSeekTarget; // 오디오 seek와 함께 비디오를 강제 정렬할 target
-  Duration? _pendingAlignTarget; // 오디오는 그대로 두고 비디오만 맞추고 싶을 때 사용할 수 있는 채널(예비)
+  // VideoSyncService에서 소비하는 단일 pending 타겟
+  Duration? _pendingVideoTarget;
 
   // Streams
   final _positionCtl = StreamController<Duration>.broadcast();
@@ -85,6 +84,10 @@ class EngineApi {
   // FFmpeg SoT polling용 타이머
   Timer? _positionTimer;
   DateTime? _lastPosLogAt;
+
+  // 🔥 오디오(FFmpeg SoT) 기준 트랙 종료 감지용 상태
+  Duration? _lastPolledPosition;
+  bool _endCandidate = false;
 
   // ================================================================
   // PUBLIC GETTERS
@@ -108,12 +111,20 @@ class EngineApi {
   Duration get videoPosition => VideoSyncService.instance.videoPosition;
   VideoController? get videoController => VideoSyncService.instance.controller;
 
-  // VideoSyncService Phase E 채널
-  Duration? get pendingSeekTarget => _pendingSeekTarget;
-  set pendingSeekTarget(Duration? v) => _pendingSeekTarget = v;
+  // VideoSyncService Phase E: 단일 pendingVideoTarget 채널
+  Duration? get pendingVideoTarget => _pendingVideoTarget;
+  set pendingVideoTarget(Duration? v) => _pendingVideoTarget = v;
 
-  Duration? get pendingAlignTarget => _pendingAlignTarget;
-  set pendingAlignTarget(Duration? v) => _pendingAlignTarget = v;
+  // 🔁 기존 이름과의 호환용(다른 파일에서 참조 중일 수 있으므로 남겨둠)
+  @Deprecated('Use pendingVideoTarget instead')
+  Duration? get pendingSeekTarget => _pendingVideoTarget;
+  @Deprecated('Use pendingVideoTarget instead')
+  set pendingSeekTarget(Duration? v) => _pendingVideoTarget = v;
+
+  @Deprecated('pendingAlignTarget merged into pendingVideoTarget')
+  Duration? get pendingAlignTarget => _pendingVideoTarget;
+  @Deprecated('pendingAlignTarget merged into pendingVideoTarget')
+  set pendingAlignTarget(Duration? v) => _pendingVideoTarget = v;
 
   // ================================================================
   // INTERNAL HELPERS (P2/P3: StartCue/Loop = “범위 정보”, seek = “자유 시킹”)
@@ -123,15 +134,7 @@ class EngineApi {
   /// - EngineApi에서는 "목표 등록"만 하고
   /// - 실제 mpv.seek는 VideoSyncService._tick()에서만 수행한다.
   void _scheduleVideoSeek(Duration target) {
-    _pendingSeekTarget = target;
-    _pendingAlignTarget = null;
-  }
-
-  /// 오디오는 그대로 두고 비디오만 정렬하고 싶을 때 사용할 수 있는 채널.
-  /// (현재 P2/P3에서는 아직 적극 사용하지 않지만, 향후 확장용으로 남겨둠)
-  void _scheduleVideoAlign(Duration target) {
-    _pendingAlignTarget = target;
-    _pendingSeekTarget = null;
+    _pendingVideoTarget = target;
   }
 
   /// 유효 Loop 여부 판단(엔진 기준 글로벌 타임라인 클램프 후 A < B인지 확인)
@@ -168,6 +171,27 @@ class EngineApi {
     return _clampToDuration(target);
   }
 
+  // 🔥 오디오(SoT) 기준 트랙 종료 처리 공통 루틴
+  Future<void> _handleTrackCompleted() async {
+    try {
+      // StartCue 정규화 + 내부 상태 업데이트
+      final cue = _normalizeStartCueValue(_lastStartCue);
+      _lastStartCue = cue;
+
+      _logSmpEngine(
+        'trackCompleted: seek back to StartCue=${cue.inMilliseconds}ms and auto play',
+      );
+
+      // StartCue 정보를 같이 넘겨서 엔진 내부 상태도 일관되게 유지
+      await seekUnified(cue, startCue: cue);
+
+      // ✅ P3 규칙: Loop OFF + 트랙 끝 → StartCue에서 자동 재생 유지
+      await play();
+    } catch (e) {
+      debugPrint('[EngineApi] track-completed error: $e');
+    }
+  }
+
   // ================================================================
   // INIT
   // ================================================================
@@ -189,7 +213,33 @@ class EngineApi {
           ? _clampToDuration(raw)
           : raw; // duration 미정일 때는 raw 그대로
 
+      // === 기본 position 스트림 전파 ===
       _positionCtl.add(pos);
+
+      // === 오디오(SoT) 기반 트랙 종료 감지 ===
+      if (_duration > Duration.zero) {
+        // "끝 근처" 영역 (마지막 80ms)
+        final endThreshold = _duration - const Duration(milliseconds: 80);
+        final wasAtEnd =
+            _lastPolledPosition != null && _lastPolledPosition! >= endThreshold;
+        final isAtEnd = pos >= endThreshold;
+
+        // 끝 영역에 진입 → "후보" 플래그
+        if (!wasAtEnd && isAtEnd) {
+          _endCandidate = true;
+        }
+
+        // 후보 상태에서 위치가 더 이상 안 움직이고(정지) 오디오는 재생 중이면 → 실제 종료로 간주
+        if (_endCandidate &&
+            _lastPolledPosition != null &&
+            pos == _lastPolledPosition &&
+            _nativePlaying) {
+          _endCandidate = false;
+          unawaited(_handleTrackCompleted());
+        }
+      }
+
+      _lastPolledPosition = pos;
 
       // SoT 로깅 (500ms 이상 간격으로만 + tick 채널에만)
       final now = DateTime.now();
@@ -212,21 +262,9 @@ class EngineApi {
       _logSmpEngine('player.stream.playing: mpvPlaying=$v, combined=$combined');
     });
 
-    // 재생 완료 이벤트 (영상 기준)
-    _player.stream.completed.listen((_) async {
-      try {
-        // StartCue는 항상 [0, duration] 범위로만 정규화
-        final cue = _normalizeStartCueValue(_lastStartCue);
-        _logSmpEngine(
-          'completed: seek back to StartCue=${cue.inMilliseconds}ms and auto play',
-        );
-
-        // 완료 시에는 항상 StartCue로 돌아가 자동 재생
-        await seekUnified(cue);
-        await play();
-      } catch (e) {
-        debugPrint('[EngineApi] end-event error: $e');
-      }
+    // 🔁 영상 완료 이벤트는 "오디오 마스터" 원칙상 트랙 종료 로직을 직접 건드리지 않는다.
+    _player.stream.completed.listen((_) {
+      _logSmpEngine('player.stream.completed: video completed (audio=master)');
     });
   }
 
@@ -251,10 +289,11 @@ class EngineApi {
     _hasFile = false;
     _duration = Duration.zero;
     _lastStartCue = Duration.zero;
-    _pendingSeekTarget = null;
-    _pendingAlignTarget = null;
+    _pendingVideoTarget = null;
     _nativePlaying = false;
     _playingCtl.add(false);
+    _lastPolledPosition = null;
+    _endCandidate = false;
 
     // 네이티브 엔진에 파일 오픈
     final ok = stOpenFile(path);
@@ -319,19 +358,34 @@ class EngineApi {
       'play() requested at pos=${cur.inMilliseconds}ms, nativePlaying=$_nativePlaying',
     );
 
-    // 네이티브 엔진에 play 신호
-    stPlay();
-    _nativePlaying = true;
+    // 🔒 이미 네이티브 엔진이 재생 중이면 절대 FFI 호출하지 않음
+    if (_nativePlaying) {
+      _logSmpEngine(
+        'play(): nativePlaying already true, skip stPlay() / _player.play()',
+      );
+      return;
+    }
 
     try {
+      // 1) FFmpeg / SoundTouch 네이티브 엔진 재생 시작
+      stPlay();
+      _nativePlaying = true;
+    } catch (e) {
+      debugPrint('[EngineApi] play() stPlay error: $e');
+    }
+
+    try {
+      // 2) 영상 플레이어(mpv) 재생 시작 (영상 없으면 예외 무시)
       await _player.play();
     } catch (_) {
       // 영상이 없으면 무시
     }
 
+    // 3) 상위 레이어에 "지금은 재생 중"이라고 브로드캐스트
     _playingCtl.add(true);
     _logSmpEngine('play(): now nativePlaying=$_nativePlaying');
   }
+
 
   Future<void> pause() async {
     final cur = position;
@@ -363,98 +417,58 @@ class EngineApi {
   }
 
   // ================================================================
-  // SPACE BEHAVIOR (P3 통합 규칙)
+  // Space Behavior
+  //
+  //  - 재생 중: pause()
+  //  - 정지 상태: StartCue로 seek + play()
+  //
+  //  Loop ON/OFF, loopA/B 인자는 현재는 "참고 정보"로만 사용하고,
+  //  실제 루프 동작은 LoopExecutor 쪽에서 처리한다.
   // ================================================================
-  ///
-  /// P3 규칙 요약:
-  /// - 재생 중 Space → 항상 pause()
-  /// - 정지/일시정지 상태에서 Space:
-  ///   1) Loop ON + 유효 Loop(A < B) 이면:
-  ///      - pos ∈ [A,B]  → 현재 pos에서 재생 시작
-  ///      - pos ∉ [A,B]  → StartCue에서 재생 시작
-  ///   2) Loop OFF 또는 유효 Loop 없음:
-  ///      - StartCue 후보(sc)를 [0,duration]으로 정규화 후 그 지점에서 재생
-  ///      - 0 근처에서 Stop/Pause 상태인 경우 StartCue를 0으로 스냅
-  ///
-  ///  - sc는 UI에서 전달하는 "시작 후보 지점"(StartCue 또는 드래그 위치)
-  ///  - LoopA/B는 단지 범위 정보이며, seek 상한/하한으로 개입하지 않는다.
   Future<void> spaceBehavior(
-    Duration sc, {
+    Duration startCue, {
     Duration? loopA,
     Duration? loopB,
     bool loopOn = false,
   }) async {
+    if (!_hasFile) return;
+
     final cur = position;
-    final durMs = _duration.inMilliseconds;
+    final dur = _duration;
 
     _logSmpEngine(
-      'spaceBehavior() called with sc=${sc.inMilliseconds}ms, '
-      'cur=${cur.inMilliseconds}ms, dur=$durMs, '
-      'isPlaying=$isPlaying, loopOn=$loopOn, '
-      'loopA=${loopA?.inMilliseconds}, loopB=${loopB?.inMilliseconds}',
+      'spaceBehavior() called with '
+      'sc=${startCue.inMilliseconds}ms, '
+      'cur=${cur.inMilliseconds}ms, '
+      'dur=${dur.inMilliseconds}, '
+      'isPlaying=$_nativePlaying, '
+      'loopOn=$loopOn',
     );
 
-    // 1) 재생 중이면 pause
-    if (isPlaying) {
-      _logSmpEngine('spaceBehavior(): currently playing → pause()');
+    // 🔺 재생 중 → pause
+    if (_nativePlaying) {
       await pause();
       return;
     }
 
-    // 2) StartCue 후보 정규화 (Loop와 무관하게 [0, duration] 기준)
-    final cue = _normalizeStartCueValue(sc, loopA: loopA, loopB: loopB);
+    // 🔻 정지 상태 → StartCue 정규화 후, 그 위치에서 재생
+    final cue = _normalizeStartCueValue(startCue, loopA: loopA, loopB: loopB);
+
+    // P3: Space로 재생을 시작한 StartCue를 엔진 측에서도 SoT 기준으로 기억
     _lastStartCue = cue;
 
-    Duration start;
-
-    final bool hasLoop = loopOn && _hasValidLoop(loopA, loopB);
-    if (hasLoop) {
-      // Loop 범위 안/밖에 따라 시작 위치 결정
-      final a = _clampToDuration(loopA!);
-      final b = _clampToDuration(loopB!);
-
-      if (cur >= a && cur <= b) {
-        // Loop ON + pos ∈ [A,B] → 현재 위치에서 재생
-        start = cur;
-        _logSmpEngine(
-          'spaceBehavior(): Loop ON & cur in [A,B] → start from current pos=${start.inMilliseconds}ms',
-        );
-      } else {
-        // Loop ON + pos ∉ [A,B] → StartCue에서 재생
-        start = cue;
-        _logSmpEngine(
-          'spaceBehavior(): Loop ON & cur outside [A,B] → start from StartCue=${start.inMilliseconds}ms',
-        );
-      }
-    } else {
-      // Loop OFF: StartCue/드래그 위치만 기준
-      // 0 근처에서 Stop/Pause 상태인 경우 StartCue를 0으로 스냅하는 기존 규칙 유지
-      if (cur < const Duration(milliseconds: 200) &&
-          _duration > Duration.zero) {
-        start = Duration.zero;
-        _logSmpEngine(
-          'spaceBehavior(): Loop OFF & near start → snap start to 0ms',
-        );
-      } else {
-        start = cue;
-        _logSmpEngine(
-          'spaceBehavior(): Loop OFF → start from cue=${start.inMilliseconds}ms',
-        );
-      }
-    }
-
-    _logSmpEngine(
-      'spaceBehavior(): final start=${start.inMilliseconds}ms (cue=${cue.inMilliseconds}ms)',
-    );
-
-    // seek는 항상 "자유 이동" (Loop/StartCue로 추가 클램프 없음)
-    await seekUnified(start, loopA: loopA, loopB: loopB, startCue: cue);
+    await seekUnified(cue, loopA: loopA, loopB: loopB, startCue: cue);
     await play();
   }
 
+
   // ================================================================
-  // LOOP EXIT → StartCue + Pause
+  // LOOP EXIT → StartCue + Auto Play
   // ================================================================
+  ///
+  /// LoopExecutor 등에서 마지막 루프 종료 후 호출:
+  ///  - StartCue로 seek
+  ///  - 즉시 play() 유지 (Loop OFF + StartCue 재생 유지)
   Future<void> loopExitToStartCue(
     Duration sc, {
     Duration? loopA,
@@ -474,7 +488,8 @@ class EngineApi {
     );
 
     await seekUnified(cue, loopA: loopA, loopB: loopB, startCue: cue);
-    await pause();
+    // ✅ 의도: 루프 종료 후 StartCue에서 바로 재생 유지
+    await play();
   }
 
   // ================================================================
@@ -772,6 +787,7 @@ class EngineApi {
       'wasPlaying=$wasPlaying',
     );
 
+    // 내부 상태 상 pos를 먼저 갱신 (SoT 기준)
     _positionCtl.add(target);
 
     try {
@@ -787,8 +803,15 @@ class EngineApi {
     }
 
     if (wasPlaying) {
-      _logSmpEngine('seekUnified(): resume play after seek');
-      await play();
+      // 🔒 재생 중이었는데, 이미 nativePlaying=true라면 추가 resume 금지
+      if (!_nativePlaying) {
+        _logSmpEngine('seekUnified(): resume play after seek');
+        await play();
+      } else {
+        _logSmpEngine(
+          'seekUnified(): already nativePlaying=true, skip resume play',
+        );
+      }
     } else {
       // 오디오는 정지 상태 유지, 영상도 정지 상태로 맞춰준다.
       try {
@@ -797,6 +820,7 @@ class EngineApi {
       _logSmpEngine('seekUnified(): keep paused after seek');
     }
   }
+
 
   // ================================================================
   // PUBLIC FFRW FACADE & HELPERS
@@ -882,8 +906,9 @@ class EngineApi {
 
     _hasFile = false;
     _nativePlaying = false;
-    _pendingSeekTarget = null;
-    _pendingAlignTarget = null;
+    _pendingVideoTarget = null;
+    _lastPolledPosition = null;
+    _endCandidate = false;
 
     // 3) SoT / duration / playing 상태 리셋
     _duration = Duration.zero;

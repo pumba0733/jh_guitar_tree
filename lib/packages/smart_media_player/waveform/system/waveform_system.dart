@@ -1,287 +1,181 @@
 // lib/packages/smart_media_player/waveform/system/waveform_system.dart
 //
 // SmartMediaPlayer v3.8-FF — STEP 3 / P1
-// WaveformController 1차 정렬본
+// WaveformController 정리본 (StartCue 루프 방지 포함)
 //
 // ✅ 책임 정리
-// - AudioChain / SoundTouchAudioChain 의존성 완전 제거
-// - 외부(EngineApi.position/duration 스트림 등)가 FFmpeg SoT 기준으로
-//   updateFromPlayer(pos, dur)를 호출하는 구조로 사용
-// - 이 레벨에서는 StartCue / Loop / Seek를 "값 보관 + 콜백 전달"만 하고,
-//   재생 규칙(Loop 진입/탈출, Space, FF/FR)은 전부 EngineApi / Screen 쪽 책임.
+// - FFmpeg SoT(position/duration) 기준으로 updateFromPlayer(pos, dur) 호출
+// - loopA / loopB / loopOn / loopRepeat / selection / viewport / markers 상태 보관
+// - onSeek / onPause / onLoopSet / onStartCueSet 콜백 슬롯 제공
+// - StartCue는 Screen이 보관하고, Controller는 "표시 + notify"만 담당
 //
-// ✅ 타임라인 / 규칙
-// - FF/FR/파형 드래그 = 항상 0 ~ duration 자유 이동
-//   → 여기서는 clamp만 duration 기준으로 처리
-// - StartCue / Loop 값은 여기서 “벽”으로 쓰이지 않는다.
-// - SoT(EngineApi.position)는 updateFromPlayer로만 들어오고,
-//   recordSeekTimestamp() + _blockWindow로 seek 직후 낡은 position을 무시한다.
+// 🔥 중요
+// - setStartCue() 는 programmatic update 전용이다.
+//   → 여기서는 onStartCueSet 콜백을 절대 호출하지 않는다.
+//   → 제스처에서 올라오는 StartCue는 WaveformPanel이 onStartCueSet을 직접 호출.
+// - setStartCue() 안에는 재진입 가드가 있어서 Controller listener 경유 루프를 막는다.
 //
 
 import 'package:flutter/material.dart';
 
 class WfMarker {
   final Duration time;
-  final String? label;
+  String label;
   final Color? color;
-  final bool repeat;
+  final int? repeat;
 
-  const WfMarker(this.time, [this.label, this.color, this.repeat = false]);
+  WfMarker(this.time, this.label, {this.color, this.repeat});
 
-  const WfMarker.named({
-    required this.time,
-    this.label,
-    this.color,
-    this.repeat = false,
-  });
+  WfMarker.named({
+    required Duration time,
+    required String label,
+    Color? color,
+    int? repeat,
+  }) : time = time,
+       label = label,
+       color = color,
+       repeat = repeat;
 }
 
-class WaveformController {
-  // ===== Timeline =====
-  final ValueNotifier<Duration> duration = ValueNotifier(Duration.zero);
+
+class WaveformController extends ChangeNotifier {
+  // === 타임라인 핵심 ===
   final ValueNotifier<Duration> position = ValueNotifier(Duration.zero);
+  final ValueNotifier<Duration> duration = ValueNotifier(Duration.zero);
 
-  // ===== Internal timing guards (seek 직후 엔진 position 스트림 무시용) =====
-  DateTime? _lastSeekAt;
-  final Duration _blockWindow = const Duration(milliseconds: 120);
-
-  // ===== Viewport (0~1 frac) =====
-  final ValueNotifier<double> viewStart = ValueNotifier(0.0);
-  final ValueNotifier<double> viewWidth = ValueNotifier(1.0);
-
-  // ===== Loop (player state) =====
+  // === Loop / Selection ===
   final ValueNotifier<Duration?> loopA = ValueNotifier<Duration?>(null);
   final ValueNotifier<Duration?> loopB = ValueNotifier<Duration?>(null);
   final ValueNotifier<bool> loopOn = ValueNotifier<bool>(false);
   final ValueNotifier<int> loopRepeat = ValueNotifier<int>(0);
 
-  // ===== Selection (visual-only) =====
   final ValueNotifier<Duration?> selectionA = ValueNotifier<Duration?>(null);
   final ValueNotifier<Duration?> selectionB = ValueNotifier<Duration?>(null);
 
-  // ===== Markers =====
+  // === Viewport (0~1 구간) ===
+  final ValueNotifier<double> viewStart = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> viewWidth = ValueNotifier<double>(1.0);
+
+  // === Marker ===
   final ValueNotifier<List<WfMarker>> markers = ValueNotifier<List<WfMarker>>(
     <WfMarker>[],
   );
 
-  // ===== Start Cue =====
-  final ValueNotifier<Duration?> startCue = ValueNotifier<Duration?>(null);
+  // === StartCue (내부 값만 보관) ===
+  Duration _startCue = Duration.zero;
+  Duration get startCue => _startCue;
 
-  // ===== Bridge callbacks (Panel -> Screen/Engine) =====
-  /// 클릭/스크럽 등으로 발생한 seek 요청.
-  /// 외부에서 EngineApi.seekUnified(...) 등을 호출하도록 연결.
-  void Function(Duration t)? onSeek;
+  // 🔥 StartCue 재진입 방지
+  bool _inSetStartCue = false;
 
-  /// Start Cue 설정 시 호출.
-  void Function(Duration t)? onStartCueSet;
+  // === Gesture / Panel 콜백 슬롯 ===
+  void Function(Duration)? onSeek;
+  VoidCallback? onPause;
+  void Function(Duration?, Duration?)? onLoopSet;
+  void Function(Duration)? onStartCueSet;
 
-  /// 드래그 끝 등으로 loop 구간이 확정될 때 호출.
-  void Function(Duration a, Duration b)? onLoopSet;
+  DateTime? _lastSeekGestureAt;
 
-  /// 필요 시 외부에서 일시정지를 걸고 싶을 때 사용할 수 있는 선택적 hook.
-  void Function()? onPause;
-
-  void Function()? onMarkersChanged;
-
-  // ===============================================================
-  // INTERNAL HELPERS
-  // ===============================================================
-
-  /// 0ms ~ duration.value 범위로 clamp.
-  ///
-  /// - duration이 아직 0이면 상한은 강제하지 않고, 0ms 이하만 막는다.
-  Duration _clampToDuration(Duration t) {
-    var result = t;
-    if (result.isNegative) {
-      result = Duration.zero;
-    }
-    final d = duration.value;
-    if (d > Duration.zero && result > d) {
-      result = d;
-    }
-    return result;
-  }
-
-  /// Controller 내부에서 “사용자 제스처 기반 seek를 트리거”할 때
-  /// 이 메서드를 먼저 호출해 두면,
-  /// 이후 짧은 시간(_blockWindow 동안) 동안 엔진 position 스트림에서 오는
-  /// 오래된 값들은 무시된다.
-  void recordSeekTimestamp() {
-    _lastSeekAt = DateTime.now();
-  }
-
-  // ===============================================================
-  // ENGINE (FFmpeg SoT) -> CONTROLLER 동기화
-  // ===============================================================
-
-  /// EngineApi.position / EngineApi.duration(FFmpeg SoT)을 기준으로
-  /// 주기적으로 호출되는 업데이트 엔트리 포인트.
-  ///
-  /// - [dur]이 주어지면 duration ValueNotifier를 갱신
-  /// - [pos]가 주어지면, 최근 recordSeekTimestamp() 이후
-  ///   _blockWindow 안에 들어온 값은 무시 (seek race 방지)
+  // ============================================================
+  // Player → Controller SoT 동기화
+  // ============================================================
   void updateFromPlayer({Duration? pos, Duration? dur}) {
-    // ----- duration 안정화 -----
-    if (dur != null) {
-      if (duration.value == Duration.zero && dur > Duration.zero) {
-        duration.value = dur;
-      } else if (duration.value > Duration.zero && dur > Duration.zero) {
-        duration.value = dur;
-      }
-    }
-
-    // ----- position seek-race 방지 -----
-    if (pos != null) {
-      final now = DateTime.now();
-      if (_lastSeekAt != null && now.difference(_lastSeekAt!) < _blockWindow) {
-        // seek 직후 짧은 시간 동안의 오래된 position 값은 무시
-        return;
-      }
+    if (pos != null && pos != position.value) {
       position.value = pos;
     }
+    if (dur != null && dur != duration.value) {
+      duration.value = dur;
+    }
   }
 
-  // ===============================================================
-  // SEEK / DRAG ENTRYPOINTS (UI → ENGINE)
-  // ===============================================================
-
-  /// FF/FR/파형 드래그 등 “타임라인 자유 이동”용 통합 엔트리 포인트.
-  ///
-  /// - [target]은 항상 0 ~ duration 범위로 clamp
-  /// - 내부에서 recordSeekTimestamp()를 호출해 seek race 방지
-  /// - 필요 시 [pauseBeforeSeek]로 엔진 측 일시정지를 먼저 트리거
-  /// - position.value를 즉시 갱신해서 UI를 빠르게 따라가게 만든다.
-  void requestSeek(Duration target, {bool pauseBeforeSeek = false}) {
-    final clamped = _clampToDuration(target);
-
-    recordSeekTimestamp();
-
-    if (pauseBeforeSeek) {
-      onPause?.call();
-    }
-
-    // UI를 먼저 최신 위치로 갱신
-    position.value = clamped;
-
-    // 엔진 쪽으로 실제 seek 전달
-    onSeek?.call(clamped);
+  void setDuration(Duration d) {
+    if (d == duration.value) return;
+    duration.value = d;
   }
 
-  // ===============================================================
-  // DRIFT-FREE VIEWPORT — Step 7-2
-  // ===============================================================
-  void setViewport({required double start, required double width}) {
-    double _norm(double v) => double.parse(v.toStringAsFixed(8));
+  // ============================================================
+  // Loop 설정 (A/B + on)
+  // ============================================================
+  void setLoop({Duration? a, Duration? b, required bool on}) {
+    final changed = a != loopA.value || b != loopB.value || on != loopOn.value;
 
-    double s = _norm(start.clamp(0.0, 1.0));
-    double w = _norm(width.clamp(0.01, 1.0));
+    loopA.value = a;
+    loopB.value = b;
+    loopOn.value = on;
 
-    if (s + w > 1.0) {
-      s = _norm(1.0 - w);
-      if (s < 0.0) s = 0.0;
+    if (changed) {
+      onLoopSet?.call(a, b);
+      notifyListeners();
     }
+  }
+
+  // ============================================================
+  // StartCue programmatic update
+  //
+  // - Screen/Sidecar/Normalize 에서 호출
+  // - 제스처 콜백(onStartCueSet)은 절대 호출하지 않는다.
+  // - 동일값이면 아무 것도 하지 않음.
+  // - 재진입 방지 플래그로 StackOverflow 차단.
+  // ============================================================
+  void setStartCue(Duration value, {bool notify = true}) {
+    if (_inSetStartCue) return; // 재진입 방어
+    if (value == _startCue) return; // 동일값이면 무시
+
+    _inSetStartCue = true;
+    _startCue = value;
+
+    // 🔥 여기서는 onStartCueSet 을 호출하지 않는다.
+    //    → onStartCueSet 은 "제스처 → Screen" 단방향 채널로만 사용.
+    if (notify) {
+      notifyListeners();
+    }
+
+    _inSetStartCue = false;
+  }
+
+  // ============================================================
+  // Marker / Selection / Viewport 유틸
+  // ============================================================
+  void setMarkers(List<WfMarker> list) {
+    markers.value = List<WfMarker>.unmodifiable(list);
+    notifyListeners();
+  }
+
+  void setSelection({Duration? a, Duration? b}) {
+    selectionA.value = a;
+    selectionB.value = b;
+    notifyListeners();
+  }
+
+  void setViewport({double? start, double? width}) {
+    final s = (start ?? viewStart.value).clamp(0.0, 1.0);
+    final w = (width ?? viewWidth.value).clamp(0.001, 1.0);
 
     viewStart.value = s;
     viewWidth.value = w;
-
-    _vpLog('viewport set: start=$s width=$w');
+    notifyListeners();
   }
 
-  // ===============================================================
-  // LOOP / START CUE / SELECTION / MARKERS
-  // ===============================================================
-
-  /// Loop 값 세팅 (엔진 규칙은 건드리지 않음 / 여기서는 값 보관만).
-  void setLoop({Duration? a, Duration? b, bool? on}) {
-    if (a != null) {
-      loopA.value = _clampToDuration(a);
-    }
-    if (b != null) {
-      loopB.value = _clampToDuration(b);
-    }
-    if (on != null) {
-      loopOn.value = on;
-    }
+  // 제스처 쪽에서 시킹 직전에 호출 (SoT race trace용)
+  void recordSeekTimestamp() {
+    _lastSeekGestureAt = DateTime.now();
   }
 
-  /// Selection은 순수 시각적 개념.
-  /// - loop와는 별개
-  /// - StartCue/Loop의 “벽” 역할을 하지 않는다.
-  void setSelection({Duration? a, Duration? b, bool clear = false}) {
-    if (clear) {
-      selectionA.value = null;
-      selectionB.value = null;
-      return;
-    }
+  DateTime? get lastSeekGestureAt => _lastSeekGestureAt;
 
-    if (a != null) {
-      selectionA.value = _clampToDuration(a);
-    }
-    if (b != null) {
-      selectionB.value = _clampToDuration(b);
-    }
-  }
-
-  void clearSelection() {
-    selectionA.value = null;
-    selectionB.value = null;
-  }
-
-  void setStartCue(Duration t) {
-    final clamped = _clampToDuration(t);
-    startCue.value = clamped;
-    onStartCueSet?.call(clamped);
-  }
-
-  void setMarkers(List<WfMarker> list) {
-    // Marker time도 0~duration 범위로 정리
-    final d = duration.value;
-    final normalized = list.map((m) {
-      final clampedTime = (d > Duration.zero)
-          ? _clampToDuration(m.time)
-          : (m.time.isNegative ? Duration.zero : m.time);
-      if (clampedTime == m.time) return m;
-      return WfMarker.named(
-        time: clampedTime,
-        label: m.label,
-        color: m.color,
-        repeat: m.repeat,
-      );
-    }).toList();
-
-    markers.value = normalized;
-    onMarkersChanged?.call();
-  }
-
-  // ===============================================================
-  // LIFECYCLE
-  // ===============================================================
+  @override
   void dispose() {
-    // 현재는 외부 스트림에 직접 subscribe 하지 않는 순수 컨트롤러.
-    // 이후 EngineApi.position 스트림 등에 직접 바인딩하는 기능을
-    // 추가한다면, 여기에서 StreamSubscription 정리 로직을 넣으면 된다.
-  }
-
-  // ===============================================================
-  // DEBUG (optional)
-  // ===============================================================
-
-  bool debugTrackViewport = false;
-  DateTime? _lastVpLogAt;
-
-  void _vpLog(String s) {
-    if (!debugTrackViewport) return;
-    final now = DateTime.now();
-    if (_lastVpLogAt == null ||
-        now.difference(_lastVpLogAt!) > const Duration(milliseconds: 300)) {
-      // ignore: avoid_print
-      print('[WaveformController] $s');
-      _lastVpLogAt = now;
-    }
-  }
-
-  // 외부에서 duration을 강제로 세팅하고 싶을 때 사용할 수 있는 헬퍼
-  void setDuration(Duration d) {
-    duration.value = d;
+    position.dispose();
+    duration.dispose();
+    loopA.dispose();
+    loopB.dispose();
+    loopOn.dispose();
+    loopRepeat.dispose();
+    selectionA.dispose();
+    selectionB.dispose();
+    viewStart.dispose();
+    viewWidth.dispose();
+    markers.dispose();
+    super.dispose();
   }
 }

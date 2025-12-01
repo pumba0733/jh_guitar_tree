@@ -7,7 +7,6 @@
 // StartCue는 screen.dart가 책임지므로 loopExecutor는 관여하지 않음.
 
 import 'dart:async';
-import '../engine/engine_api.dart';
 
 class LoopExecutor {
   // ===== 외부 주입 =====
@@ -67,7 +66,6 @@ class LoopExecutor {
     onLoopRemainingChanged?.call(remaining);
   }
 
-
   // ============================================================
   // B. Repeat
   // ============================================================
@@ -94,7 +92,6 @@ class LoopExecutor {
     onLoopStateChanged?.call(false);
     onLoopRemainingChanged?.call(remaining);
   }
-
 
   // ============================================================
   // D. Loop B
@@ -203,11 +200,9 @@ class LoopExecutor {
         // Case: 무한 or 아직 남음 → A로 재진입
         await seek(a);
 
-        // 🔥 Step 6-C: loop 재진입 시 영상 즉시 align 보장
-        try {
-          EngineApi.instance.pendingAlignTarget = a;
-        } catch (_) {}
-
+        // 🔥 Step 6-C: 이전에는 여기서 EngineApi.pendingAlignTarget을 직접 만졌지만,
+        //    P2/P3 이후에는 EngineApi.seekUnified() + VideoSyncService가
+        //    비디오를 따라오게 하므로, loopExecutor는 오디오 타임라인만 책임진다.
         await play();
       }
     } finally {
@@ -225,5 +220,4 @@ class LoopExecutor {
     }
     onLoopRemainingChanged?.call(remaining);
   }
-
 }

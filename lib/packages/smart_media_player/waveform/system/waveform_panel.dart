@@ -21,6 +21,7 @@ import 'package:flutter/material.dart';
 import '../waveform_cache.dart';
 import '../waveform_view.dart';
 import 'waveform_system.dart';
+import '../../ui/smp_waveform_gestures.dart'; // 🔹 드래그 StartCue 규칙 연동용
 
 class WaveformPanel extends StatefulWidget {
   final WaveformController controller;
@@ -29,6 +30,9 @@ class WaveformPanel extends StatefulWidget {
   final String cacheDir;
   final VoidCallback? onStateDirty;
 
+  /// 🔹 P3: 타임라인 드래그(스크럽) 규칙 연동용 제스처 헬퍼 (옵션)
+  final SmpWaveformGestures? gestures;
+
   const WaveformPanel({
     super.key,
     required this.controller,
@@ -36,6 +40,7 @@ class WaveformPanel extends StatefulWidget {
     required this.mediaHash,
     required this.cacheDir,
     this.onStateDirty,
+    this.gestures,
   });
 
   @override
@@ -53,14 +58,23 @@ class _WaveformPanelState extends State<WaveformPanel> {
 
   List<double> _rmsL = const [];
 
-  // 드래그 상태
+  // 드래그 상태 (루프/마커/구간 선택)
   bool _draggingA = false;
   bool _draggingB = false;
   bool _dragSelecting = false;
   int _draggingMarkerIndex = -1;
 
-  // 외부 변경에 즉시 반응
-  Listenable get _mergedListenable => Listenable.merge([
+  // 🔹 타임라인 스크럽 드래그 상태 (StartCue 규칙 연동용)
+  int? _scrubPointerId;
+  Offset? _scrubStartLocal;
+  bool _scrubStarted = false;
+
+  SmpWaveformGestures? get _gestures => widget.gestures;
+
+Listenable get _mergedListenable => Listenable.merge([
+    // 🔥 StartCue는 setStartCue()에서 notifyListeners()만 호출하므로
+    // 컨트롤러 자체를 리슨해서 반영하도록 추가
+    widget.controller,
     widget.controller.selectionA,
     widget.controller.selectionB,
     widget.controller.loopOn,
@@ -69,8 +83,9 @@ class _WaveformPanelState extends State<WaveformPanel> {
     widget.controller.viewStart,
     widget.controller.viewWidth,
     widget.controller.markers,
-    widget.controller.startCue,
+    // ⛔ startCue는 Duration 값이라 Listenable이 아님 → 제거
   ]);
+
 
   @override
   void initState() {
@@ -242,7 +257,7 @@ class _WaveformPanelState extends State<WaveformPanel> {
     widget.onStateDirty?.call();
   }
 
-    // selection만 지우는 헬퍼 (엔진/LoopExecutor에는 영향 없음)
+  // selection만 지우는 헬퍼 (엔진/LoopExecutor에는 영향 없음)
   void _clearSelectionOnly() {
     final c = widget.controller;
     c.selectionA.value = null;
@@ -281,8 +296,6 @@ class _WaveformPanelState extends State<WaveformPanel> {
     widget.onStateDirty?.call();
   }
 
-
-
   void _updateMarkerTime(int index, Duration t) {
     final c = widget.controller;
     final list = List<WfMarker>.from(c.markers.value);
@@ -296,6 +309,13 @@ class _WaveformPanelState extends State<WaveformPanel> {
     list.sort((a, b) => a.time.compareTo(b.time));
     c.setMarkers(list);
     widget.onStateDirty?.call();
+  }
+
+  // 스크럽 드래그 상태 초기화
+  void _resetScrubState() {
+    _scrubPointerId = null;
+    _scrubStartLocal = null;
+    _scrubStarted = false;
   }
 
   @override
@@ -468,14 +488,14 @@ class _WaveformPanelState extends State<WaveformPanel> {
                       markerColors: markerColors,
 
                       // ✅ StartCue는 Controller 단일 소스 (Screen에서만 설정)
-                      startCue: widget.controller.startCue.value,
+                      startCue: widget.controller.startCue,
                       showStartCue: true,
                       showHandles: true,
                     ),
                   ),
                 ),
 
-                // === ② 클릭(탭) 전용, 드래그와 경쟁 방지 ===
+                // === ② 클릭/스크럽 전용, 드래그와 경쟁 방지 ===
                 Positioned.fill(
                   child: Listener(
                     behavior: HitTestBehavior.translucent,
@@ -496,17 +516,19 @@ class _WaveformPanelState extends State<WaveformPanel> {
                           // 위치 이동 (순수 seek)
                           c.position.value = jump;
 
-                          // seek 요청 전달
+                          // seek 요청 전달 (StartCue/Loop는 Gestures/Screen에서 처리)
                           final cb = c.onSeek;
                           if (cb != null) {
                             scheduleMicrotask(() => cb(jump));
                           }
 
-                          // StartCue/Loop는 이 레이어에서 건드리지 않음
-                          return; // 마커 클릭에서 일반 시킹으로 내려가지 않음
+                          // 마커 클릭에서 일반 시킹/스크럽으로 내려가지 않음
+                          _resetScrubState();
+                          return;
                         }
 
                         // 밴드지만 마커가 없는 경우: 아무 동작도 하지 않음
+                        _resetScrubState();
                         return;
                       }
 
@@ -526,10 +548,92 @@ class _WaveformPanelState extends State<WaveformPanel> {
 
                       final cb = c.onSeek;
                       if (cb != null) {
+                        // 🔹 이 첫 클릭은 "단일 시킹"으로 들어감
+                        scheduleMicrotask(() => cb(t));
+                      }
+
+                      // 🔹 스크럽용 포인터 상태 초기화
+                      _scrubPointerId = event.pointer;
+                      _scrubStartLocal = local;
+                      _scrubStarted = false; // threshold 넘기 전까지는 "클릭"
+
+                      setState(() {});
+                    },
+                    onPointerMove: (event) {
+                      // 스크럽 대상 포인터가 아니면 무시
+                      if (_scrubPointerId == null ||
+                          event.pointer != _scrubPointerId) {
+                        return;
+                      }
+
+                      // 버튼이 떼어진 상태면 무시
+                      if (!event.down) return;
+
+                      final local = event.localPosition;
+
+                      // 상단 마커 밴드에서는 스크럽하지 않음
+                      if (local.dy <= _markerBandPx) return;
+
+                      // 🔹 아직 스크럽 시작 안 했으면, 슬롭(threshold) 체크
+                      if (!_scrubStarted && _scrubStartLocal != null) {
+                        final dx = (local.dx - _scrubStartLocal!.dx)
+                            .abs()
+                            .toDouble();
+                        final dy = (local.dy - _scrubStartLocal!.dy)
+                            .abs()
+                            .toDouble();
+
+                        // 너무 작은 이동은 "클릭"으로 취급
+                        const double kScrubThreshold = 3.0;
+                        if (dx < kScrubThreshold && dy < kScrubThreshold) {
+                          return;
+                        }
+
+                        // threshold를 넘겼으므로, 이제부터 "스크럽 드래그" 시작
+                        _scrubStarted = true;
+
+                        // 🔥 드래그 앵커 = 포인터 다운 시점의 시간
+                        final anchorLocal = _scrubStartLocal!;
+                        final anchorTime = _dxToTime(anchorLocal, viewSize);
+                        _gestures?.onDragStart(anchor: anchorTime);
+                      }
+
+                      if (!_scrubStarted) return;
+
+                      final c = widget.controller;
+                      final t = _dxToTime(local, viewSize);
+
+                      // UI 위치 업데이트
+                      c.position.value = t;
+
+                      final cb = c.onSeek;
+                      if (cb != null) {
+                        // 🔥 드래그 동안 연속 시킹 → Gestures._handleSeekFromGesture
+                        //     → _isDragging==true 경로에서
+                        //        "가장 앞쪽 지점 = StartCue" 규칙 적용
                         scheduleMicrotask(() => cb(t));
                       }
 
                       setState(() {});
+                    },
+                    onPointerUp: (event) {
+                      if (_scrubPointerId != null &&
+                          event.pointer == _scrubPointerId) {
+                        if (_scrubStarted) {
+                          // 🔥 드래그가 실제로 있었던 경우에만 dragEnd 호출
+                          _gestures?.onDragEnd();
+                        }
+                        _resetScrubState();
+                      }
+                    },
+                    onPointerCancel: (event) {
+                      if (_scrubPointerId != null &&
+                          event.pointer == _scrubPointerId) {
+                        if (_scrubStarted) {
+                          _gestures?.onDragEnd();
+                        }
+                        _resetScrubState();
+                      }
                     },
                   ),
                 ),
@@ -540,6 +644,4 @@ class _WaveformPanelState extends State<WaveformPanel> {
       },
     );
   }
-
-  
 }
