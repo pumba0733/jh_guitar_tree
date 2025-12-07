@@ -1349,53 +1349,53 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     final dur = _effectiveDuration;
     final clamped = dur > Duration.zero ? _clamp(pos, Duration.zero, dur) : pos;
 
+    // Loop A 설정 + StartCue 동기화
     setState(() {
       _loopA = clamped;
-      _loopExec.setA(clamped);
       _startCue = _normalizeStartCueForLoop(clamped);
     });
 
+    // 실행기 반영
+    _loopExec.setA(clamped);
+
+    // WF 반영
     _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
     _wf.setStartCue(_startCue);
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() {});
-    });
-
     _requestSave();
-
-    _logSoTScreen('LOOP_SET_A', loopA: _loopA, startCue: _startCue);
+    _logSoTScreen('LOOP_SET_A_KEY', loopA: _loopA, startCue: _startCue);
   }
+
 
   void _loopSetB(Duration pos) {
     final dur = _effectiveDuration;
     final clamped = dur > Duration.zero ? _clamp(pos, Duration.zero, dur) : pos;
 
+    // A가 없으면 → A를 먼저 만든다
     if (_loopA == null) {
       _loopSetA(clamped);
       return;
     }
 
-    _loopExec.setB(clamped);
+    Duration a = _loopA!;
+    Duration b = clamped;
 
-    setState(() {
-      _loopB = _loopExec.loopB;
-      _loopEnabled = _loopExec.loopOn;
-      _startCue = _normalizeStartCueForLoop(_startCue);
-    });
+    // A/B 정렬
+    if (b < a) {
+      final tmp = a;
+      a = b;
+      b = tmp;
+    }
 
-    _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
-    _wf.setStartCue(_startCue);
+    // 🔥 드래그 경로와 동일한 R1~R3 규칙 적용
+    // 1) 루프 영역 있으면 loopOn=true
+    // 2) StartCue = A
+    // 3) LoopExecutor + WF에 모두 동기화
+    _onLoopSetFromPanel(a, b);
 
-    _requestSave();
-
-    _logSoTScreen(
-      'LOOP_SET_B',
-      loopA: _loopA,
-      loopB: _loopB,
-      startCue: _startCue,
-    );
+    _logSoTScreen('LOOP_SET_B_KEY', loopA: a, loopB: b, startCue: _startCue);
   }
+
 
   Future<void> _loopSetRepeat(int v) async {
     _loopExec.setRepeat(v);
