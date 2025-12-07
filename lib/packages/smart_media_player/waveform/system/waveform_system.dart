@@ -96,6 +96,14 @@ class WaveformController extends ChangeNotifier {
   // ============================================================
   // Loop 설정 (A/B + on)
   // ============================================================
+    // ============================================================
+  // Loop 설정 (A/B + on)
+  //
+  // 🔥 중요:
+  // - setLoop()는 "programmatic update" 전용이다.
+  // - 여기서는 onLoopSet 콜백을 절대 호출하지 않는다.
+  //   → onLoopSet 은 WaveformPanel(제스처) → Screen 통로로만 사용.
+  // ============================================================
   void setLoop({Duration? a, Duration? b, required bool on}) {
     final changed = a != loopA.value || b != loopB.value || on != loopOn.value;
 
@@ -104,10 +112,11 @@ class WaveformController extends ChangeNotifier {
     loopOn.value = on;
 
     if (changed) {
-      onLoopSet?.call(a, b);
+      // 🔹 제스처 콜백(onLoopSet)은 여기서 호출하지 않는다.
       notifyListeners();
     }
   }
+
 
   // ============================================================
   // StartCue programmatic update

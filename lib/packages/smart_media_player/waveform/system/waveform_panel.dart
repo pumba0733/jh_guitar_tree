@@ -71,6 +71,21 @@ class _WaveformPanelState extends State<WaveformPanel> {
 
   SmpWaveformGestures? get _gestures => widget.gestures;
 
+    void _requestLoopUpdate(Duration? a, Duration? b) {
+    final cb = widget.controller.onLoopSet;
+    if (cb != null) {
+      scheduleMicrotask(() => cb(a, b));
+    }
+  }
+
+  void _requestStartCueUpdate(Duration t) {
+    final cb = widget.controller.onStartCueSet;
+    if (cb != null) {
+      scheduleMicrotask(() => cb(t));
+    }
+  }
+
+
 Listenable get _mergedListenable => Listenable.merge([
     // 🔥 StartCue는 setStartCue()에서 notifyListeners()만 호출하므로
     // 컨트롤러 자체를 리슨해서 반영하도록 추가
@@ -191,10 +206,10 @@ Listenable get _mergedListenable => Listenable.merge([
     return (bestDx <= _markerHitPx) ? bestIdx : -1;
   }
 
-  void _setA(Duration t) {
+    void _setA(Duration t) {
     final c = widget.controller;
 
-    // viewport 확대 시 A가 튀지 않도록 clamp (duration 범위 안으로만)
+    // duration 범위 안으로만 clamp
     final durMs = c.duration.value.inMilliseconds;
     if (durMs > 0) {
       final ms = t.inMilliseconds.clamp(0, durMs);
@@ -210,25 +225,24 @@ Listenable get _mergedListenable => Listenable.merge([
       c.selectionA.value = b;
     }
 
-    // ② selection 기반으로 실제 loopA/B도 동기화
+    // ② selection 기반 루프 "요청"만 올리기 (실제 setLoop는 Screen에서)
     final aa = c.selectionA.value;
     final bb = c.selectionB.value;
     if (aa != null && bb != null) {
-      c.setLoop(a: aa, b: bb, on: c.loopOn.value);
-      final cb = c.onLoopSet;
-      if (cb != null) {
-        scheduleMicrotask(() => cb(aa, bb));
-      }
+      // 루프 범위 전달
+      _requestLoopUpdate(aa, bb);
+      // R2/R3: A가 항상 StartCue
+      _requestStartCueUpdate(aa);
     }
 
-    // StartCue는 Panel에서 건드리지 않는다 (Screen/Engine 전용)
     widget.onStateDirty?.call();
   }
 
-  void _setB(Duration t) {
+
+    void _setB(Duration t) {
     final c = widget.controller;
 
-    // duration 범위 안으로만 clamp
+    // duration 범위 안으로 clamp
     final durMs = c.duration.value.inMilliseconds;
     if (durMs > 0) {
       final ms = t.inMilliseconds.clamp(0, durMs);
@@ -243,19 +257,17 @@ Listenable get _mergedListenable => Listenable.merge([
       c.selectionB.value = a;
     }
 
-    // ② selection 기반으로 실제 loopA/B도 동기화
+    // ② selection 기반 루프 "요청"만 올리기
     final aa = c.selectionA.value;
     final bb = c.selectionB.value;
     if (aa != null && bb != null) {
-      c.setLoop(a: aa, b: bb, on: c.loopOn.value);
-      final cb = c.onLoopSet;
-      if (cb != null) {
-        scheduleMicrotask(() => cb(aa, bb));
-      }
+      _requestLoopUpdate(aa, bb);
+      // StartCue는 항상 A라서, B 바꿀 때는 굳이 다시 안 건드려도 됨
     }
 
     widget.onStateDirty?.call();
   }
+
 
   // selection만 지우는 헬퍼 (엔진/LoopExecutor에는 영향 없음)
   void _clearSelectionOnly() {
@@ -264,37 +276,20 @@ Listenable get _mergedListenable => Listenable.merge([
     c.selectionB.value = null;
   }
 
-  void _loopOff() {
-    final c = widget.controller;
-
-    // 루프 범위 자체를 제거 = “루프 모드 자체를 끈다”
-    c.setLoop(a: null, b: null, on: false);
-
-    final cb = c.onLoopSet;
-    if (cb != null) {
-      // 임시 프로토콜: 0,0 = "루프 없음"
-      scheduleMicrotask(() => cb(Duration.zero, Duration.zero));
-    }
-
-    _clearSelectionOnly(); // 파형 위 A/B 강조 제거
-    widget.onStateDirty?.call();
-  }
-
-  void _clearAB() {
-    final c = widget.controller;
-
-    // 더블탭 = A/B 해제 = 루프 자체도 함께 제거하는 쪽으로 통일
-    c.setLoop(a: null, b: null, on: false);
-
-    final cb = c.onLoopSet;
-    if (cb != null) {
-      // 0,0 = 루프 없음
-      scheduleMicrotask(() => cb(Duration.zero, Duration.zero));
-    }
-
+    void _loopOff() {
+    // 루프 범위/선택 강조만 지우고,
+    // 실제 loopA/B/loopOn reset은 Screen이 결정
     _clearSelectionOnly();
+    _requestLoopUpdate(null, null);
     widget.onStateDirty?.call();
   }
+
+
+    void _clearAB() {
+    // 더블탭 = 루프 완전 해제 요청
+    _loopOff();
+  }
+
 
   void _updateMarkerTime(int index, Duration t) {
     final c = widget.controller;
@@ -418,10 +413,11 @@ Listenable get _mergedListenable => Listenable.merge([
                       // A=B=t 고정 (초기 프레임 튐 제거)
                       c.selectionA.value = t;
                       c.selectionB.value = t;
-                      c.loopOn.value = true;
 
+                      // loopOn 여부는 Screen이 결정
                       widget.onStateDirty?.call();
                     }
+
 
                     setState(() {});
                   },
@@ -447,9 +443,11 @@ Listenable get _mergedListenable => Listenable.merge([
                     if (_dragSelecting && a != null && b != null) {
                       final aa = a <= b ? a : b;
                       final bb = a <= b ? b : a;
-                      c.setLoop(a: aa, b: bb, on: true);
-                      final cb = c.onLoopSet;
-                      if (cb != null) scheduleMicrotask(() => cb(aa, bb));
+
+                      // 선택된 구간은 selectionA/B에 이미 반영돼 있음
+                      // 여기서는 "이 범위로 루프 잡아줘 + StartCue는 A로" 신호만 보냄
+                      _requestLoopUpdate(aa, bb);
+                      _requestStartCueUpdate(aa);
                     }
                     _draggingA = _draggingB = _dragSelecting = false;
                     _draggingMarkerIndex = -1;
@@ -537,25 +535,29 @@ Listenable get _mergedListenable => Listenable.merge([
                       //    - LoopOn 여부와 무관하게 순수 seek
                       //    - StartCue/Loop는 Screen/Engine에서만 관리
                       // -----------------------------------------------
+                      // ② 일반 클릭 시킹 (anywhere else)
                       final t = _dxToTime(local, viewSize);
                       final c = widget.controller;
 
                       // 재생 위치 즉시 반영 (SoT는 EngineApi가 최종 소스)
                       c.position.value = t;
 
-                      // 일반 클릭 = loopOff (기존 UX 유지)
-                      _loopOff();
+                      // ✅ 클릭 = "여기를 StartCue로 쓰고 싶다" + "기존 루프는 버리고 새 상태 시작"
+                      _clearSelectionOnly();
+                      _requestLoopUpdate(null, null); // 루프 해제 요청
+                      _requestStartCueUpdate(t); // StartCue = 클릭 지점
 
                       final cb = c.onSeek;
                       if (cb != null) {
-                        // 🔹 이 첫 클릭은 "단일 시킹"으로 들어감
+                        // 이 클릭은 순수 시킹 + StartCue 재설정
                         scheduleMicrotask(() => cb(t));
                       }
 
                       // 🔹 스크럽용 포인터 상태 초기화
                       _scrubPointerId = event.pointer;
                       _scrubStartLocal = local;
-                      _scrubStarted = false; // threshold 넘기 전까지는 "클릭"
+                      _scrubStarted = false;
+
 
                       setState(() {});
                     },

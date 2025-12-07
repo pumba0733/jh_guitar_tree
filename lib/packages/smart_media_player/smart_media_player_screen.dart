@@ -281,6 +281,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
     // 제스처 시스템 attach (WaveformController 연결)
     _gestures.attach(); // Step 6-B: duration 반영 이후 attach
+    // 제스처(WaveformPanel) → Screen 콜백 연결
+    _wf.onLoopSet = _onLoopSetFromPanel;
+    _wf.onStartCueSet = _onStartCueFromPanel;
 
     // 비동기 초기화 (엔진 load)
     _initAsync();
@@ -744,6 +747,102 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     return Duration.zero;
   }
 
+  /// WaveformPanel(드래그/핸들/더블탭)에서 올라오는 루프 설정 요청
+  ///
+  /// R1. 루프 영역 있으면 → loopOn 무조건 true
+  /// R2. 루프 영역 있으면 → StartCue 항상 A에 붙는다
+  /// R3. 드래그로 루프 영역 만든 순간 A/B 정렬 + loopOn=true + StartCue=A
+  /// R4. 루프 영역 해제(null,null) 시 → 루프 OFF + 영역 제거
+  void _onLoopSetFromPanel(Duration? a, Duration? b) {
+    if (_isDisposing) return;
+
+    final dur = _effectiveDuration;
+
+    Duration? newA = a;
+    Duration? newB = b;
+
+    // duration 범위 안으로 클램프
+    if (dur > Duration.zero) {
+      if (newA != null) newA = _clamp(newA, Duration.zero, dur);
+      if (newB != null) newB = _clamp(newB, Duration.zero, dur);
+    }
+
+    // 유효성 검사
+    final bool hasLoop = newA != null && newB != null && newA! < newB!;
+    if (!hasLoop) {
+      // 👉 루프 해제 요청으로 처리 (R4에서 "기존 루프 삭제" 케이스 포함)
+      setState(() {
+        _loopA = null;
+        _loopB = null;
+        _loopEnabled = false;
+      });
+
+      // LoopExecutor 비활성화
+      _loopExec.setLoopEnabled(false);
+
+      // WaveformController도 루프 영역 제거
+      _wf.setLoop(a: null, b: null, on: false);
+
+      _logSoTScreen('LOOP_CLEAR_FROM_PANEL');
+      _requestSave(saveMemo: false);
+      return;
+    }
+
+    final aa = newA!;
+    final bb = newB!;
+
+    // 👉 R1/R2/R3: 유효한 루프 영역 → loopOn=true, StartCue=A
+    final newStartCue = _normalizeStartCueForLoop(aa);
+
+    setState(() {
+      _loopA = aa;
+      _loopB = bb;
+      _loopEnabled = true; // R1: 영역 있으면 항상 ON
+      _startCue = newStartCue; // R2: StartCue = A
+    });
+
+    // LoopExecutor에 범위/상태 반영
+    _loopExec.setA(aa);
+    _loopExec.setB(bb);
+    _loopExec.setLoopEnabled(true);
+
+    // WaveformController에 실제 루프/StartCue 반영
+    _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
+    _wf.setStartCue(_startCue);
+
+    _logSoTScreen(
+      'LOOP_SET_FROM_PANEL',
+      loopA: _loopA,
+      loopB: _loopB,
+      startCue: _startCue,
+    );
+    _requestSave(saveMemo: false);
+  }
+
+  /// WaveformPanel(클릭/드래그 시작점 등)에서 올라오는 StartCue 후보
+  ///
+  /// - 루프 없으면: 단순히 0~duration 안으로만 클램프
+  /// - 루프 있으면: R2에 따라 항상 루프 안, 필요 시 A로 스냅
+  void _onStartCueFromPanel(Duration candidate) {
+    if (_isDisposing) return;
+
+    final fixed = _normalizeStartCueForLoop(candidate);
+    if (fixed == _startCue) {
+      // 변경 없으면 로그/저장 생략
+      return;
+    }
+
+    setState(() {
+      _startCue = fixed;
+    });
+
+    _wf.setStartCue(_startCue);
+
+    _logSoTScreen('START_CUE_FROM_PANEL', startCue: _startCue);
+    _requestSave(saveMemo: false);
+  }
+
+
   void _normalizeTimedState() {
     if (_isNormalizingTimedState) {
       _logSoTScreen('NORMALIZE_TIMED_STATE_SKIP (reentrant)', pos: _position);
@@ -1094,6 +1193,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
                                 mediaPath: widget.mediaPath,
                                 mediaHash: widget.mediaHash,
                                 cacheDir: _cacheDir,
+                                gestures: _gestures, 
                                 onStateDirty: () => _requestSave(),
                               ),
                             ),
