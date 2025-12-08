@@ -291,7 +291,7 @@ Listenable get _mergedListenable => Listenable.merge([
   }
 
 
-  void _updateMarkerTime(int index, Duration t) {
+    void _updateMarkerTime(int index, Duration t) {
     final c = widget.controller;
     final list = List<WfMarker>.from(c.markers.value);
     final m = list[index];
@@ -303,8 +303,17 @@ Listenable get _mergedListenable => Listenable.merge([
     );
     list.sort((a, b) => a.time.compareTo(b.time));
     c.setMarkers(list);
+
+    // 🔹 마커 위치 변경을 Screen(_markers)에도 알려주기
+    final onChanged = c.onMarkersChanged;
+    if (onChanged != null) {
+      // programmatic update와 꼬이지 않도록 microtask로 분리
+      scheduleMicrotask(() => onChanged(List<WfMarker>.unmodifiable(list)));
+    }
+
     widget.onStateDirty?.call();
   }
+
 
   // 스크럽 드래그 상태 초기화
   void _resetScrubState() {

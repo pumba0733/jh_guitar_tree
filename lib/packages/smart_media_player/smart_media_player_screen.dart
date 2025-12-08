@@ -147,6 +147,11 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   // 마커
   final List<MarkerPoint> _markers = [];
 
+  // 마커 네비게이션 커서
+  //  - Alt+←/→로 점프할 때 마지막으로 이동한 위치를 기준으로 삼는다.
+  //  - 재생 중에는 _position을, 점프 이후에는 이 커서를 우선 사용.
+  Duration? _markerNavCursor;
+
   // 메모
   String _notes = '';
   final TextEditingController _notesCtl = TextEditingController();
@@ -261,6 +266,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
         _logSoTScreen('START_CUE set via gesture', startCue: fixed);
       },
+      
       setPosition: (d) {
         // no-op: pos는 EngineApi.position 스트림 → WaveformController 단일 경로
       },
@@ -284,6 +290,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     // 제스처(WaveformPanel) → Screen 콜백 연결
     _wf.onLoopSet = _onLoopSetFromPanel;
     _wf.onStartCueSet = _onStartCueFromPanel;
+    _wf.onMarkersChanged = _onMarkersChangedFromWaveform; // 🔹 NEW: 마커 동기화   
 
     // 비동기 초기화 (엔진 load)
     _initAsync();
@@ -304,6 +311,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     // 초기 브릿지: Loop/StartCue/Marker → WaveformController
     _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
     _wf.setStartCue(_startCue);
+    // EngineApi가 StartCue를 항상 Screen 상태에서 가져가도록 연결
+    EngineApi.instance.startCueProvider = () => _startCue;
+
     _wf.setMarkers(_markers.map((m) => WfMarker(m.t, m.label)).toList());
 
     // === 3-3B: audioChain playbackTime → position single-source ===
@@ -449,6 +459,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
     // P1: 좀비 재생 방지 — 화면 종료 시 엔진/플레이어 완전 정리
     unawaited(EngineApi.instance.stopAndUnload());
+    // 이 Screen이 사라질 땐 StartCue provider도 정리
+    EngineApi.instance.startCueProvider = null;
+
 
     _positionSub?.cancel();
     _positionSub = null;
@@ -527,11 +540,36 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
             (e) => MarkerPoint.fromJson(Map<String, dynamic>.from(e)),
           ),
         );
-
+      _markerNavCursor = null; // 🔹 마커 커서 초기화
       _normalizeTimedState();
     });
 
-    _logSoTScreen('APPLY_SIDECAR (loop/startCue restored)');
+        // 🔁 여기부터 추가: LoopExecutor / WaveformController와 동기화
+    //    - LoopExecutor는 Duration(non-null)만 받으므로 null-safe하게 처리
+    if (_loopEnabled && _loopA != null && _loopB != null) {
+      // 유효한 루프가 있을 때만 A/B를 갱신하고 ON
+      _loopExec.setA(_loopA!);
+      _loopExec.setB(_loopB!);
+      _loopExec.setLoopEnabled(true);
+    } else {
+      // 루프가 없거나 비활성화면 실행기도 OFF
+      _loopExec.setLoopEnabled(false);
+    }
+    // 반복 횟수는 항상 동기화
+    _loopExec.setRepeat(_loopRepeat);
+
+
+    setState(() {
+      _loopRemaining = _loopExec.remaining;
+    });
+    _wf.loopRepeat.value = _loopRepeat;
+
+    _logSoTScreen(
+      'APPLY_SIDECAR (loop/startCue restored)',
+      loopA: _loopA,
+      loopB: _loopB,
+      startCue: _startCue,
+    );
 
     if (posMs > 0) {
       final d = Duration(milliseconds: posMs);
@@ -561,25 +599,44 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   void _startPosWatchdog() {
     _posWatchdog?.cancel();
     const period = Duration(seconds: 1);
-    int silentTicks = 0;
+
+    int steadyTicks = 0;
+    bool reportedInThisSpan = false;
     Duration last = Duration.zero;
 
     _posWatchdog = Timer.periodic(period, (_) {
-      if (_position == last) {
-        silentTicks++;
-        if (silentTicks >= 5) {
-          debugPrint(
-            '[SMP] position steady 5s (playing=${EngineApi.instance.isPlaying})',
-          );
-          _logSoTScreen('WATCHDOG steady 5s');
-          silentTicks = 0;
-        }
-      } else {
-        silentTicks = 0;
-        last = _position;
+      if (!mounted || _isDisposing) return;
+
+      final playing = EngineApi.instance.isPlaying;
+      final current = _position;
+
+      // 위치가 바뀌면 → 새 구간 시작
+      if (current != last) {
+        last = current;
+        steadyTicks = 0;
+        reportedInThisSpan = false;
+        return;
+      }
+
+      // 위치는 그대로인데, 재생 중이 아니면 → 정지 상태이므로 무시
+      if (!playing) {
+        return;
+      }
+
+      // 재생 중 + 위치가 1초 이상 동일할 때 카운트
+      steadyTicks++;
+
+      // 5초 동안 그대로일 때 한 번만 로그
+      if (!reportedInThisSpan && steadyTicks >= 5) {
+        debugPrint(
+          '[SMP] position steady 5s while playing (pos=${current.inMilliseconds}ms)',
+        );
+        _logSoTScreen('WATCHDOG steady 5s', pos: current);
+        reportedInThisSpan = true;
       }
     });
   }
+
 
   Future<void> _openMedia() async {
     await EngineApi.instance.load(
@@ -657,14 +714,17 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   }
 
   Future<void> _saveEverything({bool saveMemo = true}) async {
-    if (_isDisposing) return;
+    // dispose 중에도 마지막 flush 저장은 허용해야 하므로
+    // 여기서는 _isDisposing 으로 early-return 하지 않는다.
 
+    // 메모 동기화 중일 때는 DB memo만 막고, sidecar는 계속 저장한다.
     if (_hydratingMemo && saveMemo) {
       saveMemo = false;
     }
 
     final now = DateTime.now();
 
+    // 저장 직전에 한번 더 정규화
     _normalizeTimedState();
 
     final map = {
@@ -687,8 +747,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     };
 
     try {
+      // 1) 사이드카 저장
       await SidecarSyncDb.instance.save(map, debounce: false);
 
+      // 2) 메모는 hydration 중이 아닐 때만 DB에 반영
       if (saveMemo && !_hydratingMemo) {
         await LessonMemoSync.instance.upsertMemo(
           studentId: widget.studentId,
@@ -697,9 +759,12 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
         );
       }
 
+      // 3) 가능하면 즉시 업로드 시도
       await SidecarSyncDb.instance.tryUploadNow();
 
-      if (mounted) {
+      // 🔒 dispose 중에는 setState 금지
+      final canTouchUi = mounted && !_isDisposing;
+      if (canTouchUi) {
         setState(() {
           _saveStatus = SaveStatus.saved;
           _lastSavedAt = now;
@@ -707,10 +772,12 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
         });
       }
     } catch (_) {
-      if (!mounted) return;
+      // UI 업데이트는 dispose 중엔 하지 않음
+      if (!mounted || _isDisposing) return;
       setState(() => _saveStatus = SaveStatus.failed);
     }
   }
+
 
   Future<void> _startHoldFastForward() async {
     await EngineApi.instance.ffrw.startForward(
@@ -1095,7 +1162,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
         onLoopASet: () => _loopSetA(_wf.position.value),
         onLoopBSet: () => _loopSetB(_wf.position.value),
         onMarkerAdd: _addMarker,
-        onMarkerJump: _jumpToMarkerIndex,
+        onMarkerJump: (i1based) => _jumpToMarkerIndex(i1based - 1),
         onMarkerPrev: () => _jumpPrevNextMarker(next: false),
         onMarkerNext: () => _jumpPrevNextMarker(next: true),
         onZoom: (zoomIn) {
@@ -1339,11 +1406,15 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     final newOn = _loopExec.loopOn;
     _loopEnabled = newOn;
 
+    // 🔹 Waveform 영역의 루프 하이라이트도 즉시 동기화
+    _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
+
     setState(() {});
     _requestSave();
 
     _logSoTScreen('LOOP_TOGGLE on=$newOn');
   }
+
 
   void _loopSetA(Duration pos) {
     final dur = _effectiveDuration;
@@ -1546,6 +1617,41 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     } while (n >= 0);
     return String.fromCharCodes(buf.reversed.map((e) => 65 + e));
   }
+  
+    /// 🔹 WaveformPanel(말풍선 드래그)에서 마커 시간이 바뀐 경우
+  /// - WaveformController.markers(list)를 기준으로 `_markers`를 재구성
+  /// - label 기준으로 기존 MarkerPoint를 최대한 재사용해서 color/repeat 유지
+  void _onMarkersChangedFromWaveform(List<WfMarker> wfMarkers) {
+    setState(() {
+      // 기존 MarkerPoint들을 복사해서 label 매칭용으로 사용
+      final remaining = List<MarkerPoint>.from(_markers);
+      final List<MarkerPoint> next = [];
+
+      for (final wm in wfMarkers) {
+        // 1) 같은 label 가진 기존 MarkerPoint를 먼저 찾는다
+        final idx = remaining.indexWhere((mp) => mp.label == wm.label);
+        if (idx >= 0) {
+          final mp = remaining[idx];
+          // t는 mutable 이라고 가정 (MarkerPoint.t now mutable)
+          mp.t = wm.time;
+          next.add(mp);
+          remaining.removeAt(idx);
+        } else {
+          // 2) 없으면 새로 하나 만든다 (color/repeat는 기본값)
+          next.add(MarkerPoint(wm.time, wm.label));
+        }
+      }
+
+      _markers
+        ..clear()
+        ..addAll(next);
+    });
+
+    _logSoTScreen('MARKERS_FROM_WAVEFORM_SYNC', pos: _position);
+    // 저장 트리거는 WaveformPanel.onStateDirty → _requestSave()가 이미 처리 중이라
+    // 여기서 다시 _requestSave()를 부를 필요는 없다 (중복 방지 차원에서 생략).
+  }
+
 
   Future<void> _editMarker(int index) async {
     if (index < 0 || index >= _markers.length) return;
@@ -1594,49 +1700,119 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     }
   }
 
-  Future<void> _jumpToMarkerIndex(int index) async {
+    Future<void> _jumpToMarkerIndex(int index) async {
     if (index < 0 || index >= _markers.length) return;
     final m = _markers[index];
-    final target = m.t;
 
+    // 1) 목표 지점 (클램프)
+    final rawTarget = m.t;
+    final target = _normalizeMarkerTarget(rawTarget);
+
+    final isPlaying = EngineApi.instance.isPlaying;
+
+    setState(() {
+      // 🔹 정지 상태 + 루프 OFF일 때는
+      //    "이 마커가 현재 연습 포인트"가 되도록 StartCue를 같이 맞춰준다.
+      if (!isPlaying && !_loopEnabled) {
+        _startCue = _normalizeStartCueForLoop(target);
+        _wf.setStartCue(_startCue);
+      }
+
+      // 🔹 루프 켜져 있는데 점프 지점이 루프 밖이면 → 루프 OFF
+      if (_loopA != null && _loopB != null) {
+        final a = _loopA!;
+        final b = _loopB!;
+        if (a < b && (target < a || target > b)) {
+          _loopEnabled = false;
+          _loopExec.setLoopEnabled(false);
+          _wf.setLoop(a: _loopA, b: _loopB, on: false);
+        }
+      }
+
+      // 🔹 마커 네비게이션 커서도 최신 위치로 업데이트
+      _markerNavCursor = target;
+    });
+
+    // 2) 엔진 시킹 (정지/재생 상태에 따라 resume 여부 자동 결정)
     await _engineSeekAndMaybeResumeFromScreen(target);
+
+    // 3) 위치만 저장
     _requestSave(saveMemo: false);
 
-    _logSoTScreen('MARKER_JUMP idx=$index', pos: target);
+    _logSoTScreen('MARKER_JUMP idx=$index', pos: target, startCue: _startCue);
   }
 
-  Future<void> _jumpPrevNextMarker({required bool next}) async {
-    if (_markers.isEmpty) return;
-    final cur = _position;
 
+
+
+    Future<void> _jumpPrevNextMarker({required bool next}) async {
+    if (_markers.isEmpty) return;
+
+    // 🔹 기준 위치: 마커 네비게이션 커서가 있으면 그걸 우선 사용
+    //    - Alt+←/→를 연속 입력할 때, "시간이 조금 흘렀다"는 이유로
+    //      같은 마커에 계속 머무는 현상을 줄이기 위함.
+    final base = _markerNavCursor ?? _position;
+
+    // 시간 순으로 정렬된 리스트 기준으로 이전/다음 후보 탐색
     final sorted = [..._markers]..sort((a, b) => a.t.compareTo(b.t));
 
     MarkerPoint? candidate;
     if (next) {
       for (final m in sorted) {
-        if (m.t > cur) {
+        if (m.t > base) {
           candidate = m;
           break;
         }
       }
-      candidate ??= sorted.first;
+      candidate ??= sorted.first; // 끝에서 더 가면 처음으로 래핑
     } else {
       for (final m in sorted.reversed) {
-        if (m.t < cur) {
+        if (m.t < base) {
           candidate = m;
           break;
         }
       }
-      candidate ??= sorted.last;
+      candidate ??= sorted.last; // 처음에서 더 가면 끝으로 래핑
     }
 
-    final target = candidate.t;
+    final rawTarget = candidate.t;
+    final target = _normalizeMarkerTarget(rawTarget);
+    final isPlaying = EngineApi.instance.isPlaying;
 
+    setState(() {
+      // 🔹 정지 상태 + 루프 OFF일 때는
+      //    "이 마커가 현재 연습 포인트"가 되도록 StartCue를 같이 맞춰준다.
+      if (!isPlaying && !_loopEnabled) {
+        _startCue = _normalizeStartCueForLoop(target);
+        _wf.setStartCue(_startCue);
+      }
+
+      // 🔹 루프 켜져 있고, 점프 지점이 루프 밖이면 → 루프 OFF
+      if (_loopA != null && _loopB != null) {
+        final a = _loopA!;
+        final b = _loopB!;
+        if (a < b && (target < a || target > b)) {
+          _loopEnabled = false;
+          _loopExec.setLoopEnabled(false);
+          _wf.setLoop(a: _loopA, b: _loopB, on: false);
+        }
+      }
+
+      // 🔹 네비게이션 커서 업데이트 (다음 Alt+←/→의 기준이 됨)
+      _markerNavCursor = target;
+    });
+
+    // 재생 위치만 이동
     await _engineSeekAndMaybeResumeFromScreen(target);
     _requestSave(saveMemo: false);
 
-    _logSoTScreen(next ? 'MARKER_NEXT' : 'MARKER_PREV', pos: target);
+    _logSoTScreen(
+      next ? 'MARKER_NEXT' : 'MARKER_PREV',
+      pos: target,
+      startCue: _startCue,
+    );
   }
+
 
   void _reorderMarker(int oldIndex, int newIndex) {
     if (oldIndex < 0 || oldIndex >= _markers.length) return;
@@ -1710,4 +1886,22 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
     return sc;
   }
+
+  // 🔹 마커 점프 시 사용할 시킹 타겟 정규화 (0 ~ duration 안으로만 클램프)
+  Duration _normalizeMarkerTarget(Duration candidate) {
+    final dur = _effectiveDuration;
+
+    Duration t = candidate;
+
+    if (dur > Duration.zero) {
+      t = _clamp(t, Duration.zero, dur);
+    } else if (t < Duration.zero) {
+      t = Duration.zero;
+    }
+
+    // 🔥 마커 점프는 단순히 재생 위치만 이동한다.
+    // 루프 안/밖 여부, StartCue 재설정 여부는 호출부에서 별도로 처리한다.
+    return t;
+  }
+
 }

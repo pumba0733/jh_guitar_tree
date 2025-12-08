@@ -74,6 +74,9 @@ class WaveformController extends ChangeNotifier {
   void Function(Duration?, Duration?)? onLoopSet;
   void Function(Duration)? onStartCueSet;
 
+  /// 🔹 마커 위치가 파형 제스처로 변경됐을 때 Screen으로 알려주는 콜백
+  void Function(List<WfMarker>)? onMarkersChanged;
+
   DateTime? _lastSeekGestureAt;
 
   // ============================================================

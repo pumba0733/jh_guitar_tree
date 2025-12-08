@@ -61,7 +61,11 @@ class EngineApi {
   bool _hasFile = false;
 
   Duration _duration = Duration.zero;
-  Duration _lastStartCue = Duration.zero;
+
+  /// StartCue의 단일 소스 (Screen 상태에서 주입)
+  /// - Screen 쪽에서 `EngineApi.instance.startCueProvider = () => _startCue;`
+  ///   형태로 설정한다.
+  Duration Function()? startCueProvider;
 
   // 네이티브 엔진 재생 상태(오디오 기준)
   bool _nativePlaying = false;
@@ -171,18 +175,19 @@ class EngineApi {
     return _clampToDuration(target);
   }
 
-  // 🔥 오디오(SoT) 기준 트랙 종료 처리 공통 루틴
+    // 🔥 오디오(SoT) 기준 트랙 종료 처리 공통 루틴
   Future<void> _handleTrackCompleted() async {
     try {
-      // StartCue 정규화 + 내부 상태 업데이트
-      final cue = _normalizeStartCueValue(_lastStartCue);
-      _lastStartCue = cue;
+      // StartCue를 항상 Screen 상태에서 가져온다.
+      final raw = startCueProvider?.call() ?? Duration.zero;
+      final cue = _normalizeStartCueValue(raw);
 
       _logSmpEngine(
-        'trackCompleted: seek back to StartCue=${cue.inMilliseconds}ms and auto play',
+        'trackCompleted: seek back to StartCue=${cue.inMilliseconds}ms '
+        '(raw=${raw.inMilliseconds}ms) and auto play',
       );
 
-      // StartCue 정보를 같이 넘겨서 엔진 내부 상태도 일관되게 유지
+      // StartCue 정보를 같이 넘겨서 엔진 내부 normalize 규칙과도 일치시킨다.
       await seekUnified(cue, startCue: cue);
 
       // ✅ P3 규칙: Loop OFF + 트랙 끝 → StartCue에서 자동 재생 유지
@@ -288,7 +293,6 @@ class EngineApi {
     stCloseFile();
     _hasFile = false;
     _duration = Duration.zero;
-    _lastStartCue = Duration.zero;
     _pendingVideoTarget = null;
     _nativePlaying = false;
     _playingCtl.add(false);
@@ -309,7 +313,7 @@ class EngineApi {
     if (_duration < Duration.zero) {
       _duration = Duration.zero;
     }
-    _lastStartCue = Duration.zero;
+
 
     onDuration(_duration);
     _durationCtl.add(_duration);
@@ -451,13 +455,10 @@ class EngineApi {
       return;
     }
 
-    // 🔻 정지 상태 → StartCue 정규화 후, 그 위치에서 재생
     final cue = _normalizeStartCueValue(startCue, loopA: loopA, loopB: loopB);
 
-    // P3: Space로 재생을 시작한 StartCue를 엔진 측에서도 SoT 기준으로 기억
-    _lastStartCue = cue;
-
     await seekUnified(cue, loopA: loopA, loopB: loopB, startCue: cue);
+
     await play();
   }
 
@@ -481,11 +482,11 @@ class EngineApi {
 
     // P2/P3: StartCue는 loop 범위와 무관하게 [0, duration] 기준 정규화
     Duration cue = _normalizeStartCueValue(sc, loopA: loopA, loopB: loopB);
-    _lastStartCue = cue;
 
     _logSmpEngine(
       'loopExitToStartCue(): normalized cue=${cue.inMilliseconds}ms',
     );
+
 
     await seekUnified(cue, loopA: loopA, loopB: loopB, startCue: cue);
     // ✅ 의도: 루프 종료 후 StartCue에서 바로 재생 유지
@@ -632,8 +633,6 @@ class EngineApi {
         'loopA=${loopA?.inMilliseconds}, loopB=${loopB?.inMilliseconds}',
       );
 
-      _lastStartCue = scNorm;
-
       if (_ff) return;
 
       final wasPlaying = isPlaying;
@@ -691,8 +690,6 @@ class EngineApi {
         'fastReverse(on): startCue=${scNorm.inMilliseconds}ms, '
         'loopA=${loopA?.inMilliseconds}, loopB=${loopB?.inMilliseconds}',
       );
-
-      _lastStartCue = scNorm;
 
       if (_fr) return;
 
@@ -771,15 +768,6 @@ class EngineApi {
       startCue: startCue,
     );
 
-    // StartCue가 들어온 경우, 동일한 규칙으로 정규화된 값을 lastStartCue로 유지
-    if (startCue != null) {
-      _lastStartCue = _normalizeStartCueValue(
-        startCue,
-        loopA: loopA,
-        loopB: loopB,
-      );
-    }
-
     _logSmpEngine(
       'seekUnified(): d=${d.inMilliseconds}ms, origTarget=$origTargetMs ms, '
       'loopA=${loopA?.inMilliseconds}, loopB=${loopB?.inMilliseconds}, '
@@ -840,8 +828,6 @@ class EngineApi {
       'playFromStartCue(): sc=${sc.inMilliseconds}ms (norm=${cue.inMilliseconds}ms), '
       'loopA=${loopA?.inMilliseconds}, loopB=${loopB?.inMilliseconds}',
     );
-
-    _lastStartCue = cue;
 
     await seekUnified(cue, loopA: loopA, loopB: loopB, startCue: cue);
     await play();
@@ -995,8 +981,7 @@ class FfRwFacade {
     );
   }
 
-  Future<void> stopForward() =>
-      api.fastForward(false, startCue: api._lastStartCue);
+  Future<void> stopForward() => api.fastForward(false, startCue: Duration.zero);
 
   Future<void> startReverse({
     required Duration startCue,
@@ -1012,6 +997,6 @@ class FfRwFacade {
     );
   }
 
-  Future<void> stopReverse() =>
-      api.fastReverse(false, startCue: api._lastStartCue);
+
+  Future<void> stopReverse() => api.fastReverse(false, startCue: Duration.zero);
 }
