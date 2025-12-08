@@ -189,9 +189,15 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
   bool _playInFlight = false;
 
+  // 🔥 LoopExecutor가 자동으로 재생을 트리거해도 되는지 여부
+  //  - Space로 정지한 상태에서는 false
+  //  - 사용자가 재생을 명시적으로 시작하면 true
+  bool _loopExecCanDrivePlayback = false;
+
   // 🔥 Space(Play/Pause) 입력 가드 (key repeat / 중복 호출 방지)
   DateTime? _lastSpaceInvokedAt;
   bool _spaceInFlight = false;
+
 
   @override
   void initState() {
@@ -203,8 +209,14 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       getDuration: () => _wf.duration.value,
       // ✅ Screen-level seek 게이트 사용
       seek: (d) => _engineSeekFromScreen(d),
-      // ✅ Screen-level play 게이트 사용
-      play: () => _enginePlayFromScreen(),
+      // ✅ Screen-level play 게이트 사용 + 정지 상태 자동 재생 차단
+      play: () async {
+        if (!_loopExecCanDrivePlayback) {
+          _logSoTScreen('LOOP_EXEC_PLAY_SUPPRESSED (auto-play disabled)');
+          return;
+        }
+        await _enginePlayFromScreen();
+      },
       pause: () => EngineApi.instance.pause(),
       onLoopStateChanged: (enabled) {
         setState(() {
@@ -222,6 +234,8 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
         await EngineApi.instance.loopExitToStartCue(_startCue);
       },
     );
+
+
     _loopExec.start();
 
     // A 패치: 라이프사이클 옵저버 등록
@@ -781,24 +795,26 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
 
   Future<void> _startHoldFastForward() async {
     await EngineApi.instance.ffrw.startForward(
-      startCue: Duration.zero,
-      loopA: null,
-      loopB: null,
-      loopOn: false,
+      startCue: _startCue, // 🔁 기존: Duration.zero
+      loopA: _loopA, // 🔁 기존: null
+      loopB: _loopB, // 🔁 기존: null
+      loopOn: _loopEnabled, // 🔁 기존: false
     );
     setState(() {});
   }
+
 
   Future<void> _stopHoldFastForward() => EngineApi.instance.ffrw.stopForward();
 
   Future<void> _startHoldFastReverse() async {
     await EngineApi.instance.ffrw.startReverse(
-      startCue: Duration.zero,
-      loopA: null,
-      loopB: null,
-      loopOn: false,
+      startCue: _startCue, // 🔁 기존: Duration.zero
+      loopA: _loopA, // 🔁 기존: null
+      loopB: _loopB, // 🔁 기존: null
+      loopOn: _loopEnabled, // 🔁 기존: false
     );
   }
+
 
   Future<void> _stopHoldFastReverse() => EngineApi.instance.ffrw.stopReverse();
 
@@ -859,7 +875,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     final bb = newB!;
 
     // 👉 R1/R2/R3: 유효한 루프 영역 → loopOn=true, StartCue=A
-    final newStartCue = _normalizeStartCueForLoop(aa);
+    //    - StartCue는 새 루프의 A 지점으로만 고정 (이 시점엔 기존 루프 경계 무시)
+    final newStartCue = (dur > Duration.zero)
+        ? _clamp(aa, Duration.zero, dur)
+        : aa;
 
     setState(() {
       _loopA = aa;
@@ -910,7 +929,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   }
 
 
-  void _normalizeTimedState() {
+    void _normalizeTimedState() {
     if (_isNormalizingTimedState) {
       _logSoTScreen('NORMALIZE_TIMED_STATE_SKIP (reentrant)', pos: _position);
       return;
@@ -936,6 +955,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
           newStartCue = Duration.zero;
         }
       } else {
+        // 1) A/B를 duration 안으로 클램프
         if (newA != null) {
           newA = _clamp(newA, Duration.zero, dur);
         }
@@ -943,15 +963,34 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
           newB = _clamp(newB, Duration.zero, dur);
         }
 
+        // 2) 루프 유효성 판정
+        //
+        //    🔥 변경 포인트:
+        //    - "A만 있고 B는 없는 상태"는 정상적인 "임시 A" 상태로 인정한다.
+        //    - 실제 루프 유효성(loopValid)은 A/B 둘 다 있을 때만 검사한다.
         bool loopValid = false;
-        if (newA != null && newB != null && newA < newB) {
-          loopValid = true;
-        } else {
-          newA = null;
-          newB = null;
+        if (newA != null && newB != null) {
+          if (newA < newB) {
+            loopValid = true;
+          } else {
+            // A/B 둘 다 있는데 순서가 뒤집힌 것은 깨진 루프 → 둘 다 제거
+            newA = null;
+            newB = null;
+          }
         }
-        newLoopOn = loopValid && newLoopOn;
+        // newA != null && newB == null (혹은 반대) 인 상태는
+        // "부분 설정 상태"로 두고 loopValid = false 그대로 둔다.
 
+        // 🔥 R1 강제 적용:
+        //  - 유효한 루프 영역이 있으면 loopOn은 항상 true
+        //  - 그 외에는 false (A만 있는 상태 포함)
+        if (loopValid) {
+          newLoopOn = true;
+        } else {
+          newLoopOn = false;
+        }
+
+        // 3) StartCue 클램프 및 루프 내부 고정 (R2)
         var sc = newStartCue;
         if (sc < Duration.zero) sc = Duration.zero;
         if (sc > dur) sc = dur;
@@ -965,6 +1004,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
         }
         newStartCue = sc;
 
+        // 4) 반복 횟수 범위 정리
         _loopRepeat = _loopRepeat.clamp(0, 200);
       }
 
@@ -983,6 +1023,19 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       }
       if (startCueChanged || durationChanged) {
         _wf.setStartCue(_startCue);
+      }
+
+      // 🔥 LoopExecutor와도 R1 기준으로 상태 동기화
+      if (loopChanged) {
+        if (_loopA != null && _loopB != null && _loopA! < _loopB!) {
+          // 유효한 루프 영역 → 실행기도 항상 ON
+          _loopExec.setA(_loopA!);
+          _loopExec.setB(_loopB!);
+          _loopExec.setLoopEnabled(_loopEnabled);
+        } else {
+          // 루프 영역이 없거나 A만 있는 상태 → 실행기 OFF
+          _loopExec.setLoopEnabled(false);
+        }
       }
 
       if (loopChanged || startCueChanged || durationChanged) {
@@ -1004,6 +1057,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       _isNormalizingTimedState = false;
     }
   }
+
 
   Future<void> _engineSeekFromScreen(
     Duration target, {
@@ -1064,6 +1118,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     _playInFlight = true;
     try {
       await EngineApi.instance.play();
+      if (!_isDisposing) {
+        _loopExecCanDrivePlayback = EngineApi.instance.isPlaying;
+      }
     } finally {
       _playInFlight = false;
     }
@@ -1073,6 +1130,7 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     if (_isDisposing) return;
 
     final now = DateTime.now();
+    final wasPlaying = EngineApi.instance.isPlaying;
 
     if (_spaceInFlight) {
       _logSoTScreen('SPACE_SCREEN_SKIP (in-flight)');
@@ -1098,8 +1156,16 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
       );
     } finally {
       _spaceInFlight = false;
+
+      // 🔹 Space 이후 실제 재생 상태에 맞춰 LoopExecutor 재생 권한 갱신
+      if (!_isDisposing) {
+        final nowPlaying = EngineApi.instance.isPlaying;
+        _loopExecCanDrivePlayback = nowPlaying;
+      }
     }
   }
+
+
 
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent evt) {
     final mods = HardwareKeyboard.instance.logicalKeysPressed;
@@ -1117,10 +1183,10 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     if (evt.logicalKey == LogicalKeyboardKey.equal) {
       if (evt is KeyDownEvent) {
         EngineApi.instance.ffrw.startForward(
-          startCue: Duration.zero,
-          loopA: null,
-          loopB: null,
-          loopOn: false,
+          startCue: _startCue,
+          loopA: _loopA,
+          loopB: _loopB,
+          loopOn: _loopEnabled,
         );
       } else if (evt is KeyUpEvent) {
         EngineApi.instance.ffrw.stopForward();
@@ -1131,16 +1197,17 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     if (evt.logicalKey == LogicalKeyboardKey.minus) {
       if (evt is KeyDownEvent) {
         EngineApi.instance.ffrw.startReverse(
-          startCue: Duration.zero,
-          loopA: null,
-          loopB: null,
-          loopOn: false,
+          startCue: _startCue,
+          loopA: _loopA,
+          loopB: _loopB,
+          loopOn: _loopEnabled,
         );
       } else if (evt is KeyUpEvent) {
         EngineApi.instance.ffrw.stopReverse();
       }
       return KeyEventResult.handled;
     }
+
 
     return KeyEventResult.ignored;
   }
@@ -1420,16 +1487,22 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     final dur = _effectiveDuration;
     final clamped = dur > Duration.zero ? _clamp(pos, Duration.zero, dur) : pos;
 
-    // Loop A 설정 + StartCue 동기화
+    // 🔥 E 키 스펙 (키보드 전용):
+    //  - 항상 "새 루프 시작점"으로 동작
+    //  - 기존 루프 영역(_loopB, _loopEnabled)은 모두 초기화
+    //  - StartCue도 이 지점으로 강제 이동
     setState(() {
       _loopA = clamped;
+      _loopB = null; // 기존 루프 끝점 제거
+      _loopEnabled = false; // 루프 비활성화
       _startCue = _normalizeStartCueForLoop(clamped);
     });
 
-    // 실행기 반영
+    // LoopExecutor 쪽에도 "새 A만 있고 루프는 아직 OFF" 상태로 맞춰줌
     _loopExec.setA(clamped);
+    _loopExec.setLoopEnabled(false);
 
-    // WF 반영
+    // WaveformController: 루프 하이라이트 제거 + StartCue만 표시
     _wf.setLoop(a: _loopA, b: _loopB, on: _loopEnabled);
     _wf.setStartCue(_startCue);
 
@@ -1438,12 +1511,14 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   }
 
 
+
   void _loopSetB(Duration pos) {
     final dur = _effectiveDuration;
     final clamped = dur > Duration.zero ? _clamp(pos, Duration.zero, dur) : pos;
 
-    // A가 없으면 → A를 먼저 만든다
+    // 🔹 A가 없으면 → "D 단독"은 A를 새로 설정하는 동작으로 처리
     if (_loopA == null) {
+      _logSoTScreen('LOOP_SET_B_KEY_WITHOUT_A → treat as new A', pos: clamped);
       _loopSetA(clamped);
       return;
     }
@@ -1451,21 +1526,49 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     Duration a = _loopA!;
     Duration b = clamped;
 
-    // A/B 정렬
+    // 🔹 A/B 정렬 (오른쪽/왼쪽 드래그 모두 지원)
     if (b < a) {
       final tmp = a;
       a = b;
       b = tmp;
     }
 
+    // 🔹 최소 루프 길이 강제 (키보드 D 전용 보호 로직)
+    //
+    //   - D를 A랑 거의 같은 위치에서 눌러도
+    //     항상 "눈에 보이는 루프 영역"이 생기도록 한다.
+    //   - 드래그 루프(_onLoopSetFromPanel)는 그대로 두고,
+    //     키보드 경로에서만 안전장치로 적용.
+    const minSpan = Duration(milliseconds: 80); // 필요하면 50~150 사이로 조정 가능
+
+    if (dur > Duration.zero) {
+      final span = b - a;
+
+      if (span <= Duration.zero || span < minSpan) {
+        // 1) 먼저 "앞으로" 늘려서 최소 길이 확보 시도
+        final forwardEnd = a + minSpan;
+
+        if (forwardEnd <= dur) {
+          b = forwardEnd;
+        } else {
+          // 2) 파일 끝에 너무 붙어 있으면
+          //    - 뒤로 한 칸 물러나서 [dur-minSpan, dur] 구간으로 루프 구성
+          final safeA = dur > minSpan ? dur - minSpan : Duration.zero;
+          a = safeA;
+          b = dur;
+        }
+      }
+    }
+
     // 🔥 드래그 경로와 동일한 R1~R3 규칙 적용
-    // 1) 루프 영역 있으면 loopOn=true
-    // 2) StartCue = A
-    // 3) LoopExecutor + WF에 모두 동기화
+    //  - R1: 루프 있으면 loopOn=true
+    //  - R2: 루프 있으면 StartCue=A
+    //  - R3: 루프 영역 만든 순간 A/B 정렬 + loopOn=true + StartCue=A
     _onLoopSetFromPanel(a, b);
 
     _logSoTScreen('LOOP_SET_B_KEY', loopA: a, loopB: b, startCue: _startCue);
   }
+
 
 
   Future<void> _loopSetRepeat(int v) async {

@@ -973,9 +973,12 @@ class FfRwFacade {
     Duration? loopB,
     required bool loopOn,
   }) {
+    // 🔥 StartCue는 항상 Screen 쪽 provider 우선 사용
+    final effectiveStartCue = api.startCueProvider?.call() ?? startCue;
+
     return api.fastForward(
       true,
-      startCue: startCue,
+      startCue: effectiveStartCue,
       loopA: loopOn ? loopA : null,
       loopB: loopOn ? loopB : null,
     );
@@ -989,14 +992,17 @@ class FfRwFacade {
     Duration? loopB,
     required bool loopOn,
   }) {
+    // 🔥 StartCue는 항상 Screen 쪽 provider 우선 사용
+    final effectiveStartCue = api.startCueProvider?.call() ?? startCue;
+
     return api.fastReverse(
       true,
-      startCue: startCue,
+      startCue: effectiveStartCue,
       loopA: loopOn ? loopA : null,
       loopB: loopOn ? loopB : null,
     );
   }
 
-
   Future<void> stopReverse() => api.fastReverse(false, startCue: Duration.zero);
 }
+
