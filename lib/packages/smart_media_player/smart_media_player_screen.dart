@@ -1,5 +1,7 @@
 // lib/packages/smart_media_player/smart_media_player_screen.dart
-// v3.41 + Step 3 / P2-P3 이후 Screen-level seek/play guard 패치
+// SmartMediaPlayer v3.8-FF
+// Screen v3.41.1 — Step 3-P3R (Screen-level seek/play + Loop/StartCue 규칙 v2.1 정합)
+//          + Step 4 EngineApi 호환 / QA Tools 제거본
 
 import 'dart:async';
 import 'dart:io';
@@ -20,7 +22,6 @@ import 'ui/smp_shortcuts.dart';
 import 'ui/smp_waveform_gestures.dart';
 import 'ui/smp_notes_panel.dart';
 import 'engine/engine_api.dart';
-import 'qa/smart_media_player_qa_screen.dart';
 import 'video/sticky_video_overlay.dart';
 
 // NEW
@@ -1280,18 +1281,6 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
                 tooltip: '단축키 안내',
                 onPressed: _showHotkeys,
                 icon: const Icon(Icons.help_outline),
-              ),
-              IconButton(
-                tooltip: 'QA Tools',
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const SmartMediaPlayerQaScreen(),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.bug_report),
               ),
             ],
           ),

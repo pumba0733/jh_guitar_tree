@@ -61,6 +61,7 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
   String? _teacherId;
   String? _fromHistoryId;
   bool _autoPrefillTried = false;
+  bool _openingLessonLink = false; // 🔒 링크/SMP 중복 오픈 가드
 
   late String _todayDateStr;
 
@@ -592,92 +593,104 @@ class _TodayLessonScreenState extends State<TodayLessonScreen> {
     ).showSnackBar(SnackBar(content: Text('삭제 완료: 성공 $ok · 실패 $fail')));
   }
 
-  // ===== 링크/첨부 열기: 미디어면 항상 SMP =====
+    // ===== 링크/첨부 열기: 미디어면 항상 SMP =====
   Future<void> _openLessonLink(Map<String, dynamic> link) async {
-    final kind = (link['kind'] ?? '').toString();
+    // 🔒 더블클릭/중복탭 시 두 번째 이후 호출 무시
+    if (_openingLessonLink) {
+      return;
+    }
+    _openingLessonLink = true;
 
-    if (kind == 'resource') {
-      try {
-        final rf = ResourceFile.fromMap({
-          'id': (link['id'] ?? '').toString(),
-          'curriculum_node_id': link['curriculum_node_id'],
-          'title': (link['resource_title'] ?? '').toString(),
-          'filename': (link['resource_filename'] ?? 'resource').toString(),
-          'mime_type': link['resource_mime_type'],
-          'size_bytes': link['resource_size'],
-          'storage_bucket': (link['resource_bucket'] ?? _defaultResourceBucket)
-              .toString(),
-          'storage_path': (link['resource_path'] ?? '').toString(),
-          'created_at': link['created_at'],
-          'content_hash':
-              (link['resource_content_hash'] ??
-                      link['content_hash'] ??
-                      link['hash'])
-                  ?.toString(),
-        });
+    try {
+      final kind = (link['kind'] ?? '').toString();
 
-        if (!XscSyncService.instance.isMediaEligibleForXsc(rf)) {
-          // 미디어가 아니면: 기존처럼 서명 URL 열기
-          await _links.openFromLessonLink(
-            LessonLinkItem(
-              id: (link['id'] ?? '').toString(),
-              lessonId: (link['lesson_id'] ?? _lessonId ?? '').toString(),
-              title: (link['resource_title'] ?? '').toString().isNotEmpty
-                  ? link['resource_title'].toString()
-                  : (link['resource_filename'] ?? 'resource').toString(),
-              resourceBucket:
-                  (link['resource_bucket'] ?? _defaultResourceBucket)
-                      .toString(),
-              resourcePath: (link['resource_path'] ?? '').toString(),
-              resourceFilename: (link['resource_filename'] ?? 'resource')
-                  .toString(),
-              createdAt:
-                  DateTime.tryParse((link['created_at'] ?? '').toString()) ??
-                  DateTime.now(),
-            ),
+      if (kind == 'resource') {
+        try {
+          final rf = ResourceFile.fromMap({
+            'id': (link['id'] ?? '').toString(),
+            'curriculum_node_id': link['curriculum_node_id'],
+            'title': (link['resource_title'] ?? '').toString(),
+            'filename': (link['resource_filename'] ?? 'resource').toString(),
+            'mime_type': link['resource_mime_type'],
+            'size_bytes': link['resource_size'],
+            'storage_bucket':
+                (link['resource_bucket'] ?? _defaultResourceBucket).toString(),
+            'storage_path': (link['resource_path'] ?? '').toString(),
+            'created_at': link['created_at'],
+            'content_hash':
+                (link['resource_content_hash'] ??
+                        link['content_hash'] ??
+                        link['hash'])
+                    ?.toString(),
+          });
+
+          if (!XscSyncService.instance.isMediaEligibleForXsc(rf)) {
+            // 미디어가 아니면: 기존처럼 서명 URL 열기
+            await _links.openFromLessonLink(
+              LessonLinkItem(
+                id: (link['id'] ?? '').toString(),
+                lessonId: (link['lesson_id'] ?? _lessonId ?? '').toString(),
+                title: (link['resource_title'] ?? '').toString().isNotEmpty
+                    ? link['resource_title'].toString()
+                    : (link['resource_filename'] ?? 'resource').toString(),
+                resourceBucket:
+                    (link['resource_bucket'] ?? _defaultResourceBucket)
+                        .toString(),
+                resourcePath: (link['resource_path'] ?? '').toString(),
+                resourceFilename: (link['resource_filename'] ?? 'resource')
+                    .toString(),
+                createdAt:
+                    DateTime.tryParse((link['created_at'] ?? '').toString()) ??
+                    DateTime.now(),
+              ),
+              studentId: _studentId,
+            );
+            return;
+          }
+
+          // 미디어면: SMP로 항상 진입 (내장 플레이어)
+          final prep = await XscSyncService.instance.prepareForBuiltInPlayer(
+            resource: rf,
             studentId: _studentId,
           );
-          return;
+
+          await SmartMediaPlayerScreen.push(
+            context,
+            SmartMediaPlayerScreen(
+              studentId: prep.studentId,
+              mediaHash: prep.mediaHash,
+              mediaPath: prep.mediaPath,
+              studentDir: prep.studentDir,
+              initialSidecar: prep.sidecarPath,
+            ),
+          );
+        } catch (e) {
+          _showError('리소스 열기 실패: $e');
         }
-
-        // 미디어면: SMP로 항상 진입 (내장 플레이어)
-        final prep = await XscSyncService.instance.prepareForBuiltInPlayer(
-          resource: rf,
-          studentId: _studentId,
-        );
-
-        await SmartMediaPlayerScreen.push(
-          context,
-          SmartMediaPlayerScreen(
-            studentId: prep.studentId,
-            mediaHash: prep.mediaHash,
-            mediaPath: prep.mediaPath,
-            studentDir: prep.studentDir,
-            initialSidecar: prep.sidecarPath,
-          ),
-        );
-      } catch (e) {
-        _showError('리소스 열기 실패: $e');
+        return;
       }
-      return;
-    }
 
-    // node 링크는 기존 동작 유지
-    final nodeId = (link['curriculum_node_id'] ?? '').toString();
-    if (nodeId.isEmpty) {
-      _showError('노드 정보를 찾을 수 없습니다.');
-      return;
-    }
-    try {
-      await _curr.openInBrowser(nodeId);
-    } catch (_) {
-      await Clipboard.setData(ClipboardData(text: nodeId));
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('노드 ID를 클립보드에 복사했습니다.')));
+      // node 링크는 기존 동작 유지
+      final nodeId = (link['curriculum_node_id'] ?? '').toString();
+      if (nodeId.isEmpty) {
+        _showError('노드 정보를 찾을 수 없습니다.');
+        return;
+      }
+      try {
+        await _curr.openInBrowser(nodeId);
+      } catch (_) {
+        await Clipboard.setData(ClipboardData(text: nodeId));
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('노드 ID를 클립보드에 복사했습니다.')));
+      }
+    } finally {
+      // 🔓 SMP 화면에서 돌아왔을 때 / 에러 났을 때 모두 해제
+      _openingLessonLink = false;
     }
   }
+
 
   // ===== 배정 리소스 추가 (다이얼로그 포함) =====
   Future<void> _linkCurriculumResourceAssigned() async {
