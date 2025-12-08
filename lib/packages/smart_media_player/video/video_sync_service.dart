@@ -58,12 +58,42 @@ class VideoSyncService {
   Future<void> attachPlayer(Player player) async {
     if (_disposed) return;
 
+    // 이미 다른 플레이어가 붙어 있으면 먼저 분리
+    if (_player != null && _player != player) {
+      detachPlayer();
+    }
+
     _player = player;
     _controller ??= VideoController(player);
+
+    // 🔇 안전장치: mpv 쪽 오디오는 항상 0으로 고정 (오디오는 네이티브 엔진만 담당)
+    try {
+      _player?.setVolume(0.0);
+    } catch (_) {
+      // media_kit 버전에 따라 시그니처 차이가 있을 수 있으니 실패는 무시
+    }
 
     _logVideoSync('attachPlayer(): player attached');
 
     _startTickLoop();
+  }
+
+  /// 현재 영상 플레이어/컨트롤러를 분리하고 tick loop를 멈춘다.
+  ///
+  /// - EngineApi.load()에서 새 파일을 열 때
+  /// - audio 전용 트랙을 열 때
+  /// - stopAndUnload() 시점 등에서 호출
+  void detachPlayer() {
+    if (_player == null && _controller == null && _tickTimer == null) {
+      return;
+    }
+
+    _stopTickLoop();
+    _lastAlignedTarget = null;
+    _controller = null;
+    _player = null;
+
+    _logVideoSync('detachPlayer(): detached & tick loop stopped');
   }
 
   bool get isVideoLoaded => _player != null && _controller != null;
@@ -218,16 +248,7 @@ class VideoSyncService {
 
   Future<void> dispose() async {
     _disposed = true;
-    _stopTickLoop();
-
-    // VideoController는 위젯 트리 / 상위 레이어에서 관리되고,
-    // 현재 media_kit_video 버전에서는 명시적인 dispose() API가 없다.
-    // 여기서는 참조만 끊어준다.
-    _controller = null;
-
-    // Player의 생명주기는 EngineApi가 관리하므로 여기서 stop/dispose하지 않음.
-    _player = null;
-
+    detachPlayer();
     _logVideoSync('dispose(): service disposed');
   }
 }

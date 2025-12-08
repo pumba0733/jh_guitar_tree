@@ -299,6 +299,9 @@ class EngineApi {
     _lastPolledPosition = null;
     _endCandidate = false;
 
+    // 🔁 이전에 붙어 있던 영상 플레이어/컨트롤러 완전히 분리
+    VideoSyncService.instance.detachPlayer();
+
     // 네이티브 엔진에 파일 오픈
     final ok = stOpenFile(path);
     if (!ok) {
@@ -313,7 +316,6 @@ class EngineApi {
     if (_duration < Duration.zero) {
       _duration = Duration.zero;
     }
-
 
     onDuration(_duration);
     _durationCtl.add(_duration);
@@ -331,6 +333,9 @@ class EngineApi {
         play: false,
       );
       await VideoSyncService.instance.attachPlayer(_player);
+    } else {
+      // 순수 오디오 파일이면 영상 상태는 완전히 비운다.
+      VideoSyncService.instance.detachPlayer();
     }
 
     // 오디오/비디오 모두 0으로 강제 align
@@ -352,6 +357,7 @@ class EngineApi {
 
     return _duration;
   }
+
 
   // ================================================================
   // PLAYBACK CONTROL (네이티브 엔진 + 비디오 연동)
@@ -852,7 +858,7 @@ class EngineApi {
     );
   }
 
-  // ================================================================
+   // ================================================================
   // STOP & UNLOAD CURRENT MEDIA (for screen lifecycle)
   // ================================================================
   /// 현재 재생 중인 오디오/비디오를 완전히 정리한다.
@@ -914,8 +920,12 @@ class EngineApi {
       // ignore
     }
 
+    // 🔁 VideoSyncService 쪽에서도 플레이어 분리
+    VideoSyncService.instance.detachPlayer();
+
     _logSmpEngine('stopAndUnload(): done (engine & video stopped)');
   }
+
 
   // ================================================================
   // CLEANUP
