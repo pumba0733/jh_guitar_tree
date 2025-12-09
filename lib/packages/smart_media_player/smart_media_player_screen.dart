@@ -307,16 +307,23 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
     _wf.onStartCueSet = _onStartCueFromPanel;
     _wf.onMarkersChanged = _onMarkersChangedFromWaveform; // 🔹 NEW: 마커 동기화   
 
-    // 비동기 초기화 (엔진 load)
-    _initAsync();
-
-    // [7-A] PIP auto-collapse 동작을 위한 scroll listener 연결
+        // [7-A] PIP auto-collapse 동작을 위한 scroll listener 연결
     _scrollCtl.addListener(_onScrollTick);
 
-    // 포커스 자동 획득
+    // 🔸 1차 프레임: UI 먼저 그리기 (StickyVideoOverlay 자리 포함)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focusNode.requestFocus();
+      if (!mounted) return;
+
+      _focusNode.requestFocus();
+
+      // 🔸 2차 프레임: 레이아웃이 잡힌 뒤에 엔진 로드
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _initAsync();
+      });
     });
+
+
 
     // [SYNC]
     _initNotesAndSidecarSync();
@@ -1217,6 +1224,19 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
   Widget build(BuildContext context) {
     final title = p.basename(widget.mediaPath);
 
+    // 1) 파일 확장자로만 "영상 파일 여부" 판정 (레이아웃 높이 결정용)
+    final ext = p.extension(widget.mediaPath).toLowerCase();
+    final bool isVideoFile =
+        ext == '.mp4' ||
+        ext == '.mov' ||
+        ext == '.m4v' ||
+        ext == '.avi' ||
+        ext == '.mkv';
+
+    // 2) 실제 비디오 컨트롤러 존재 여부는 별도 (오버레이 표시용)
+    final videoController = EngineApi.instance.videoController;
+    final bool hasVideoController = videoController != null;
+
     return Listener(
       onPointerDown: (_) {
         if (!_focusNode.hasFocus) _focusNode.requestFocus();
@@ -1288,7 +1308,9 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
             builder: (ctx, c) {
               final double viewportW = c.maxWidth;
               final double viewportH = c.maxHeight;
-              final double videoMaxHeight = EngineApi.instance.hasVideo
+
+              // 🔹 "이 파일이 영상인가?" 기준으로 자리부터 확보
+              final double videoMaxHeight = isVideoFile
                   ? viewportW * 9 / 16
                   : 0.0;
 
@@ -1302,10 +1324,12 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (EngineApi.instance.hasVideo) ...[
+                          if (isVideoFile) ...[
+                            // 🔸 영상 컨트롤러가 아직 없어도 "자리"는 먼저 만든다
                             SizedBox(height: videoMaxHeight, width: viewportW),
                             const SizedBox(height: 12),
                           ],
+
                           AppSection(
                             padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                             margin: const EdgeInsets.symmetric(vertical: 4),
@@ -1419,10 +1443,11 @@ class _SmartMediaPlayerScreenState extends State<SmartMediaPlayerScreen>
                         ],
                       ),
                     ),
-                  ),
-                  if (EngineApi.instance.hasVideo)
+                                    ),
+                  // 🔸 실제 오버레이는 "영상 파일 + 컨트롤러 존재" 둘 다 만족할 때만
+                  if (isVideoFile && hasVideoController)
                     StickyVideoOverlay(
-                      controller: EngineApi.instance.videoController!,
+                      controller: videoController!,
                       scrollController: _scrollCtl,
                       viewportSize: Size(viewportW, viewportH),
                     ),

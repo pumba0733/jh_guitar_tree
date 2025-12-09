@@ -50,13 +50,21 @@ void _logSmpEngine(String message, {bool tick = false}) {
 }
 
 class EngineApi {
-  EngineApi._();
+  EngineApi._() {
+    // ✅ media_kit은 Player 생성 전에 반드시 초기화되어야 한다.
+    MediaKit.ensureInitialized();
+    _player = Player();
+    _logSmpEngine('EngineApi(): media_kit Player created & initialized');
+  }
+
   static final EngineApi instance = EngineApi._();
 
   // ================================================================
   // CORE FIELDS
   // ================================================================
-  final Player _player = Player(); // video 전용
+  /// mpv 기반 영상 전용 플레이어
+  late final Player _player;
+
   bool _initialized = false;
   bool _hasFile = false;
 
@@ -175,7 +183,7 @@ class EngineApi {
     return _clampToDuration(target);
   }
 
-    // 🔥 오디오(SoT) 기준 트랙 종료 처리 공통 루틴
+  // 🔥 오디오(SoT) 기준 트랙 종료 처리 공통 루틴
   Future<void> _handleTrackCompleted() async {
     try {
       // StartCue를 항상 Screen 상태에서 가져온다.
@@ -204,9 +212,11 @@ class EngineApi {
     if (_initialized) return;
     _initialized = true;
 
-    MediaKit.ensureInitialized();
+    // media_kit 초기화는 ctor에서 이미 수행 및 Player 생성 완료 상태.
+    // 여기서는 네이티브 엔진과 SoT 폴링, mpv 이벤트 스트림만 붙인다.
+
     stInitEngine();
-    _logSmpEngine('init(): engine initialized');
+    _logSmpEngine('init(): native audio engine initialized');
 
     // FFmpeg SoT polling (position stream)
     _positionTimer?.cancel();
@@ -328,15 +338,28 @@ class EngineApi {
         lower.endsWith('.mkv');
 
     if (isVideo) {
+      // 비디오 플레이어를 열기 전에 먼저 attachPlayer 호출
+      // → VideoController 생성 및 width/height 스트림 구독을 선행
+      VideoSyncService.instance.attachPlayer(_player);
+
       await _player.open(
-        Media(path, extras: {'audio': 'no', 'keep-open': 'yes'}),
+        Media(
+          path,
+          extras: {
+            'audio': 'no',
+            'keep-open': 'yes',
+            'force-window': 'yes',
+            'video-unscaled': 'no',
+          },
+        ),
         play: false,
       );
-      await VideoSyncService.instance.attachPlayer(_player);
+
+      // ※ open 이후에는 prewarm/textureReady 를 VideoSyncService 내부에서 자동 처리
     } else {
-      // 순수 오디오 파일이면 영상 상태는 완전히 비운다.
       VideoSyncService.instance.detachPlayer();
     }
+
 
     // 오디오/비디오 모두 0으로 강제 align
     stSeekToDuration(Duration.zero);
@@ -357,7 +380,6 @@ class EngineApi {
 
     return _duration;
   }
-
 
   // ================================================================
   // PLAYBACK CONTROL (네이티브 엔진 + 비디오 연동)
@@ -395,7 +417,6 @@ class EngineApi {
     _playingCtl.add(true);
     _logSmpEngine('play(): now nativePlaying=$_nativePlaying');
   }
-
 
   Future<void> pause() async {
     final cur = position;
@@ -468,7 +489,6 @@ class EngineApi {
     await play();
   }
 
-
   // ================================================================
   // LOOP EXIT → StartCue + Auto Play
   // ================================================================
@@ -492,7 +512,6 @@ class EngineApi {
     _logSmpEngine(
       'loopExitToStartCue(): normalized cue=${cue.inMilliseconds}ms',
     );
-
 
     await seekUnified(cue, loopA: loopA, loopB: loopB, startCue: cue);
     // ✅ 의도: 루프 종료 후 StartCue에서 바로 재생 유지
@@ -815,7 +834,6 @@ class EngineApi {
     }
   }
 
-
   // ================================================================
   // PUBLIC FFRW FACADE & HELPERS
   // ================================================================
@@ -858,7 +876,7 @@ class EngineApi {
     );
   }
 
-   // ================================================================
+  // ================================================================
   // STOP & UNLOAD CURRENT MEDIA (for screen lifecycle)
   // ================================================================
   /// 현재 재생 중인 오디오/비디오를 완전히 정리한다.
@@ -925,7 +943,6 @@ class EngineApi {
 
     _logSmpEngine('stopAndUnload(): done (engine & video stopped)');
   }
-
 
   // ================================================================
   // CLEANUP
@@ -1015,4 +1032,3 @@ class FfRwFacade {
 
   Future<void> stopReverse() => api.fastReverse(false, startCue: Duration.zero);
 }
-
