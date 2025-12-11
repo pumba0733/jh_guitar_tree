@@ -64,6 +64,11 @@ class _WaveformPanelState extends State<WaveformPanel> {
   bool _dragSelecting = false;
   int _draggingMarkerIndex = -1;
 
+  // 🔹 상단 마커 밴드 탭 vs 드래그 구분용
+  int? _markerJumpIndexCandidate;
+  Offset? _markerJumpDownLocal;
+  bool _markerJumpMoved = false;
+
   // 🔹 타임라인 스크럽 드래그 상태 (StartCue 규칙 연동용)
   int? _scrubPointerId;
   Offset? _scrubStartLocal;
@@ -71,11 +76,17 @@ class _WaveformPanelState extends State<WaveformPanel> {
 
   SmpWaveformGestures? get _gestures => widget.gestures;
 
-    void _requestLoopUpdate(Duration? a, Duration? b) {
+  void _requestLoopUpdate(Duration? a, Duration? b) {
     final cb = widget.controller.onLoopSet;
     if (cb != null) {
       scheduleMicrotask(() => cb(a, b));
     }
+  }
+
+  void _resetMarkerJumpState() {
+    _markerJumpIndexCandidate = null;
+    _markerJumpDownLocal = null;
+    _markerJumpMoved = false;
   }
 
   void _requestStartCueUpdate(Duration t) {
@@ -85,8 +96,7 @@ class _WaveformPanelState extends State<WaveformPanel> {
     }
   }
 
-
-Listenable get _mergedListenable => Listenable.merge([
+  Listenable get _mergedListenable => Listenable.merge([
     // 🔥 StartCue는 setStartCue()에서 notifyListeners()만 호출하므로
     // 컨트롤러 자체를 리슨해서 반영하도록 추가
     widget.controller,
@@ -98,9 +108,8 @@ Listenable get _mergedListenable => Listenable.merge([
     widget.controller.viewStart,
     widget.controller.viewWidth,
     widget.controller.markers,
-    // ⛔ startCue는 Duration 값이라 Listenable이 아님 → 제거
+    // ⛔ startCue는 Duration 값이라 Listenable이 아님 → 제외
   ]);
-
 
   @override
   void initState() {
@@ -206,7 +215,7 @@ Listenable get _mergedListenable => Listenable.merge([
     return (bestDx <= _markerHitPx) ? bestIdx : -1;
   }
 
-    void _setA(Duration t) {
+  void _setA(Duration t) {
     final c = widget.controller;
 
     // duration 범위 안으로만 clamp
@@ -238,11 +247,10 @@ Listenable get _mergedListenable => Listenable.merge([
     widget.onStateDirty?.call();
   }
 
-
-    void _setB(Duration t) {
+  void _setB(Duration t) {
     final c = widget.controller;
 
-    // duration 범위 안으로 clamp
+    // duration 범위 안으로만 clamp
     final durMs = c.duration.value.inMilliseconds;
     if (durMs > 0) {
       final ms = t.inMilliseconds.clamp(0, durMs);
@@ -268,7 +276,6 @@ Listenable get _mergedListenable => Listenable.merge([
     widget.onStateDirty?.call();
   }
 
-
   // selection만 지우는 헬퍼 (엔진/LoopExecutor에는 영향 없음)
   void _clearSelectionOnly() {
     final c = widget.controller;
@@ -276,7 +283,7 @@ Listenable get _mergedListenable => Listenable.merge([
     c.selectionB.value = null;
   }
 
-    void _loopOff() {
+  void _loopOff() {
     // 루프 범위/선택 강조만 지우고,
     // 실제 loopA/B/loopOn reset은 Screen이 결정
     _clearSelectionOnly();
@@ -284,16 +291,16 @@ Listenable get _mergedListenable => Listenable.merge([
     widget.onStateDirty?.call();
   }
 
-
-    void _clearAB() {
+  void _clearAB() {
     // 더블탭 = 루프 완전 해제 요청
     _loopOff();
   }
 
-
-    void _updateMarkerTime(int index, Duration t) {
+  void _updateMarkerTime(int index, Duration t) {
     final c = widget.controller;
     final list = List<WfMarker>.from(c.markers.value);
+    if (index < 0 || index >= list.length) return;
+
     final m = list[index];
     list[index] = WfMarker.named(
       time: t,
@@ -301,19 +308,19 @@ Listenable get _mergedListenable => Listenable.merge([
       color: m.color,
       repeat: m.repeat,
     );
-    list.sort((a, b) => a.time.compareTo(b.time));
+
+    // ⛔ 정렬 삭제
+    // list.sort((a, b) => a.time.compareTo(b.time));
+
     c.setMarkers(list);
 
-    // 🔹 마커 위치 변경을 Screen(_markers)에도 알려주기
     final onChanged = c.onMarkersChanged;
     if (onChanged != null) {
-      // programmatic update와 꼬이지 않도록 microtask로 분리
       scheduleMicrotask(() => onChanged(List<WfMarker>.unmodifiable(list)));
     }
 
     widget.onStateDirty?.call();
   }
-
 
   // 스크럽 드래그 상태 초기화
   void _resetScrubState() {
@@ -427,7 +434,6 @@ Listenable get _mergedListenable => Listenable.merge([
                       widget.onStateDirty?.call();
                     }
 
-
                     setState(() {});
                   },
                   onPanUpdate: (d) {
@@ -510,31 +516,23 @@ Listenable get _mergedListenable => Listenable.merge([
                       final local = event.localPosition;
 
                       // -----------------------------------------------
-                      // ① Marker Jump: 상단 말풍선 밴드 클릭
-                      //    LoopOn 여부와 무관하게 해당 마커 위치로 점프
+                      // ① Marker Band(상단 말풍선 영역)
+                      //    - 여기서는 "점프 후보만 기억"
+                      //    - 실제 점프 여부는 onPointerUp에서
+                      //      이동량이 거의 없을 때(=탭)만 결정
+                      //    - 드래그로 판단되면 점프하지 않고 순수 편집
                       // -----------------------------------------------
                       if (local.dy <= _markerBandPx) {
                         final hit = _hitMarkerIndex(local, viewSize);
                         if (hit >= 0) {
-                          final c = widget.controller;
-                          final m = c.markers.value[hit];
-                          final jump = m.time;
-
-                          // 위치 이동 (순수 seek)
-                          c.position.value = jump;
-
-                          // seek 요청 전달 (StartCue/Loop는 Gestures/Screen에서 처리)
-                          final cb = c.onSeek;
-                          if (cb != null) {
-                            scheduleMicrotask(() => cb(jump));
-                          }
-
-                          // 마커 클릭에서 일반 시킹/스크럽으로 내려가지 않음
-                          _resetScrubState();
-                          return;
+                          _markerJumpIndexCandidate = hit;
+                          _markerJumpDownLocal = local;
+                          _markerJumpMoved = false;
+                        } else {
+                          _resetMarkerJumpState();
                         }
 
-                        // 밴드지만 마커가 없는 경우: 아무 동작도 하지 않음
+                        // 상단 밴드에서는 scrubbing 사용 안 함
                         _resetScrubState();
                         return;
                       }
@@ -544,19 +542,18 @@ Listenable get _mergedListenable => Listenable.merge([
                       //    - LoopOn 여부와 무관하게 순수 seek
                       //    - StartCue/Loop는 Screen/Engine에서만 관리
                       // -----------------------------------------------
-                      // ② 일반 클릭 시킹 (anywhere else)
                       final t = _dxToTime(local, viewSize);
-                      final c = widget.controller;
+                      final controller = widget.controller;
 
                       // 재생 위치 즉시 반영 (SoT는 EngineApi가 최종 소스)
-                      c.position.value = t;
+                      controller.position.value = t;
 
                       // ✅ 클릭 = "여기를 StartCue로 쓰고 싶다" + "기존 루프는 버리고 새 상태 시작"
                       _clearSelectionOnly();
                       _requestLoopUpdate(null, null); // 루프 해제 요청
                       _requestStartCueUpdate(t); // StartCue = 클릭 지점
 
-                      final cb = c.onSeek;
+                      final cb = controller.onSeek;
                       if (cb != null) {
                         // 이 클릭은 순수 시킹 + StartCue 재설정
                         scheduleMicrotask(() => cb(t));
@@ -567,10 +564,31 @@ Listenable get _mergedListenable => Listenable.merge([
                       _scrubStartLocal = local;
                       _scrubStarted = false;
 
-
                       setState(() {});
                     },
                     onPointerMove: (event) {
+                      final local = event.localPosition;
+
+                      // 🔹 상단 마커 밴드에서는 scrubbing 하지 않음
+                      if (local.dy <= _markerBandPx) {
+                        // 탭 vs 드래그 구분을 위한 이동량 체크
+                        if (_markerJumpIndexCandidate != null &&
+                            _markerJumpDownLocal != null) {
+                          final dx = (local.dx - _markerJumpDownLocal!.dx)
+                              .abs();
+                          final dy = (local.dy - _markerJumpDownLocal!.dy)
+                              .abs();
+                          const double kMarkerDragThreshold = 3.0;
+                          if (dx >= kMarkerDragThreshold ||
+                              dy >= kMarkerDragThreshold) {
+                            // 일정 이상 움직였으면 "드래그"로 판정 → 점프 금지
+                            _markerJumpMoved = true;
+                          }
+                        }
+                        return;
+                      }
+
+                      // ==== 아래부터는 scrubbing 로직 ====
                       // 스크럽 대상 포인터가 아니면 무시
                       if (_scrubPointerId == null ||
                           event.pointer != _scrubPointerId) {
@@ -579,11 +597,6 @@ Listenable get _mergedListenable => Listenable.merge([
 
                       // 버튼이 떼어진 상태면 무시
                       if (!event.down) return;
-
-                      final local = event.localPosition;
-
-                      // 상단 마커 밴드에서는 스크럽하지 않음
-                      if (local.dy <= _markerBandPx) return;
 
                       // 🔹 아직 스크럽 시작 안 했으면, 슬롭(threshold) 체크
                       if (!_scrubStarted && _scrubStartLocal != null) {
@@ -611,23 +624,46 @@ Listenable get _mergedListenable => Listenable.merge([
 
                       if (!_scrubStarted) return;
 
-                      final c = widget.controller;
+                      final controller = widget.controller;
                       final t = _dxToTime(local, viewSize);
 
                       // UI 위치 업데이트
-                      c.position.value = t;
+                      controller.position.value = t;
 
-                      final cb = c.onSeek;
+                      final cb = controller.onSeek;
                       if (cb != null) {
-                        // 🔥 드래그 동안 연속 시킹 → Gestures._handleSeekFromGesture
-                        //     → _isDragging==true 경로에서
-                        //        "가장 앞쪽 지점 = StartCue" 규칙 적용
+                        // 🔥 드래그 동안 연속 시킹
                         scheduleMicrotask(() => cb(t));
                       }
 
                       setState(() {});
                     },
                     onPointerUp: (event) {
+                      final local = event.localPosition;
+
+                      // 🔹 상단 마커 밴드에서 손 뗀 경우
+                      if (local.dy <= _markerBandPx) {
+                        // 이동이 거의 없었다면 = "탭" → 점프
+                        if (_markerJumpIndexCandidate != null &&
+                            !_markerJumpMoved) {
+                          final idx = _markerJumpIndexCandidate!;
+                          final controller = widget.controller;
+                          final markers = controller.markers.value;
+                          if (idx >= 0 && idx < markers.length) {
+                            final jump = markers[idx].time;
+                            controller.position.value = jump;
+                            final cb = controller.onSeek;
+                            if (cb != null) {
+                              scheduleMicrotask(() => cb(jump));
+                            }
+                          }
+                        }
+                        _resetMarkerJumpState();
+                        _resetScrubState();
+                        return;
+                      }
+
+                      // ==== scrubbing 종료 로직 ====
                       if (_scrubPointerId != null &&
                           event.pointer == _scrubPointerId) {
                         if (_scrubStarted) {
@@ -638,6 +674,8 @@ Listenable get _mergedListenable => Listenable.merge([
                       }
                     },
                     onPointerCancel: (event) {
+                      _resetMarkerJumpState();
+
                       if (_scrubPointerId != null &&
                           event.pointer == _scrubPointerId) {
                         if (_scrubStarted) {
