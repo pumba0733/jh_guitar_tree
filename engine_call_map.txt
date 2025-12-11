@@ -1,0 +1,158 @@
+lib/constants/app_keys.dart:4:  static const lastSummaryStudentId = 'last_summary_student_id';
+lib/models/teacher.dart:26:      lastLogin: map['last_login'] != null
+lib/models/teacher.dart:27:          ? DateTime.tryParse(map['last_login'] as String)
+lib/screens/home/teacher_home_screen.dart:195:              icon: const Icon(Icons.list_alt),
+lib/screens/home/admin_home_screen.dart:96:            icon: const Icon(Icons.list_alt),
+lib/screens/home/admin_home_screen.dart:159:                      icon: const Icon(Icons.list_alt),
+lib/screens/auth/login_screen.dart:25:  static const _prefsKeyRole = 'login.last_role';
+lib/screens/lesson/lesson_history_screen.dart:966:                              icon: const Icon(Icons.playlist_add),
+lib/screens/lesson/lesson_history_screen.dart:1085:                            icon: const Icon(Icons.playlist_add),
+lib/packages/smart_media_player/ui/smp_loop_panel.dart:77:              icon: Icons.playlist_add,
+lib/packages/smart_media_player/ui/smp_loop_panel.dart:84:              icon: Icons.playlist_add_check,
+lib/packages/smart_media_player/ui/smp_loop_panel.dart:92:              icon: Icons.playlist_add_check,
+lib/packages/smart_media_player/ui/smp_transport_bar.dart:193:          icon: Icons.fast_rewind,
+lib/packages/smart_media_player/ui/smp_transport_bar.dart:215:          icon: Icons.fast_forward,
+lib/packages/smart_media_player/audio/audio_output_macos.dart:17:  // Init — st_create()가 ma_device_start까지 포함
+lib/packages/smart_media_player/audio/audio_output_macos.dart:22:      st_create();
+lib/packages/smart_media_player/audio/audio_output_macos.dart:25:      debugPrint('[AudioOutputMacOS] ✅ init (st_create = start)');
+lib/packages/smart_media_player/audio/audio_output_macos.dart:33:  // Start — 별도 start 없음 → st_create 재호출
+lib/packages/smart_media_player/audio/audio_output_macos.dart:43:      st_create();
+lib/packages/smart_media_player/audio/audio_output_macos.dart:52:  // Stop — C++ st_dispose()
+lib/packages/smart_media_player/audio/audio_output_macos.dart:57:      st_dispose();
+lib/packages/smart_media_player/audio/audio_output_macos.dart:71:    st_setTempo(v.clamp(0.5, 1.5));
+lib/packages/smart_media_player/audio/audio_output_macos.dart:76:    st_setPitch(semi.clamp(-12.0, 12.0));
+lib/packages/smart_media_player/audio/audio_output_macos.dart:81:    st_setVolume(v.clamp(0.0, 1.5));
+lib/packages/smart_media_player/audio/audio_output_macos.dart:85:  // PCM Feed → st_feedPcm(ptr, frames)
+lib/packages/smart_media_player/audio/audio_output_macos.dart:94:      st_feedPcm(ptr, pcm.length ~/ 2);
+lib/packages/smart_media_player/audio/audio_output_macos.dart:108:      return st_getPlaybackTime();
+lib/packages/smart_media_player/audio/audio_output_macos.dart:119:      st_dispose();
+lib/packages/smart_media_player/audio/audio_output_macos.dart:134:      st_seekTo(seconds); // C++ 바인딩 함수
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:15:///    - void   st_create()
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:16:///    - void   st_dispose()
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:17:///    - bool   st_openFile(const char* path)
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:18:///    - void   st_close()
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:19:///    - void   st_set_tempo(float t)
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:20:///    - void   st_set_pitch_semitones(float semi)
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:21:///    - void   st_set_volume(float v)
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:22:///    - double st_get_playback_time()          // seconds (레거시)
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:23:///    - double st_getDurationMs()              // ms
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:24:///    - double st_getPositionMs()              // ms (SoT)
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:25:///    - void   st_seekToMs(double ms)
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:26:///    - void   st_copyLastBuffer(float* dst, int maxFrames)
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:27:///    - double st_getRmsLevel()
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:28:///    - void   st_feed_pcm(float* data, int frames) // no-op
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:29:///    - void   st_play()
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:30:///    - void   st_pause()
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:33:///    - st_create / st_dispose : 엔진 수명 관리
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:35:///    - st_setTempo / st_setPitch / st_setVolume
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:59:typedef _st_create_native = ffi.Void Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:60:typedef _st_dispose_native = ffi.Void Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:62:typedef _st_setTempo_native = ffi.Void Function(ffi.Float);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:63:typedef _st_setPitch_native = ffi.Void Function(ffi.Float);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:64:typedef _st_setVolume_native = ffi.Void Function(ffi.Float);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:66:typedef _st_getPlaybackTime_native = ffi.Double Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:67:typedef _st_getDurationMs_native = ffi.Double Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:68:typedef _st_getPositionMs_native = ffi.Double Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:70:typedef _st_seekToMs_native = ffi.Void Function(ffi.Double);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:72:typedef _st_copyLastBuffer_native =
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:75:typedef _st_getRmsLevel_native = ffi.Double Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:77:typedef _st_openFile_native = ffi.Bool Function(ffi.Pointer<Utf8>);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:78:typedef _st_close_native = ffi.Void Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:80:typedef _st_feedPcm_native =
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:83:typedef _st_play_native = ffi.Void Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:84:typedef _st_pause_native = ffi.Void Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:90:typedef _st_create_dart = void Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:91:typedef _st_dispose_dart = void Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:93:typedef _st_setTempo_dart = void Function(double);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:94:typedef _st_setPitch_dart = void Function(double);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:95:typedef _st_setVolume_dart = void Function(double);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:97:typedef _st_getPlaybackTime_dart = double Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:98:typedef _st_getDurationMs_dart = double Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:99:typedef _st_getPositionMs_dart = double Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:101:typedef _st_seekToMs_dart = void Function(double);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:103:typedef _st_copyLastBuffer_dart = void Function(ffi.Pointer<ffi.Float>, int);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:105:typedef _st_getRmsLevel_dart = double Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:107:typedef _st_openFile_dart = bool Function(ffi.Pointer<Utf8>);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:108:typedef _st_close_dart = void Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:110:typedef _st_feedPcm_dart = void Function(ffi.Pointer<ffi.Float>, int);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:112:typedef _st_play_dart = void Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:113:typedef _st_pause_dart = void Function();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:119:final _st_create = _lib.lookupFunction<_st_create_native, _st_create_dart>(
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:120:  'st_create',
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:123:final _st_dispose = _lib.lookupFunction<_st_dispose_native, _st_dispose_dart>(
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:124:  'st_dispose',
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:127:final _st_setTempo = _lib
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:128:    .lookupFunction<_st_setTempo_native, _st_setTempo_dart>('st_set_tempo');
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:130:final _st_setPitch = _lib
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:131:    .lookupFunction<_st_setPitch_native, _st_setPitch_dart>(
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:132:      'st_set_pitch_semitones',
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:135:final _st_setVolume = _lib
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:136:    .lookupFunction<_st_setVolume_native, _st_setVolume_dart>('st_set_volume');
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:138:final _st_getPlaybackTime = _lib
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:139:    .lookupFunction<_st_getPlaybackTime_native, _st_getPlaybackTime_dart>(
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:140:      'st_get_playback_time',
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:143:final _st_getDurationMs = _lib
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:144:    .lookupFunction<_st_getDurationMs_native, _st_getDurationMs_dart>(
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:145:      'st_getDurationMs',
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:148:final _st_getPositionMs = _lib
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:149:    .lookupFunction<_st_getPositionMs_native, _st_getPositionMs_dart>(
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:150:      'st_getPositionMs',
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:153:final _st_seekToMs = _lib
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:154:    .lookupFunction<_st_seekToMs_native, _st_seekToMs_dart>('st_seekToMs');
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:156:final _st_copyLastBuffer = _lib
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:157:    .lookupFunction<_st_copyLastBuffer_native, _st_copyLastBuffer_dart>(
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:158:      'st_copyLastBuffer',
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:161:final _st_getRmsLevel = _lib
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:162:    .lookupFunction<_st_getRmsLevel_native, _st_getRmsLevel_dart>(
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:163:      'st_getRmsLevel',
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:166:final _st_openFile = _lib
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:167:    .lookupFunction<_st_openFile_native, _st_openFile_dart>('st_openFile');
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:169:final _st_close = _lib.lookupFunction<_st_close_native, _st_close_dart>(
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:170:  'st_close',
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:174:final st_feedPcm = _lib.lookupFunction<_st_feedPcm_native, _st_feedPcm_dart>(
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:175:  'st_feed_pcm',
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:178:final _st_play = _lib.lookupFunction<_st_play_native, _st_play_dart>('st_play');
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:180:final _st_pause = _lib.lookupFunction<_st_pause_native, _st_pause_dart>(
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:181:  'st_pause',
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:190:final st_create = _st_create;
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:193:final st_dispose = _st_dispose;
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:196:final st_setTempo = _st_setTempo;
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:199:final st_setPitch = _st_setPitch;
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:202:final st_setVolume = _st_setVolume;
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:205:final st_getPlaybackTime = _st_getPlaybackTime;
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:207:/// 내부 SoT(ms) 기반 seek — 기존 st_seekTo 이름과 호환 유지.
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:209:void st_seekTo(double positionMs) {
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:210:  _st_seekToMs(positionMs);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:219:  st_create();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:224:  st_dispose();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:233:    final ok = _st_openFile(ptr);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:243:  _st_close();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:248:  final ms = _st_getDurationMs();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:259:  final ms = _st_getPositionMs();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:268:/// 재생 시간(초) — 기존 st_get_playback_time 래핑
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:270:  final sec = _st_getPlaybackTime();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:278:  _st_seekToMs(ms);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:294:    _st_copyLastBuffer(ptr, frames);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:307:  final rms = _st_getRmsLevel();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:325:    // 네이티브 st_feed_pcm은 지금은 no-op이지만
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:327:    st_feedPcm(ptr, pcm.length ~/ 2);
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:335:///  - STEP 2-B에서 네이티브 st_play / st_pause를 실제로 사용.
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:340:/// 재생 시작: 네이티브 st_play() 호출
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:342:  _st_play();
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:345:/// 재생 일시정지: 네이티브 st_pause() 호출
+lib/packages/smart_media_player/audio/engine_soundtouch_ffi.dart:347:  _st_pause();
+lib/packages/smart_media_player/waveform/waveform_cache.dart:8:import 'package:just_waveform/just_waveform.dart';
+lib/packages/smart_media_player/engine/engine_api.dart:527:    st_setTempo(clamped.toDouble());
+lib/packages/smart_media_player/engine/engine_api.dart:533:    st_setPitch(clamped.toDouble());
+lib/packages/smart_media_player/engine/engine_api.dart:539:    st_setVolume(clamped.toDouble());
+lib/services/log_service.dart:37:  // 최근 오류 (rpc: list_recent_errors)
+lib/services/log_service.dart:39:    final res = await _sb.rpc('list_recent_errors', params: {'p_limit': limit});
+lib/services/teacher_service.dart:41:        .select('id, name, email, is_admin, auth_user_id, last_login')
+lib/services/teacher_service.dart:52:        .select('id, name, email, is_admin, auth_user_id, last_login')
+lib/services/curriculum_service.dart:22:  static const _rpcVisibleTree = 'list_visible_curriculum_tree';
+lib/services/curriculum_service.dart:155:        'list_reviewed_resources_by_student',
+lib/services/curriculum_service.dart:206:          'list_assignments_by_student',
+lib/services/auth_service.dart:85:            'id, name, email, is_admin, password_hash, auth_user_id, last_login',
+lib/services/auth_service.dart:98:      // last_login 갱신(실패 무시)
+lib/services/auth_service.dart:102:            .update({'last_login': DateTime.now().toUtc().toIso8601String()})
+lib/services/lesson_service.dart:150:      'list_lessons_by_teacher_filtered',

@@ -84,6 +84,10 @@ class EngineApi {
   // VideoSyncService에서 소비하는 단일 pending 타겟
   Duration? _pendingVideoTarget;
 
+  // 🔥 현재 적용된 tempo (오디오 기준) - VideoSyncService와 공유
+  double _currentTempo = 1.0;
+  double get currentTempo => _currentTempo;
+
   // Streams
   final _positionCtl = StreamController<Duration>.broadcast();
   final _durationCtl = StreamController<Duration>.broadcast();
@@ -360,7 +364,6 @@ class EngineApi {
       VideoSyncService.instance.detachPlayer();
     }
 
-
     // 오디오/비디오 모두 0으로 강제 align
     stSeekToDuration(Duration.zero);
     if (isVideo) {
@@ -522,9 +525,17 @@ class EngineApi {
   // TEMPO / PITCH / VOLUME (네이티브 엔진 직접 호출)
   // ================================================================
   Future<void> setTempo(double v) async {
-    final clamped = v.clamp(0.5, 1.5);
-    _logSmpEngine('setTempo(): v=$v → clamped=$clamped');
-    st_setTempo(clamped.toDouble());
+    final clamped = v.clamp(0.5, 1.5).toDouble();
+    _currentTempo = clamped;
+
+    _logSmpEngine('setTempo(): v=$v → clamped=$_currentTempo');
+
+    // 1) 네이티브 오디오 엔진(FFmpeg+SoundTouch)에 tempo 적용
+    st_setTempo(_currentTempo);
+
+    // 2) 비디오(mp4) 재생 속도도 동일하게 맞춰준다 (Audio=Master / Video=Slave)
+    //    - player가 아직 attach되지 않았으면 VideoSyncService가 내부에 저장만 해둔다.
+    unawaited(VideoSyncService.instance.applyTempoToVideo(_currentTempo));
   }
 
   Future<void> setPitch(int semi) async {

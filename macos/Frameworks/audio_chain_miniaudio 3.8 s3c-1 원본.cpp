@@ -1,17 +1,11 @@
 // ─────────────────────────────────────────────────────────────
 //  SmartMediaPlayer FFI - FFmpeg + SoundTouch + miniaudio
-//  v3.8-FF — STEP 3C-01~05 StableBuffer + MAOutputGuard (Final)
+//  v3.8-FF — STEP 3C-01 StableBuffer (Full Version)
 //
-//  포함 단계:
-//    - S3C-01: StableBuffer 기반 중앙 버퍼 구조
-//    - S3C-02: SoundTouch Param Propagation 안정화 (큐 길이 상한)
-//    - S3C-03: SoT 재정의 (실제 출력 프레임 기반)
-//    - S3C-04: Seek/Flush 정합화
-//    - S3C-05: MAOutputGuard (재생/seek 후 워밍업 & 출력 정합성 보장)
-//
-//  SoT 정의:
-//    - SoT = 실제 디바이스로 출력된 유효 프레임 수
-//    - underflow 시 SoT 증가 금지
+//  목표:
+//    - FFmpeg → SoundTouch → StableRingBuffer → miniaudio
+//    - miniaudio 콜백은 StableRingBuffer.pop()만 사용
+//    - SoT = 실제 디바이스로 출력된 프레임 수 (underflow 시 증가 금지)
 //
 //  구조:
 //    FFmpeg 디코더 스레드:
@@ -19,20 +13,16 @@
 //       - gST.putSamples()
 //       - gST.receiveSamples()로 변조 샘플을 꺼내
 //         StableBuffer.push()로 링버퍼에 공급
-//       - StableBuffer가 충분히 차 있으면 back-pressure로 디코딩 속도 제어
 //
 //    miniaudio.data_callback:
-//       - MAOutputGuard: 새 파일/seek 직후에는
-//         StableBuffer가 GUARD_MIN_FRAMES 이상 찰 때까지
-//         실제 오디오 대신 무음 출력 (SoT 증가 없음)
-//       - Guard 해제 후에는 StableBuffer.pop()로 출력 샘플 획득
+//       - StableBuffer.pop()로 출력 샘플 획득
 //       - 부족분은 무음 패딩 (SoT에는 포함 안 됨)
 //       - 볼륨 적용 후 디바이스로 출력
 //
 //  특징:
 //    - 디코더 스레드는 gPaused를 보고 "정지 상태면 디코딩 쉬기"
-//    - StableBuffer는 중앙 재생 버퍼 (drop 없음, push 시 block 유사 정책)
-//    - seek 시 ST/StableBuffer/gLastBuffer/SoT/gWarmupNeeded 모두 정합 맞춰 초기화
+//    - StableBuffer는 중앙 재생 버퍼 (drop 없음, push 시 block 정책)
+//    - seek 시 ST/StableBuffer/gLastBuffer/SoT 모두 정합 맞춰 초기화
 // ─────────────────────────────────────────────────────────────
 
 #define MINIAUDIO_IMPLEMENTATION
@@ -59,7 +49,6 @@ extern "C"
 #include <cstring>
 #include <cmath>
 #include <algorithm>
-#include <cstdint>
 
 // ─────────────────────────────
 // 네임스페이스
@@ -76,14 +65,6 @@ static constexpr int STABLE_CAP_FRAMES = 16384; // StableBuffer 용량 (프레�
 
 // SoundTouch → StableBuffer로 옮길 때 사용할 청크 크기
 static constexpr int ST_DRAIN_CHUNK_FRAMES = 1024;
-
-// MAOutputGuard:
-//  - 재생/seek 직후 StableBuffer에 최소 몇 프레임이 쌓여야
-//    실제 오디오를 출력할지 결정
-static constexpr int GUARD_MIN_FRAMES = SAMPLE_RATE / 10; // 약 100ms
-
-// StableBuffer 가득 찼을 때 back-pressure 기준
-static constexpr int STABLE_HIGH_WATERMARK_FRAMES = (STABLE_CAP_FRAMES * 3) / 4;
 
 // 기본 파라미터
 static constexpr float DEFAULT_TEMPO = 1.0f;
@@ -102,7 +83,7 @@ static inline void logLine(const char *tag, const char *msg)
 // StableBuffer — 재생용 링버퍼 (프레임 단위)
 //  - FFmpeg+SoundTouch가 push (producer)
 //  - miniaudio 콜백이 pop (consumer)
-//  - drop 없이, push 시 공간 없으면 0을 리턴
+//  - drop 없이, push 시 공간 없으면 block (짧은 sleep 재시도)
 // ─────────────────────────────
 class StableBuffer
 {
@@ -206,10 +187,6 @@ static StableBuffer gStable;
 static SoundTouch gST;
 static std::mutex gMutex; // SoundTouch + gLastBuffer 보호
 
-// 현재 tempo / pitch 상태 (SoundTouch 파라미터 튜닝용)
-static std::atomic<float> gTempo{DEFAULT_TEMPO};
-static std::atomic<float> gPitch{DEFAULT_PITCH};
-
 // miniaudio
 static ma_device gDevice{};
 static std::atomic<bool> gDeviceStarted{false};
@@ -239,86 +216,17 @@ static std::atomic<bool> gEngineCreated{false};
 static std::atomic<bool> gRunning{false};
 static std::atomic<bool> gPaused{true}; // 기본 정지
 
-// MAOutputGuard: 재생/seek/파일오픈 직후 워밍업 필요 여부
-static std::atomic<bool> gWarmupNeeded{false};
+// ─────────────────────────────
+// 내부 유틸
+// ─────────────────────────────
 
-// ─────────────────────────────
-// 내부 유틸 - SoundTouch 파라미터 튜닝
-//  - gMutex 잠긴 상태에서만 호출해야 함 (unsafe)
-// ─────────────────────────────
-// ─────────────────────────────
-// 내부 유틸 - SoundTouch 파라미터 튜닝
-//  - gMutex 잠긴 상태에서만 호출해야 함 (unsafe)
-// ─────────────────────────────
-// ─────────────────────────────
-// 내부 유틸 - SoundTouch 파라미터 튜닝 (하이브리드 버전)
-//  - gMutex 잠긴 상태에서만 호출해야 함 (unsafe)
-// ─────────────────────────────
 static inline void applySoundTouchParams_unsafe()
 {
-    float tempo = gTempo.load();
-    float pitch = gPitch.load();
-
-    if (tempo <= 0.0f)
-    {
-        tempo = DEFAULT_TEMPO;
-    }
-
-    // 0.5x ~ 1.7x 범위 안으로만 제한
-    float t = tempo;
-    if (t < 0.5f)
-        t = 0.5f;
-    if (t > 1.7f)
-        t = 1.7f;
-
-    float seqMs;
-    float seekMs;
-    float ovlMs;
-    int quick;
-
-    // 🔵 구간 1: 0.90x ~ 1.10x (거의 원속 = 음질 최우선)
-    if (t >= 0.90f && t <= 1.10f)
-    {
-        seqMs = 60.0f; // 넉넉한 윈도 (자연스러운 톤/보컬)
-        seekMs = 26.0f;
-        ovlMs = 10.0f;
-        quick = 1;
-    }
-    // 🟢 구간 2: 0.75x ~ 0.90x (실제 카피/연습 구간 = 밸런스)
-    else if (t >= 0.75f)
-    {
-        seqMs = 45.0f; // 약간 짧게 → 타이트 + 안정성 타협
-        seekMs = 20.0f;
-        ovlMs = 9.0f;
-        quick = 1;
-    }
-    // 🔴 구간 3: 0.50x ~ 0.75x (극단 슬로우 = 드럼/리듬 우선)
-    else
-    {
-        seqMs = 36.0f; // 너무 짧지 않게 조금만 줄임 (이전 32보다 살짝 완화)
-        seekMs = 18.0f;
-        ovlMs = 9.0f;
-        quick = 0; // 정확도 우선, 대신 아티팩트 약간 감수
-    }
-
-    // 안전 범위 클램프
-    seqMs = std::max(20.0f, std::min(80.0f, seqMs));
-    seekMs = std::max(10.0f, std::min(50.0f, seekMs));
-    ovlMs = std::max(5.0f, std::min(24.0f, ovlMs));
-
-    // 🔧 anti-alias 필터 ON (고역 보글보글 약간 완화 목적)
-    gST.setSetting(SETTING_SEQUENCE_MS, (int)seqMs);
-    gST.setSetting(SETTING_SEEKWINDOW_MS, (int)seekMs);
-    gST.setSetting(SETTING_OVERLAP_MS, (int)ovlMs);
-    gST.setSetting(SETTING_USE_QUICKSEEK, quick);
-    gST.setSetting(SETTING_USE_AA_FILTER, 1);
-
-    gST.setTempo(tempo);
-    gST.setPitchSemiTones(pitch);
-
-    std::printf(
-        "[ST] params tempo=%.3f (t=%.3f) seq=%.1f seek=%.1f ovl=%.1f quick=%d\n",
-        tempo, t, seqMs, seekMs, ovlMs, quick);
+    // STEP 3C-01:
+    //  - tempo/pitch 변경 시 큐를 강제로 비우지 않는다.
+    //  - 실제 샘플 흐름은 DecodeThread → StableBuffer로 제한되어 있으므로
+    //    큐 길이(StableBuffer.size + ST 내부 큐)가 과도하게 길어지지 않도록
+    //    디코더 쪽에서 back-pressure를 거는 것으로 충분.
 }
 
 // FFmpeg 초기화 (once)
@@ -339,10 +247,8 @@ static void initSoundTouch()
     gST.setSampleRate(SAMPLE_RATE);
     gST.setChannels(CHANNELS);
 
-    // tempo / pitch 기본값 세팅 + 파라미터 튜닝
-    gTempo.store(DEFAULT_TEMPO);
-    gPitch.store(DEFAULT_PITCH);
-    applySoundTouchParams_unsafe();
+    gST.setTempo(DEFAULT_TEMPO);
+    gST.setPitchSemiTones(DEFAULT_PITCH);
 
     gVolume.store(DEFAULT_VOL);
     gProcessedSamples.store(0);
@@ -391,7 +297,6 @@ static void closeFileInternal()
 
     gStable.clear();
     gProcessedSamples.store(0);
-    gWarmupNeeded.store(false);
 
     logLine("FFmpeg", "file closed");
 }
@@ -523,12 +428,10 @@ static bool openFileInternal(const char *path)
         gST.clear();
         gST.flush();
         std::fill(gLastBuffer.begin(), gLastBuffer.end(), 0.0f);
-        // tempo/pitch는 유지, 파라미터는 그대로 (seek/open 후에도 일관성 유지)
     }
 
     gStable.clear();
     gFileOpened.store(true);
-    gWarmupNeeded.store(true); // 새 파일 → MAOutputGuard 워밍업 필요
 
     logLine("FFmpeg", "file opened");
     return true;
@@ -538,7 +441,6 @@ static bool openFileInternal(const char *path)
 //  - FFmpeg → Swr → SoundTouch.putSamples()
 //  - SoundTouch.receiveSamples() → StableBuffer.push()
 //  - gPaused == true면 디코딩 잠시 쉼 (출력은 콜백에서 무음 처리)
-//  - StableBuffer가 충분히 차 있으면 back-pressure로 디코딩 속도 제어
 static void decodeThreadFunc()
 {
     AVPacket *pkt = av_packet_alloc();
@@ -562,13 +464,6 @@ static void decodeThreadFunc()
         if (!gFmtCtx || !gCodecCtx || !gSwr || gAudioStreamIndex < 0)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            continue;
-        }
-
-        // StableBuffer가 너무 많이 차 있으면 디코딩 속도 줄이기
-        if (gStable.size() > STABLE_HIGH_WATERMARK_FRAMES)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }
 
@@ -624,8 +519,8 @@ static void decodeThreadFunc()
                 }
 
                 // 2) SoundTouch에서 변조된 샘플을 StableBuffer로 이동
-                //    - StableBuffer가 가득 차 있으면
-                //      소비될 때까지 짧게 sleep 하면서 재시도
+                //    - block 정책: StableBuffer에 빈 공간이 없으면
+                //      짧게 sleep 하면서 공간 생길 때까지 반복
                 bool drainMore = true;
                 while (drainMore && gDecodeRunning.load() && !gPaused.load())
                 {
@@ -676,7 +571,6 @@ static void decodeThreadFunc()
 }
 
 // miniaudio 콜백
-//  - MAOutputGuard: 워밍업 필요 시 StableBuffer가 충분히 찰 때까지 무음 출력
 //  - StableBuffer.pop() → 실제 출력
 //  - underflow 시 SoT 증가 없이 무음 출력
 static void data_callback(ma_device * /*pDevice*/, void *pOutput, const void * /*pInput*/, ma_uint32 frameCount)
@@ -692,27 +586,6 @@ static void data_callback(ma_device * /*pDevice*/, void *pOutput, const void * /
             std::fill(gLastBuffer.begin(), gLastBuffer.end(), 0.0f);
         }
         return;
-    }
-
-    // MAOutputGuard: 새 파일/seek 직후 워밍업
-    if (gWarmupNeeded.load())
-    {
-        int buffered = gStable.size();
-        if (buffered < GUARD_MIN_FRAMES)
-        {
-            // 아직 충분히 버퍼가 쌓이지 않았으므로 무음 출력 + SoT 증가 없음
-            std::memset(out, 0, frameCount * CHANNELS * sizeof(float));
-            {
-                std::lock_guard<std::mutex> lock(gMutex);
-                std::fill(gLastBuffer.begin(), gLastBuffer.end(), 0.0f);
-            }
-            return;
-        }
-        else
-        {
-            // 충분히 버퍼가 쌓였으면 Guard 해제 후 정상 재생
-            gWarmupNeeded.store(false);
-        }
     }
 
     // StableBuffer에서 샘플 꺼내기
@@ -789,8 +662,6 @@ static bool initAudioDevice()
 }
 
 // 내부 seek
-//  - FFmpeg/Codec/Swr/SoundTouch/StableBuffer/SoT/gWarmupNeeded를
-//    한 번에 초기화하여 Step3C-04 정합성 보장
 static void seekInternal(double ms)
 {
     if (!gFileOpened.load() || !gFmtCtx || !gCodecCtx || gAudioStreamIndex < 0)
@@ -808,14 +679,7 @@ static void seekInternal(double ms)
     gDecodeRunning.store(false);
     if (gDecodeThread.joinable())
     {
-        if (std::this_thread::get_id() == gDecodeThread.get_id())
-        {
-            // 이론상 같은 스레드에서 호출되진 않지만, 안전장치
-        }
-        else
-        {
-            gDecodeThread.join();
-        }
+        gDecodeThread.join();
     }
 
     AVStream *st = gFmtCtx->streams[gAudioStreamIndex];
@@ -838,7 +702,6 @@ static void seekInternal(double ms)
         gST.clear();
         gST.flush();
         std::fill(gLastBuffer.begin(), gLastBuffer.end(), 0.0f);
-        // tempo/pitch 설정은 유지. 파라미터는 그대로.
     }
 
     gStable.clear();
@@ -846,9 +709,6 @@ static void seekInternal(double ms)
     // SoT를 타겟 위치로 재설정
     uint64_t targetSamples = static_cast<uint64_t>((ms / 1000.0) * SAMPLE_RATE);
     gProcessedSamples.store(targetSamples);
-
-    // Seek 이후에는 다시 워밍업 필요
-    gWarmupNeeded.store(true);
 
     // 디코더 다시 시작
     gDecodeRunning.store(true);
@@ -888,7 +748,6 @@ extern "C"
             gEngineCreated.store(true);
 
             gPaused.store(true);
-            gWarmupNeeded.store(false);
 
             logLine("FFI", "playback device started");
         }
@@ -924,7 +783,6 @@ extern "C"
 
         gStable.clear();
         gProcessedSamples.store(0);
-        gWarmupNeeded.store(false);
 
         gRunning.store(false);
         gEngineCreated.store(false);
@@ -972,7 +830,7 @@ extern "C"
     void st_set_tempo(float t)
     {
         std::lock_guard<std::mutex> lock(gMutex);
-        gTempo.store(t);
+        gST.setTempo(t);
         applySoundTouchParams_unsafe();
         std::printf("[ST] tempo=%.3f\n", t);
     }
@@ -980,16 +838,13 @@ extern "C"
     void st_set_pitch_semitones(float semi)
     {
         std::lock_guard<std::mutex> lock(gMutex);
-        gPitch.store(semi);
+        gST.setPitchSemiTones(semi);
         applySoundTouchParams_unsafe();
         std::printf("[ST] pitch=%.3f\n", semi);
     }
 
     void st_set_volume(float v)
     {
-        // ⚠️ 볼륨은 클램프하지 않는다.
-        //  - 1.0 = 원음 100%
-        //  - 1.0 초과 시 디지털 클리핑 가능 (사용자 의도)
         gVolume.store(v);
         std::printf("[ST] volume=%.3f\n", v);
     }
