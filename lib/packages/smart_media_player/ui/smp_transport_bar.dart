@@ -8,7 +8,6 @@
 
 import 'package:flutter/material.dart';
 import '../../../ui/components/app_controls.dart';
-import '../../../ui/components/loop_preset_item.dart';
 import 'smp_loop_panel.dart';
 
 /// ================================================================
@@ -59,24 +58,32 @@ class RemainingPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final txt = !loopEnabled
-        ? '잔여: -'
-        : (loopRepeat == 0
-              ? '잔여: ∞'
-              : '잔여: ${loopRemaining < 0 ? loopRepeat : loopRemaining}회');
+    // 루프 꺼져 있거나 무한 반복이면 숨김
+    if (!loopEnabled || loopRepeat == 0) {
+      return const SizedBox.shrink();
+    }
+
+    // remaining < 0 이면 아직 세팅 안 된 상태 → 전체 반복 수로 대신
+    final remain = loopRemaining >= 0 ? loopRemaining : loopRepeat;
+
+    final label = remain <= 1 ? '잔여: 1회' : '잔여: ${remain}회';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.3)),
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
       ),
-      child: Text(txt, style: theme.textTheme.bodySmall),
+      child: Text(
+        label,
+        style: Theme.of(
+          context,
+        ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+      ),
     );
   }
 }
+
 
 /// ================================================================
 /// Transport Bar 본체 (UI-only)
@@ -117,18 +124,16 @@ class SmpTransportBar extends StatelessWidget {
   final VoidCallback onLoopRepeatLongMinus5;
   final VoidCallback onLoopRepeatLongPlus5;
   final VoidCallback onLoopRepeatPrompt;
-  final ValueChanged<int> onLoopPresetSelected;
 
   // --- Zoom ---
   final VoidCallback onZoomOut;
   final VoidCallback onZoomReset;
   final VoidCallback onZoomIn;
 
-  // --- Presets for Popup ---
-  final List<LoopPresetItem> loopPresets;
-
   // --- fmt 함수 외부 주입 방식 ---
   final String Function(Duration) fmt;
+
+  final bool loopPatternActive;
 
   const SmpTransportBar({
     super.key,
@@ -144,6 +149,7 @@ class SmpTransportBar extends StatelessWidget {
     required this.loopB,
     required this.loopEnabled,
     required this.loopRepeat,
+    required this.loopPatternActive,
     required this.loopRemaining,
     required this.onLoopASet,
     required this.onLoopBSet,
@@ -153,11 +159,9 @@ class SmpTransportBar extends StatelessWidget {
     required this.onLoopRepeatLongMinus5,
     required this.onLoopRepeatLongPlus5,
     required this.onLoopRepeatPrompt,
-    required this.onLoopPresetSelected,
     required this.onZoomOut,
     required this.onZoomReset,
     required this.onZoomIn,
-    required this.loopPresets,
     required this.fmt,
   });
 
@@ -283,9 +287,9 @@ class SmpTransportBar extends StatelessWidget {
                   onLoopRepeatLongMinus5: onLoopRepeatLongMinus5,
                   onLoopRepeatLongPlus5: onLoopRepeatLongPlus5,
                   onLoopRepeatPrompt: onLoopRepeatPrompt,
-                  loopPresets: loopPresets,
-                  onLoopPresetSelected: onLoopPresetSelected,
                   fmt: fmt,
+                  loopPatternActive: loopPatternActive,
+                  isPlaying: isPlaying,
                 ),
               ),
             ),

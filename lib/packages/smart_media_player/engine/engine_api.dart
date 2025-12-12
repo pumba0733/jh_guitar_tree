@@ -75,6 +75,15 @@ class EngineApi {
   ///   형태로 설정한다.
   Duration Function()? startCueProvider;
 
+  /// 🔥 오디오(SoT) 기준 "트랙 자연 종료" 콜백
+  ///
+  /// - EngineApi 내부 SoT 폴링에서 종료를 감지하면 한 번만 호출된다.
+  /// - Screen(SmartMediaPlayerScreen)에서 LoopExecutor/패턴 엔진으로
+  ///   위임하기 위해 사용한다.
+  /// - null 이면 EngineApi가 기존 `_handleTrackCompleted()` 로직을 사용한다.
+  Future<void> Function()? trackCompletedHandler;
+
+
   // 네이티브 엔진 재생 상태(오디오 기준)
   bool _nativePlaying = false;
 
@@ -249,13 +258,21 @@ class EngineApi {
         }
 
         // 후보 상태에서 위치가 더 이상 안 움직이고(정지) 오디오는 재생 중이면 → 실제 종료로 간주
-        if (_endCandidate &&
+                if (_endCandidate &&
             _lastPolledPosition != null &&
             pos == _lastPolledPosition &&
             _nativePlaying) {
           _endCandidate = false;
-          unawaited(_handleTrackCompleted());
+
+          // 🔥 Screen 쪽에 위임할 수 있으면 먼저 위임하고,
+          // 없으면 기존 기본 트랙 완료 동작을 사용한다.
+          if (trackCompletedHandler != null) {
+            unawaited(trackCompletedHandler!.call());
+          } else {
+            unawaited(_handleTrackCompleted());
+          }
         }
+
       }
 
       _lastPolledPosition = pos;

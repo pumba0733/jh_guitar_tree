@@ -196,6 +196,85 @@ class _WaveformPanelState extends State<WaveformPanel> {
   bool _near(double x, double targetX, double tol) =>
       (x - targetX).abs() <= tol;
 
+  // ===== 마커 컬러 규칙 (패널과 동일) =====
+
+  static const List<String> _songFormLabels = [
+    'Intro',
+    'Verse',
+    'Pre-Chorus',
+    'Chorus',
+    'Bridge',
+    'Instrumental',
+    'Solo',
+    'Outro',
+  ];
+
+  static const Map<String, Color> _songFormColors = {
+    'Intro': Colors.teal,
+    'Verse': Colors.blue,
+    'Pre-Chorus': Colors.indigo,
+    'Chorus': Colors.red,
+    'Bridge': Colors.orange,
+    'Instrumental': Colors.green,
+    'Solo': Colors.purple,
+    'Outro': Colors.brown,
+  };
+
+  static const Color _customTextColor = Colors.deepPurple;
+
+  bool _isAutoLetterLabel(String? label) {
+    if (label == null) return false;
+    final trimmed = label.trim();
+    if (trimmed.length != 1) return false;
+    final code = trimmed.codeUnitAt(0);
+    return code >= 65 && code <= 90; // 'A'..'Z'
+  }
+
+  String? _matchSongFormLabel(String? label) {
+    if (label == null) return null;
+    final l = label.trim().toLowerCase();
+    for (final preset in _songFormLabels) {
+      if (preset.toLowerCase() == l) return preset;
+    }
+    return null;
+  }
+
+  Color _baseColorForMarker(int index, WfMarker m) {
+    // 1) WfMarker.color가 직접 지정된 경우 우선
+    if (m.color != null) return m.color!;
+
+    final label = m.label;
+    final matchedSongForm = _matchSongFormLabel(label);
+
+    // 2) Song Form → 고정 컬러
+    if (matchedSongForm != null) {
+      return _songFormColors[matchedSongForm] ?? Colors.blueGrey;
+    }
+
+        // 3) 자동 A,B,C... → "문자" 기준 프리셋 (패널과 동일 규칙)
+    const presets = [Colors.red, Colors.blue, Colors.amber, Colors.green];
+
+    if (_isAutoLetterLabel(label)) {
+      if (presets.isEmpty) return Colors.red;
+      final trimmed = label!.trim();
+      final code = trimmed.codeUnitAt(0); // 'A'..'Z'
+      final letterIndex = (code - 65); // 'A' = 0
+      final mapped = letterIndex >= 0 ? letterIndex % presets.length : 0;
+      return presets[mapped];
+    }
+
+
+    // 4) 일반 텍스트 라벨 → 통일 컬러
+    if (label != null && label.trim().isNotEmpty) {
+      return _customTextColor;
+    }
+
+    // 5) 라벨 없음 → 프리셋
+    if (presets.isEmpty) return Colors.red;
+    return presets[index % presets.length];
+  }
+
+
   // === 마커 히트 테스트: "상단 말풍선 밴드"에서만 픽업 ===
   int _hitMarkerIndex(Offset local, Size size) {
     if (local.dy > _markerBandPx) return -1; // 밴드 밖이면 픽업 금지
@@ -309,8 +388,12 @@ class _WaveformPanelState extends State<WaveformPanel> {
       repeat: m.repeat,
     );
 
-    // ⛔ 정렬 삭제
+    // ❌ 정렬 때문에 드래그 인덱스가 꼬여서
+    // 다른 마커가 같이 딸려오는 문제가 생겼었음.
     // list.sort((a, b) => a.time.compareTo(b.time));
+
+    // 👉 드래그 동안에는 "현재 인덱스 그대로 유지"하는 게 중요하니까
+    // 여기서는 순서 유지하고, 시간 기반 정렬/라벨 재정리는 상위(Screen)에서 담당.
 
     c.setMarkers(list);
 
@@ -368,25 +451,16 @@ class _WaveformPanelState extends State<WaveformPanel> {
                 loopB != null &&
                 loopA < loopB;
 
-            // ✅ Marker 색상 프리셋 (적/청/황/녹) — color가 null인 경우에만 적용
+                        // ✅ Marker 색상: Song Form / 자동 A,B,C / 텍스트 직접입력 규칙 반영
             final markerList = c.markers.value;
             final List<Color?> markerColors = List<Color?>.generate(
               markerList.length,
               (i) {
-                final explicit = markerList[i].color;
-                if (explicit != null) return explicit;
-
-                const presets = [
-                  Colors.red,
-                  Colors.blue,
-                  Colors.amber,
-                  Colors.green,
-                ];
-                final base = presets[i % presets.length];
-                // withOpacity deprecate → withValues(alpha: ...)
+                final base = _baseColorForMarker(i, markerList[i]);
                 return base.withValues(alpha: 0.85);
               },
             );
+
 
             return Stack(
               children: [
@@ -436,7 +510,7 @@ class _WaveformPanelState extends State<WaveformPanel> {
 
                     setState(() {});
                   },
-                  onPanUpdate: (d) {
+                                    onPanUpdate: (d) {
                     final t = _dxToTime(d.localPosition, viewSize);
                     if (_draggingA) {
                       _setA(t);
@@ -447,12 +521,21 @@ class _WaveformPanelState extends State<WaveformPanel> {
                       c.selectionB.value = t;
                       widget.onStateDirty?.call();
                     } else if (_draggingMarkerIndex >= 0) {
-                      // 마커 이동: LoopOn 여부와 관계없이 순수 타임라인 이동
-                      _updateMarkerTime(_draggingMarkerIndex, t);
+                      // 마커 이동: "처음 집은 마커"만 끝까지 이동시키기
+                      //
+                      // 교차 지점에서 다른 마커로 스위칭되는 UX를 막기 위해
+                      // 드래그 시작 시 결정된 _draggingMarkerIndex만 사용한다.
+                      final idx = _draggingMarkerIndex;
+                      if (idx >= 0) {
+                        _updateMarkerTime(idx, t);
+                      }
                     }
+
+
 
                     setState(() {});
                   },
+
                   onPanEnd: (_) {
                     final a = c.selectionA.value, b = c.selectionB.value;
                     if (_dragSelecting && a != null && b != null) {
